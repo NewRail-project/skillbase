@@ -1,6 +1,6 @@
 // core/quiz.js
 import { db } from '../shared/firebase.js';
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp, collection } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp, collection } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 
 export async function startAttempt(userId, testId) {
   try {
