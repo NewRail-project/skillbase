@@ -1,62 +1,62 @@
-import { useState, useEffect } from 'https://unpkg.com/react@18/umd/react.development.js'
-import { useAuth } from '../authContext.js'
-import { saveTest, parseQuizText, getCurrentTest, updateTest, publishTest, loadTest } from '../../../core/editor.js'
-import { useRouter } from 'https://unpkg.com/react-router-dom@6/umd/react-router-dom.development.js'
+import { useState, useEffect } from 'https://unpkg.com/react@18/umd/react.development.js';
+import { useAuth } from '../authContext.js';
+import { saveTest, parseQuizText, getCurrentTest, updateTest, publishTest, loadTest } from '../../core/editor.js';
 
 // UI компонент редактора тестов
 export default function EditorComponent() {
-  const { user } = useAuth()
-  const router = useRouter()
-  const [quizText, setQuizText] = useState('')
-  const [questions, setQuestions] = useState([])
-  const [isParsed, setIsParsed] = useState(false)
-  const [isEditingQuestion, setIsEditingQuestion] = useState(null)
-  const [newQuestionText, setNewQuestionText] = useState('')
-  const [newOptionText, setNewOptionText] = useState('')
-  const [newQuestionType, setNewQuestionType] = useState('single')
-  const [currentTest, setCurrentTest] = useState(null)
-  const [error, setError] = useState(null)
+  const { user } = useAuth();
+  const [quizText, setQuizText] = useState('');
+  const [questions, setQuestions] = useState([]);
+  const [isParsed, setIsParsed] = useState(false);
+  const [isEditingQuestion, setIsEditingQuestion] = useState(null);
+  const [newQuestionText, setNewQuestionText] = useState('');
+  const [newOptionText, setNewOptionText] = useState('');
+  const [newQuestionType, setNewQuestionType] = useState('single');
+  const [currentTest, setCurrentTest] = useState(null);
+  const [error, setError] = useState(null);
 
   // Загрузка текущего теста при монтировании компонента
   useEffect(() => {
-    if (!user) return
+    if (!user) return;
     
     const loadTestData = async () => {
       try {
-        const testId = user.uid
-        const loadedTest = await loadTest(testId)
+        const testId = user.uid;
+        const loadedTest = await loadTest(testId);
         if (loadedTest) {
-          setCurrentTest(loadedTest)
+          setCurrentTest(loadedTest);
+          setQuestions(loadedTest.questions);
+          setIsParsed(true);
         }
       } catch (err) {
-        console.error('Ошибка загрузки теста:', err)
+        console.error('Ошибка загрузки теста:', err);
       }
-    }
-    loadTestData()
-  }, [user])
+    };
+    loadTestData();
+  }, [user]);
 
   // Обработка кнопки "Разобрать"
   const handleParseQuiz = async () => {
     if (!quizText.trim()) {
-      setError('Пожалуйста, введите текст теста')
-      return
+      setError('Пожалуйста, введите текст теста');
+      return;
     }
     
     try {
-      const parsed = parseQuizText(quizText)
-      setQuestions(parsed.questions)
-      setIsParsed(true)
-      setError(null)
+      const parsed = parseQuizText(quizText);
+      setQuestions(parsed.questions);
+      setIsParsed(true);
+      setError(null);
     } catch (err) {
-      setError('Ошибка разбора теста: ' + err.message)
+      setError('Ошибка разбора теста: ' + err.message);
     }
-  }
+  };
 
   // Обработка добавления вопроса
   const handleAddQuestion = () => {
     if (!newQuestionText.trim()) {
-      setError('Вопрос не может быть пустым')
-      return
+      setError('Вопрос не может быть пустым');
+      return;
     }
     
     const newQuestion = {
@@ -64,33 +64,33 @@ export default function EditorComponent() {
       options: [],
       type: newQuestionType,
       answer: null
-    }
+    };
     
-    setQuestions([...questions, newQuestion])
-    setNewQuestionText('')
-    setNewQuestionType('single')
-    setError(null)
-  }
+    setQuestions([...questions, newQuestion]);
+    setNewQuestionText('');
+    setNewQuestionType('single');
+    setError(null);
+  };
 
   // Обработка удаления вопроса
   const handleRemoveQuestion = (index) => {
-    const updatedQuestions = questions.filter((_, i) => i !== index)
-    setQuestions(updatedQuestions)
-  }
+    const updatedQuestions = questions.filter((_, i) => i !== index);
+    setQuestions(updatedQuestions);
+  };
 
   // Обработка редактирования вопроса
   const handleEditQuestion = (index) => {
-    const question = questions[index]
-    setNewQuestionText(question.text)
-    setIsEditingQuestion(index)
-    setNewQuestionType(question.type)
-  }
+    const question = questions[index];
+    setNewQuestionText(question.text);
+    setIsEditingQuestion(index);
+    setNewQuestionType(question.type);
+  };
 
   // Обработка сохранения редактирования вопроса
   const handleSaveEditedQuestion = (index) => {
     if (!newQuestionText.trim()) {
-      setError('Вопрос не может быть пустым')
-      return
+      setError('Вопрос не может быть пустым');
+      return;
     }
     
     const updatedQuestions = questions.map((q, i) => {
@@ -99,39 +99,39 @@ export default function EditorComponent() {
           ...q,
           text: newQuestionText,
           answer: q.answer
-        }
+        };
       }
-      return q
-    })
+      return q;
+    });
     
-    setQuestions(updatedQuestions)
-    setIsEditingQuestion(null)
-    setNewQuestionText('')
-    setError(null)
-  }
+    setQuestions(updatedQuestions);
+    setIsEditingQuestion(null);
+    setNewQuestionText('');
+    setError(null);
+  };
 
   // Обработка изменения вариантов ответа
   const handleAddOption = (index) => {
     if (!newOptionText.trim()) {
-      setError('Вариант ответа не может быть пустым')
-      return
+      setError('Вариант ответа не может быть пустым');
+      return;
     }
     
     const updatedQuestions = questions.map((q, i) => {
       if (i === index) {
-        const correct = q.options.some(opt => opt.correct)
+        const correct = q.options.some(opt => opt.correct);
         return {
           ...q,
           options: [...q.options, { text: newOptionText.trim(), correct }]
-        }
+        };
       }
-      return q
-    })
+      return q;
+    });
     
-    setQuestions(updatedQuestions)
-    setNewOptionText('')
-    setError(null)
-  }
+    setQuestions(updatedQuestions);
+    setNewOptionText('');
+    setError(null);
+  };
 
   // Обработка изменения правильного ответа
   const handleMarkCorrect = (questionIndex, optionIndex) => {
@@ -139,26 +139,26 @@ export default function EditorComponent() {
       if (i === questionIndex) {
         const updatedOptions = q.options.map((opt, optIndex) => {
           if (optIndex === optionIndex) {
-            return { ...opt, correct: !opt.correct }
+            return { ...opt, correct: !opt.correct };
           }
-          return opt
-        })
+          return opt;
+        });
         return {
           ...q,
           options: updatedOptions
-        }
+        };
       }
-      return q
-    })
+      return q;
+    });
     
-    setQuestions(updatedQuestions)
-  }
+    setQuestions(updatedQuestions);
+  };
 
   // Обработка сохранения теста
   const handleSave = async () => {
     if (!currentTest?.id) {
       // Создание нового теста
-      const newTestId = user.uid + Date.now()
+      const newTestId = user.uid + Date.now();
       const testData = {
         id: newTestId,
         questions: questions,
@@ -168,36 +168,33 @@ export default function EditorComponent() {
         shuffleQuestions: currentTest?.shuffleQuestions || true,
         status: 'draft',
         testKeys: []
-      }
+      };
       
-      await saveTest(newTestId)
-      setCurrentTest(testData)
-      setError(null)
+      await saveTest(newTestId);
+      setCurrentTest(testData);
+      setError(null);
     } else {
       // Обновление существующего теста
-      await saveTest(currentTest.id)
-      setError(null)
+      await saveTest(currentTest.id);
+      setError(null);
     }
-    
-    router.push('/')
-  }
+  };
 
   // Обработка публикации теста
   const handlePublish = async () => {
     if (!currentTest?.id) {
-      setError('Тест не сохранён')
-      return
+      setError('Тест не сохранён');
+      return;
     }
     
     try {
-      const versionId = await publishTest(currentTest.id)
-      setError(null)
-      alert('Тест успешно опубликован в версии ' + versionId)
-      router.push('/')
+      const versionId = await publishTest(currentTest.id);
+      setError(null);
+      alert('Тест успешно опубликован в версии ' + versionId);
     } catch (err) {
-      setError('Ошибка публикации теста: ' + err.message)
+      setError('Ошибка публикации теста: ' + err.message);
     }
-  }
+  };
 
   // Обработка изменения типа вопроса
   const handleQuestionTypeChange = (index, type) => {
@@ -206,30 +203,30 @@ export default function EditorComponent() {
         return {
           ...q,
           type
-        }
+        };
       }
-      return q
-    })
+      return q;
+    });
     
-    setQuestions(updatedQuestions)
-  }
+    setQuestions(updatedQuestions);
+  };
 
   // Обработка изменения времени на вопрос
   const handleTimeChange = (e) => {
-    const time = parseInt(e.target.value) || 10
-    updateTest({ timePerQuestion: time })
-  }
+    const time = parseInt(e.target.value) || 10;
+    updateTest({ timePerQuestion: time });
+  };
 
   // Обработка изменения количества попыток
   const handleAttemptsChange = (e) => {
-    const attempts = parseInt(e.target.value) || 3
-    updateTest({ attempts })
-  }
+    const attempts = parseInt(e.target.value) || 3;
+    updateTest({ attempts });
+  };
 
   // Обработка переключения статуса
   const handleStatusChange = (e) => {
-    updateTest({ status: e.target.value })
-  }
+    updateTest({ status: e.target.value });
+  };
 
   return (
     <div className="editor-container">
@@ -311,15 +308,15 @@ export default function EditorComponent() {
                             ...q,
                             options: q.options.map((opt, oi) => {
                               if (oi === optIndex) {
-                                return { ...opt, text: e.target.value }
+                                return { ...opt, text: e.target.value };
                               }
-                              return opt
+                              return opt;
                             })
-                          }
+                          };
                         }
-                        return q
-                      })
-                      setQuestions(updatedQuestions)
+                        return q;
+                      });
+                      setQuestions(updatedQuestions);
                     }}
                     placeholder="Вариант ответа"
                   />
