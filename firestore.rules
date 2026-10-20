@@ -1,0 +1,45 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Вспомогательные функции
+    function isSignedIn() { return request.auth != null; }
+    function getUserData() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function isOwner(userId) { return request.auth.uid == userId; }
+    function inOrg(orgId) { return getUserData().orgId == orgId; }
+
+    // Профили пользователей
+    match /users/{userId} {
+      allow read: if isSignedIn() && isOwner(userId);
+      allow write: if false; // Роль и данные профиля менять только через админ-функции
+    }
+
+    // Тесты: чтение в рамках orgId, запись только для автора
+    match /tests/{testId} {
+      allow read: if isSignedIn() && inOrg(resource.data.orgId);
+      allow create: if isSignedIn() && request.resource.data.authorId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.authorId == request.auth.uid;
+    }
+
+    // Задания (Assignments)
+    match /assignments/{assignmentId} {
+      allow read: if isSignedIn() && inOrg(resource.data.orgId);
+      allow write: if isSignedIn() && inOrg(request.resource.data.orgId);
+    }
+
+    // Ключи тестов: доступ только автору
+    match /testKeys/{testId} {
+      allow read: if isSignedIn() && get(/databases/$(database)/documents/tests/$(testId)).data.authorId == request.auth.uid;
+      allow write: if isSignedIn() && get(/databases/$(database)/documents/tests/$(testId)).data.authorId == request.auth.uid;
+    }
+
+    // Попытки (Attempts)
+    match /attempts/{attemptId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() && 
+        resource.data.userId == request.auth.uid && 
+        resource.data.status != 'finished'; // Запись только пока не завершена
+    }
+  }
+}
