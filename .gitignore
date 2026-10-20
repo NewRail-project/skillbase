@@ -1,4 +1,20 @@
+// .gitignore
 # Firebase config
 configs/firebase.js
 .env
 node_modules/
+
+# Cache
+.cache/
+dist/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
