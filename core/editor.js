@@ -22,6 +22,11 @@ const versionsRef = db.collection('tests').collection('versions');
 // Сохраняет текущий тест в Firestore
 export async function saveTest(testId) {
   try {
+    // Проверка состояния сети
+    if (!navigator.onLine) {
+      throw new Error('Нет подключения к интернету. Данные будут сохранены локально.');
+    }
+    
     const testDoc = testRef.doc(testId);
     await testDoc.set(currentTest, { merge: true });
     
@@ -30,13 +35,23 @@ export async function saveTest(testId) {
     await testKeysDoc.set(currentTest.testKeys);
   } catch (error) {
     console.error('Ошибка сохранения теста:', error);
+    // Автосохранение данных при отключении интернета
+    if (error.message.includes('Нет подключения к интернету')) {
+      localStorage.setItem(`test_${testId}`, JSON.stringify(currentTest));
+    }
     throw error;
   }
 }
 
 // Разбирает текст теста
-export function parseQuizText(quizText) {
-  return parseQuiz(quizText);
+export async function parseQuizText(quizText) {
+  try {
+    const result = parseQuiz(quizText);
+    return result;
+  } catch (error) {
+    console.error('Ошибка разбора теста:', error);
+    throw new Error('Ошибка разбора теста. Пожалуйста, попробуйте снова.');
+  }
 }
 
 // Возвращает текущее состояние редактирования
@@ -47,11 +62,19 @@ export function getCurrentTest() {
 // Обновляет текущее состояние редактирования
 export function updateTest(updates) {
   Object.assign(currentTest, updates);
+  
+  // Сохранение локального состояния
+  localStorage.setItem(`test_${currentTest.id}`, JSON.stringify(currentTest));
 }
 
 // Создаёт новую версию теста при публикации
 export async function publishTest(testId) {
   try {
+    // Проверка состояния сети
+    if (!navigator.onLine) {
+      throw new Error('Нет подключения к интернету. Публикация невозможна.');
+    }
+    
     // Создание версии в папке versions
     const versionDoc = await versionsRef.doc(testId).collection('versions').add({
       ...currentTest,
@@ -74,6 +97,16 @@ export async function publishTest(testId) {
 // Загрузка теста по ID
 export async function loadTest(testId) {
   try {
+    // Проверка состояния сети
+    if (!navigator.onLine) {
+      // Попытка загрузки из локального хранилища
+      const localData = localStorage.getItem(`test_${testId}`);
+      if (localData) {
+        return JSON.parse(localData);
+      }
+      throw new Error('Нет подключения к интернету. Данные недоступны.');
+    }
+    
     const testDoc = await testRef.doc(testId).get();
     if (!testDoc.exists) return null;
     

@@ -7,6 +7,7 @@
   background: var(--card-bg);
   border-radius: 12px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  overflow-x: hidden;
 }
 
 .quiz-input {
@@ -16,6 +17,7 @@
 textarea {
   width: 100%;
   height: 200px;
+  min-height: 150px;
   margin-bottom: 10px;
   padding: 10px;
   border: 1px solid var(--border-color);
@@ -23,6 +25,7 @@ textarea {
   background-color: var(--card-bg);
   color: var(--text-color);
   font-size: 1rem;
+  resize: vertical;
 }
 
 button {
@@ -34,6 +37,7 @@ button {
   border: none;
   border-radius: 6px;
   transition: background-color 0.2s;
+  min-width: 80px;
 }
 
 button:hover {
@@ -57,6 +61,11 @@ button.secondary:hover {
   margin-bottom: 15px;
   border-radius: 8px;
   background-color: var(--card-bg);
+  transition: transform 0.2s;
+}
+
+.question:hover {
+  transform: translateY(-2px);
 }
 
 .question-text {
@@ -80,6 +89,7 @@ button.secondary:hover {
   padding: 8px;
   border: 1px solid var(--border-color);
   border-radius: 6px;
+  min-width: 100px;
 }
 
 .settings {
@@ -106,6 +116,7 @@ button.secondary:hover {
   margin-top: 20px;
   display: flex;
   gap: 10px;
+  justify-content: flex-end;
 }
 
 .question-options {
@@ -127,25 +138,46 @@ button.secondary:hover {
   padding: 6px;
   border: 1px solid var(--border-color);
   border-radius: 4px;
+  min-width: 80px;
 }
 
-.error-msg {
-  color: var(--error-color);
+.error-msg, .success-msg, .info-msg {
+  color: var(--text-color);
   background-color: rgba(239, 206, 206, 0.2);
   padding: 10px;
   border-radius: 6px;
   margin-bottom: 15px;
+  text-align: center;
+  font-size: 0.9rem;
 }
 
+.error-msg {
+  color: var(--error-color);
+  background-color: rgba(255, 206, 206, 0.2);
+}
+
+.success-msg {
+  color: var(--accent-color);
+  background-color: rgba(206, 255, 206, 0.2);
+}
+
+.info-msg {
+  color: var(--primary-color);
+  background-color: rgba(206, 220, 255, 0.2);
+}
+
+/* Мобильные адаптации */
 @media (max-width: 600px) {
   .editor-container {
     padding: 10px;
+    font-size: 0.9rem;
   }
   textarea {
-    height: 150px;
+    height: 120px;
   }
   .question {
-    padding: 10px;
+    padding: 12px;
+    font-size: 0.9rem;
   }
   .new-question {
     flex-direction: column;
@@ -153,5 +185,40 @@ button.secondary:hover {
   .new-question input, .new-question select {
     width: 100%;
     margin-bottom: 8px;
+  }
+  button {
+    width: 100%;
+    margin-right: 0;
+  }
+  .actions {
+    flex-direction: column;
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 480px) {
+  .editor-container {
+    padding: 8px;
+    font-size: 0.8rem;
+  }
+  textarea {
+    height: 100px;
+  }
+  button {
+    padding: 6px;
+    font-size: 0.8rem;
+  }
+  .question {
+    padding: 8px;
+  }
+}
+
+@media (max-width: 320px) {
+  .editor-container {
+    padding: 5px;
+  }
+  .question {
+    padding: 5px;
   }
 }

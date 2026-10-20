@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'https://unpkg.com/react@18/umd/react.development.js';
+import { useState, useEffect } from 'https://unpkg.com/react@18/umd/react.development.js'
+import { useNetworkState } from 'https://unpkg.com/react-network-state@1.0.0/dist/index.js';
 import { useAuth } from '../authContext.js';
 import { saveTest, parseQuizText, getCurrentTest, updateTest, publishTest, loadTest } from '../../core/editor.js';
 
 // UI компонент редактора тестов
 export default function EditorComponent() {
   const { user } = useAuth();
+  const isOnline = useNetworkState();
   const [quizText, setQuizText] = useState('');
   const [questions, setQuestions] = useState([]);
   const [isParsed, setIsParsed] = useState(false);
@@ -14,6 +16,8 @@ export default function EditorComponent() {
   const [newQuestionType, setNewQuestionType] = useState('single');
   const [currentTest, setCurrentTest] = useState(null);
   const [error, setError] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [lastSaved, setLastSaved] = useState(null);
 
   // Загрузка текущего теста при монтировании компонента
   useEffect(() => {
@@ -43,12 +47,16 @@ export default function EditorComponent() {
     }
     
     try {
-      const parsed = parseQuizText(quizText);
+      setIsSaving(true);
+      const parsed = await parseQuizText(quizText);
       setQuestions(parsed.questions);
       setIsParsed(true);
       setError(null);
+      setLastSaved(new Date());
     } catch (err) {
       setError('Ошибка разбора теста: ' + err.message);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -70,12 +78,22 @@ export default function EditorComponent() {
     setNewQuestionText('');
     setNewQuestionType('single');
     setError(null);
+    
+    // Автосохранение после добавления вопроса
+    if (currentTest?.id) {
+      handleSave();
+    }
   };
 
   // Обработка удаления вопроса
   const handleRemoveQuestion = (index) => {
     const updatedQuestions = questions.filter((_, i) => i !== index);
     setQuestions(updatedQuestions);
+    
+    // Автосохранение после удаления вопроса
+    if (currentTest?.id) {
+      handleSave();
+    }
   };
 
   // Обработка редактирования вопроса
@@ -108,8 +126,12 @@ export default function EditorComponent() {
     setIsEditingQuestion(null);
     setNewQuestionText('');
     setError(null);
+    
+    // Автосохранение после редактирования вопроса
+    if (currentTest?.id) {
+      handleSave();
+    }
   };
-
   // Обработка изменения вариантов ответа
   const handleAddOption = (index) => {
     if (!newOptionText.trim()) {
@@ -131,8 +153,12 @@ export default function EditorComponent() {
     setQuestions(updatedQuestions);
     setNewOptionText('');
     setError(null);
+    
+    // Автосохранение после добавления варианта
+    if (currentTest?.id) {
+      handleSave();
+    }
   };
-
   // Обработка изменения правильного ответа
   const handleMarkCorrect = (questionIndex, optionIndex) => {
     const updatedQuestions = questions.map((q, i) => {
@@ -152,31 +178,48 @@ export default function EditorComponent() {
     });
     
     setQuestions(updatedQuestions);
+    
+    // Автосохранение после изменения правильного ответа
+    if (currentTest?.id) {
+      handleSave();
+    }
   };
-
   // Обработка сохранения теста
   const handleSave = async () => {
-    if (!currentTest?.id) {
-      // Создание нового теста
-      const newTestId = user.uid + Date.now();
-      const testData = {
-        id: newTestId,
-        questions: questions,
-        timePerQuestion: currentTest?.timePerQuestion || 10,
-        attempts: currentTest?.attempts || 3,
-        shuffleOptions: currentTest?.shuffleOptions || true,
-        shuffleQuestions: currentTest?.shuffleQuestions || true,
-        status: 'draft',
-        testKeys: []
-      };
-      
-      await saveTest(newTestId);
-      setCurrentTest(testData);
-      setError(null);
-    } else {
-      // Обновление существующего теста
-      await saveTest(currentTest.id);
-      setError(null);
+    if (!isOnline) {
+      setError('Нет подключения к интернету. Данные будут сохранены локально.');
+      return;
+    }
+    
+    try {
+      setIsSaving(true);
+      if (!currentTest?.id) {
+        // Создание нового теста
+        const newTestId = user.uid + Date.now();
+        const testData = {
+          id: newTestId,
+          questions: questions,
+          timePerQuestion: currentTest?.timePerQuestion || 10,
+          attempts: currentTest?.attempts || 3,
+          shuffleOptions: currentTest?.shuffleOptions || true,
+          shuffleQuestions: currentTest?.shuffleQuestions || true,
+          status: 'draft',
+          testKeys: []
+        };
+        
+        await saveTest(newTestId);
+        setCurrentTest(testData);
+        setError(null);
+      } else {
+        // Обновление существующего теста
+        await saveTest(currentTest.id);
+        setError(null);
+      }
+      setLastSaved(new Date());
+    } catch (err) {
+      setError('Ошибка сохранения теста: ' + err.message);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -187,12 +230,21 @@ export default function EditorComponent() {
       return;
     }
     
+    if (!isOnline) {
+      setError('Нет подключения к интернету. Публикация невозможна.');
+      return;
+    }
+    
     try {
+      setIsSaving(true);
       const versionId = await publishTest(currentTest.id);
       setError(null);
       alert('Тест успешно опубликован в версии ' + versionId);
+      setLastSaved(new Date());
     } catch (err) {
       setError('Ошибка публикации теста: ' + err.message);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -209,29 +261,48 @@ export default function EditorComponent() {
     });
     
     setQuestions(updatedQuestions);
+    
+    // Автосохранение после изменения типа вопроса
+    if (currentTest?.id) {
+      handleSave();
+    }
   };
-
   // Обработка изменения времени на вопрос
   const handleTimeChange = (e) => {
     const time = parseInt(e.target.value) || 10;
     updateTest({ timePerQuestion: time });
+    
+    // Автосохранение после изменения времени
+    if (currentTest?.id) {
+      handleSave();
+    }
   };
-
   // Обработка изменения количества попыток
   const handleAttemptsChange = (e) => {
     const attempts = parseInt(e.target.value) || 3;
     updateTest({ attempts });
+    
+    // Автосохранение после изменения количества попыток
+    if (currentTest?.id) {
+      handleSave();
+    }
   };
-
   // Обработка переключения статуса
   const handleStatusChange = (e) => {
     updateTest({ status: e.target.value });
+    
+    // Автосохранение после изменения статуса
+    if (currentTest?.id) {
+      handleSave();
+    }
   };
-
   return (
     <div className="editor-container">
       <h2>Создание теста</h2>
+      {!isOnline && <div className="error-msg">Вы работаете в оффлайн-режиме. Изменения будут сохранены локально.</div>}
       {error && <div className="error-msg">{error}</div>}
+      {lastSaved && <div className="success-msg">Последнее сохранение: {lastSaved.toLocaleTimeString()}</div>}
+      {isSaving && <div className="info-msg">Сохранение...</div>}
       
       <div className="quiz-input">
         <textarea
@@ -239,7 +310,7 @@ export default function EditorComponent() {
           onChange={(e) => setQuizText(e.target.value)}
           placeholder="Введите текст теста..."
         />
-        <button onClick={handleParseQuiz}>Разобрать</button>
+        <button onClick={handleParseQuiz} disabled={isSaving}>Разобрать</button>
       </div>
       
       {isParsed && (
@@ -362,8 +433,8 @@ export default function EditorComponent() {
       </div>
       
       <div className="actions">
-        <button onClick={handleSave}>Сохранить</button>
-        <button onClick={handlePublish} disabled={currentTest?.status === 'published'}>Опубликовать</button>
+        <button onClick={handleSave} disabled={isSaving}>Сохранить</button>
+        <button onClick={handlePublish} disabled={isSaving || currentTest?.status === 'published' || !isOnline}>Опубликовать</button>
       </div>
     </div>
   );
