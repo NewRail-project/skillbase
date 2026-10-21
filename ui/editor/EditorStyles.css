@@ -216,9 +216,35 @@ button.secondary:hover {
 
 @media (max-width: 320px) {
   .editor-container {
-    padding: 5px;
+    padding: 6px;
+    font-size: 0.8rem;
+  }
+  h2, h3 {
+    font-size: 0.95rem;
+  }
+  textarea {
+    height: 90px;
+  }
+  button {
+    padding: 6px 10px;
+    font-size: 0.8rem;
   }
   .question {
-    padding: 5px;
+    padding: 10px;
+  }
+  .option input, .option button {
+    font-size: 0.8rem;
+  }
+  .question-actions {
+    flex-direction: column;
+    gap: 6px;
+  }
+  .error-msg, .success-msg, .info-msg {
+    font-size: 0.8rem;
+    padding: 8px;
+  }
+  .error-msg, .success-msg, .info-msg {
+    color: #000000;
+    background-color: rgba(238, 238, 238, 0.3);
   }
 }

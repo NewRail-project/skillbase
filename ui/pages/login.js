@@ -6,10 +6,16 @@ export default function() {
   div.innerHTML = `
     <h2>Вход</h2>
     <form id="login-form">
-      <input type="email" id="email" placeholder="Email" required autocomplete="email" />
-      <input type="password" id="password" placeholder="Пароль" required autocomplete="current-password" />
-      <div id="error" class="error-msg"></div>
-      <button type="submit">Войти</button>
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" class="form-control" required autocomplete="email" />
+      </div>
+      <div class="form-group">
+        <label for="password">Пароль</label>
+        <input type="password" id="password" class="form-control" required autocomplete="current-password" />
+      </div>
+      <div id="error" class="error-msg" role="alert"></div>
+      <button type="submit" class="primary">Войти</button>
     </form>
     <a href="#register"><button class="secondary" type="button">Регистрация</button></a>
   `;

@@ -10,25 +10,28 @@ export default function() {
       <p><strong>Email:</strong> ${State.user ? State.user.email : profile.email || 'N/A'}</p>
 
       <form id="profile-form">
-        <label>Роль:</label>
-        <select id="role">
-          <option value="student" ${profile.role === 'student' ? 'selected' : ''}>Студент</option>
-          <option value="teacher" ${profile.role === 'teacher' ? 'selected' : ''}>Преподаватель</option>
-          <option value="admin" ${profile.role === 'admin' ? 'selected' : ''}>Администратор</option>
-        </select>
-
-        <label>Организация (orgId):</label>
-        <input type="text" id="orgId" value="${profile.orgId || ''}" required />
-
-        <label>Интерфейс (тема):</label>
-        <select id="ui">
-          <option value="education" ${profile.ui === 'education' ? 'selected' : ''}>Образование (education)</option>
-          <option value="operations" ${profile.ui === 'operations' ? 'selected' : ''}>Операции (operations)</option>
-          <option value="depot" ${profile.ui === 'depot' ? 'selected' : ''}>Депо (depot)</option>
-        </select>
-
-        <div id="msg" class="success-msg"></div>
-        <button type="submit">Сохранить</button>
+        <div class="form-group">
+          <label for="role">Роль</label>
+          <select id="role" class="form-control">
+            <option value="student" ${profile.role === 'student' ? 'selected' : ''}>Студент</option>
+            <option value="teacher" ${profile.role === 'teacher' ? 'selected' : ''}>Преподаватель</option>
+            <option value="admin" ${profile.role === 'admin' ? 'selected' : ''}>Администратор</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="orgId">Организация (orgId)</label>
+          <input type="text" id="orgId" value="${profile.orgId || ''}" required class="form-control" />
+        </div>
+        <div class="form-group">
+          <label for="ui">Интерфейс (тема)</label>
+          <select id="ui" class="form-control">
+            <option value="education" ${profile.ui === 'education' ? 'selected' : ''}>Образование (education)</option>
+            <option value="operations" ${profile.ui === 'operations' ? 'selected' : ''}>Операции (operations)</option>
+            <option value="depot" ${profile.ui === 'depot' ? 'selected' : ''}>Депо (depot)</option>
+          </select>
+        </div>
+        <div id="msg" class="success-msg" role="alert"></div>
+        <button type="submit" class="primary">Сохранить</button>
       </form>
       <a href="#logout"><button class="secondary" type="button" id="logout-btn">Выйти</button></a>
     </div>

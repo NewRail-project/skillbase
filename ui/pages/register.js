@@ -6,24 +6,36 @@ export default function() {
   div.innerHTML = `
     <h2>Регистрация</h2>
     <form id="register-form">
-      <input type="email" id="email" placeholder="Email" required autocomplete="email" />
-      <input type="password" id="password" placeholder="Пароль (мин. 6 символов)" required minlength="6" autocomplete="new-password" />
-      <label>Роль:</label>
-      <select id="role">
-        <option value="student">Студент</option>
-        <option value="teacher">Преподаватель</option>
-        <option value="admin">Администратор</option>
-      </select>
-      <label>Организация (orgId):</label>
-      <input type="text" id="orgId" placeholder="default-org" value="default-org" required />
-      <label>Интерфейс (тема):</label>
-      <select id="ui">
-        <option value="education">Образование (education)</option>
-        <option value="operations">Операции (operations)</option>
-        <option value="depot">Депо (depot)</option>
-      </select>
-      <div id="error" class="error-msg"></div>
-      <button type="submit">Зарегистрироваться</button>
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" class="form-control" required autocomplete="email" />
+      </div>
+      <div class="form-group">
+        <label for="password">Пароль (мин. 6 символов)</label>
+        <input type="password" id="password" class="form-control" required minlength="6" autocomplete="new-password" />
+      </div>
+      <div class="form-group">
+        <label for="role">Роль</label>
+        <select id="role" class="form-control">
+          <option value="student">Студент</option>
+          <option value="teacher">Преподаватель</option>
+          <option value="admin">Администратор</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="orgId">Организация (orgId)</label>
+        <input type="text" id="orgId" class="form-control" placeholder="default-org" value="default-org" required />
+      </div>
+      <div class="form-group">
+        <label for="ui">Интерфейс (тема)</label>
+        <select id="ui" class="form-control">
+          <option value="education">Образование (education)</option>
+          <option value="operations">Операции (operations)</option>
+          <option value="depot">Депо (depot)</option>
+        </select>
+      </div>
+      <div id="error" class="error-msg" role="alert"></div>
+      <button type="submit" class="primary">Зарегистрироваться</button>
     </form>
     <a href="#login"><button class="secondary" type="button">Вернуться ко входу</button></a>
   `;

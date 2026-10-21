@@ -1,8 +1,13 @@
 // ui/pages/users.js
-import { useAuth } from '../authContext.js';
 
-export default function UsersComponent() {
-  const { user } = useAuth();
+// Загрузка пользователей
+const getUsers = async () => {
+  // TODO: Заменить на Firestore-запрос
+  return [];
+};
+
+// DOM-элемент для управления пользователями
+function UsersPage() {
   const div = document.createElement("div");
   div.className = "card";
   div.innerHTML = `
@@ -13,3 +18,4 @@ export default function UsersComponent() {
   `;
   return div;
 }
+export default UsersPage;

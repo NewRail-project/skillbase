@@ -37,7 +37,11 @@ export default function CreateTestComponent() {
         </div>
       `;
     } catch (e) {
-      preview.innerHTML = `<p class="error">${e.message}</p>`;
+      preview.textContent = '';
+      const msg = document.createElement('p');
+      msg.className = 'error';
+      msg.textContent = e.message;
+      preview.appendChild(msg);
     }
   });
   
