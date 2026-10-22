@@ -14,14 +14,7 @@ export default function() {
         <label for="password">Пароль (мин. 6 символов)</label>
         <input type="password" id="password" class="form-control" required minlength="6" autocomplete="new-password" />
       </div>
-      <div class="form-group">
-        <label for="role">Роль</label>
-        <select id="role" class="form-control">
-          <option value="student">Студент</option>
-          <option value="teacher">Преподаватель</option>
-          <option value="admin">Администратор</option>
-        </select>
-      </div>
+      
       <div class="form-group">
         <label for="orgId">Организация (orgId)</label>
         <input type="text" id="orgId" class="form-control" placeholder="default-org" value="default-org" required />
@@ -48,7 +41,7 @@ export default function() {
     errorDiv.textContent = "";
     const email = div.querySelector("#email").value;
     const password = div.querySelector("#password").value;
-    const role = div.querySelector("#role").value;
+    const role = "student";
     const orgId = div.querySelector("#orgId").value;
     const ui = div.querySelector("#ui").value;
 

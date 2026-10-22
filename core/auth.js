@@ -68,8 +68,8 @@ export async function register(email, password, role = "student", orgId = "defau
   const user = cred.user;
   const profileData = {
     email,
-    role,
-    orgId,
+    role: "student",
+    orgId: "default-org",
     ui,
     createdAt: new Date().toISOString()
   };

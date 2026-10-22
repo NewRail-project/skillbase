@@ -1,45 +1,58 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Вспомогательные функции
-    function isSignedIn() { return request.auth != null; }
-    function getUserData() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
-    function isOwner(userId) { return request.auth.uid == userId; }
-    function inOrg(orgId) { return getUserData().orgId == orgId; }
 
-    // Профили пользователей
-    match /users/{userId} {
-      allow read: if isSignedIn() && isOwner(userId);
-      allow write: if false; // Роль и данные профиля менять только через админ-функции
+    function signedIn() { return request.auth != null; }
+    function profile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function hasProfile() { return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function isStaff() { return hasProfile() && profile().role in ['teacher', 'admin']; }
+    function isAdmin() { return hasProfile() && profile().role == 'admin'; }
+    function sameOrg(orgId) { return hasProfile() && profile().orgId == orgId; }
+    function validUi(v) { return v in ['education', 'operations', 'depot']; }
+
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || (isStaff() && sameOrg(resource.data.orgId)));
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.role == 'student'
+        && request.resource.data.orgId == 'default-org'
+        && validUi(request.resource.data.ui);
+      allow update: if signedIn()
+        && validUi(request.resource.data.ui)
+        && request.resource.data.orgId == resource.data.orgId
+        && ((request.auth.uid == uid && request.resource.data.role == resource.data.role)
+            || (isAdmin() && sameOrg(resource.data.orgId)));
+      allow delete: if false;
     }
 
-    // Тесты: чтение в рамках orgId, запись только для автора
     match /tests/{testId} {
-      allow read: if isSignedIn() && inOrg(resource.data.orgId);
-      allow create: if isSignedIn() && request.resource.data.authorId == request.auth.uid;
-      allow update: if isSignedIn() && resource.data.authorId == request.auth.uid;
+      allow read: if hasProfile() && sameOrg(resource.data.orgId)
+        && (resource.data.status == 'published' || resource.data.authorId == request.auth.uid);
+      allow create: if isStaff()
+        && request.resource.data.authorId == request.auth.uid
+        && sameOrg(request.resource.data.orgId);
+      allow update: if isStaff()
+        && resource.data.authorId == request.auth.uid
+        && request.resource.data.authorId == resource.data.authorId
+        && request.resource.data.orgId == resource.data.orgId;
+      allow delete: if isStaff() && resource.data.authorId == request.auth.uid;
+
+      match /versions/{versionId} {
+        allow read: if hasProfile()
+          && sameOrg(get(/databases/$(database)/documents/tests/$(testId)).data.orgId);
+        allow create: if isStaff()
+          && get(/databases/$(database)/documents/tests/$(testId)).data.authorId == request.auth.uid;
+      }
     }
 
-    // Задания (Assignments)
-    match /assignments/{assignmentId} {
-      allow read: if isSignedIn() && inOrg(resource.data.orgId);
-      allow write: if isSignedIn() && inOrg(request.resource.data.orgId);
-    }
-
-    // Ключи тестов: доступ только автору
     match /testKeys/{testId} {
-      allow read: if isSignedIn() && get(/databases/$(database)/documents/tests/$(testId)).data.authorId == request.auth.uid;
-      allow write: if isSignedIn() && get(/databases/$(database)/documents/tests/$(testId)).data.authorId == request.auth.uid;
-    }
-
-    // Попытки (Attempts)
-    match /attempts/{attemptId} {
-      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid);
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update: if isSignedIn() && 
-        resource.data.userId == request.auth.uid && 
-        resource.data.status != 'finished'; // Запись только пока не завершена
+      allow read: if isStaff() && resource.data.authorId == request.auth.uid;
+      allow create: if isStaff()
+        && request.resource.data.authorId == request.auth.uid
+        && sameOrg(request.resource.data.orgId);
+      allow update: if isStaff()
+        && resource.data.authorId == request.auth.uid
+        && request.resource.data.authorId == resource.data.authorId;
+      allow delete: if isStaff() && resource.data.authorId == request.auth.uid;
     }
   }
 }
