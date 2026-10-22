@@ -1,124 +1,162 @@
-// core/editor.js
-import { db } from '../auth.js';
-import { parseQuiz } from '../import/parser.js';
+// core/editor.js — состояние и сохранение теста (Firestore modular SDK)
+import { db, auth } from "../shared/firebase.js";
+import { State } from "./auth.js";
+import { parseQuiz } from "./import/parser.js";
+import {
+  doc, collection, getDoc, setDoc, updateDoc, addDoc, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-// Объект для хранения текущего состояния редактирования теста
-let currentTest = {
+const emptyTest = () => ({
   id: null,
+  title: "",
   questions: [],
   timePerQuestion: 10,
   attempts: 3,
   shuffleOptions: true,
   shuffleQuestions: true,
-  status: 'draft',
-  testKeys: [],
-};
+  status: "draft",
+});
 
-// Хранение тестов в Firestore
-const testRef = db.collection('tests');
-const testKeysRef = db.collection('testKeys');
-const versionsRef = db.collection('tests').collection('versions');
+let currentTest = emptyTest();
 
-// Сохраняет текущий тест в Firestore
+const draftKey = (id) => `test_${id ?? "draft"}`;
+
+function saveDraftLocally() {
+  try { localStorage.setItem(draftKey(currentTest.id), JSON.stringify(currentTest)); } catch (_) {}
+}
+
+function readDraftLocally(id) {
+  try {
+    const raw = localStorage.getItem(draftKey(id));
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) { return null; }
+}
+
+export function splitForStorage(test) {
+  const publicQuestions = [];
+  const items = {};
+  (test.questions || []).forEach((q, i) => {
+    const type = q.type || "single";
+    publicQuestions.push({
+      type,
+      text: q.text ?? "",
+      options: type === "short" ? [] : (q.options || []).map((o) => ({ text: o.text ?? "" })),
+    });
+    if (type === "short") {
+      items[String(i)] = { type, answer: String(q.answer ?? "") };
+    } else {
+      const correct = [];
+      (q.options || []).forEach((o, j) => { if (o.correct) correct.push(j); });
+      items[String(i)] = { type, correct };
+    }
+  });
+  const { questions, ...rest } = test;
+  return { publicTest: { ...rest, questions: publicQuestions }, keys: items };
+}
+
+export function mergeKeys(publicTest, items) {
+  const questions = (publicTest.questions || []).map((q, i) => {
+    const k = items?.[String(i)];
+    if (!k) return q;
+    if (q.type === "short") return { ...q, answer: k.answer ?? "" };
+    const set = new Set(k.correct || []);
+    return { ...q, options: (q.options || []).map((o, j) => ({ ...o, correct: set.has(j) })) };
+  });
+  return { ...publicTest, questions };
+}
+
+function currentOrgId() {
+  return State?.profile?.orgId ?? State?.user?.orgId ?? "default-org";
+}
+
 export async function saveTest(testId) {
   try {
-    // Проверка состояния сети
-    if (!navigator.onLine) {
-      throw new Error('Нет подключения к интернету. Данные будут сохранены локально.');
-    }
-    
-    const testDoc = testRef.doc(testId);
-    await testDoc.set(currentTest, { merge: true });
-    
-    // Хранение только ответов в отдельном документе
-    const testKeysDoc = testKeysRef.doc(testId);
-    await testKeysDoc.set(currentTest.testKeys);
+    if (!navigator.onLine) throw new Error("Нет подключения к интернету. Черновик сохранён локально.");
+    const uid = auth.currentUser?.uid;
+    if (!uid) throw new Error("Нужно войти в аккаунт.");
+
+    const id = testId || currentTest.id || doc(collection(db, "tests")).id;
+    currentTest.id = id;
+
+    const { publicTest, keys } = splitForStorage(currentTest);
+    const orgId = currentOrgId();
+
+    await setDoc(doc(db, "tests", id), {
+      ...publicTest, id, authorId: uid, orgId, updatedAt: serverTimestamp(),
+    }, { merge: true });
+
+    await setDoc(doc(db, "testKeys", id), {
+      authorId: uid, orgId, items: keys, updatedAt: serverTimestamp(),
+    });
+
+    saveDraftLocally();
+    return id;
   } catch (error) {
-    console.error('Ошибка сохранения теста:', error);
-    // Автосохранение данных при отключении интернета
-    if (error.message.includes('Нет подключения к интернету')) {
-      localStorage.setItem(`test_${testId}`, JSON.stringify(currentTest));
-    }
+    console.error("Ошибка сохранения теста:", error);
+    saveDraftLocally();
     throw error;
   }
 }
 
-// Разбирает текст теста
 export async function parseQuizText(quizText) {
   try {
-    const result = parseQuiz(quizText);
-    return result;
+    return parseQuiz(quizText);
   } catch (error) {
-    console.error('Ошибка разбора теста:', error);
-    throw new Error('Ошибка разбора теста. Пожалуйста, попробуйте снова.');
+    console.error("Ошибка разбора теста:", error);
+    throw new Error("Ошибка разбора теста. Пожалуйста, попробуйте снова.");
   }
 }
 
-// Возвращает текущее состояние редактирования
 export function getCurrentTest() {
-  return { ...currentTest };
+  return JSON.parse(JSON.stringify(currentTest));
 }
 
-// Обновляет текущее состояние редактирования
 export function updateTest(updates) {
   Object.assign(currentTest, updates);
-  
-  // Сохранение локального состояния
-  localStorage.setItem(`test_${currentTest.id}`, JSON.stringify(currentTest));
+  saveDraftLocally();
 }
 
-// Создаёт новую версию теста при публикации
 export async function publishTest(testId) {
   try {
-    // Проверка состояния сети
-    if (!navigator.onLine) {
-      throw new Error('Нет подключения к интернету. Публикация невозможна.');
-    }
-    
-    // Создание версии в папке versions
-    const versionDoc = await versionsRef.doc(testId).collection('versions').add({
-      ...currentTest,
-      createdAt: new Date().toISOString(),
-      status: 'published',
+    if (!navigator.onLine) throw new Error("Нет подключения к интернету. Публикация невозможна.");
+    const id = await saveTest(testId);
+    const { publicTest } = splitForStorage(currentTest);
+
+    const version = await addDoc(collection(db, "tests", id, "versions"), {
+      ...publicTest, id, createdAt: serverTimestamp(), status: "published",
     });
-    
-    // Обновление статуса теста
-    await testRef.doc(testId).update({
-      status: 'published',
-    });
-    
-    return versionDoc.id;
+    await updateDoc(doc(db, "tests", id), { status: "published", publishedAt: serverTimestamp() });
+    currentTest.status = "published";
+    return version.id;
   } catch (error) {
-    console.error('Ошибка публикации теста:', error);
+    console.error("Ошибка публикации теста:", error);
     throw error;
   }
 }
 
-// Загрузка теста по ID
 export async function loadTest(testId) {
   try {
-    // Проверка состояния сети
     if (!navigator.onLine) {
-      // Попытка загрузки из локального хранилища
-      const localData = localStorage.getItem(`test_${testId}`);
-      if (localData) {
-        return JSON.parse(localData);
-      }
-      throw new Error('Нет подключения к интернету. Данные недоступны.');
+      const local = readDraftLocally(testId);
+      if (local) { currentTest = local; return getCurrentTest(); }
+      throw new Error("Нет подключения к интернету. Данные недоступны.");
     }
-    
-    const testDoc = await testRef.doc(testId).get();
-    if (!testDoc.exists) return null;
-    
-    const testKeysDoc = await testKeysRef.doc(testId).get();
-    const testKeys = testKeysDoc.exists ? testKeysDoc.data() : [];
-    
-    return {
-      ...testDoc.data(),
-      testKeys,
-    };
+
+    const snap = await getDoc(doc(db, "tests", testId));
+    if (!snap.exists()) return null;
+    let test = { ...snap.data(), id: testId };
+
+    try {
+      const keysSnap = await getDoc(doc(db, "testKeys", testId));
+      if (keysSnap.exists()) test = mergeKeys(test, keysSnap.data().items);
+    } catch (_) {
+      // нет прав на ключи (не автор): остаётся публичная часть
+    }
+
+    currentTest = { ...emptyTest(), ...test };
+    return getCurrentTest();
   } catch (error) {
-    console.error('Ошибка загрузки теста:', error);
+    console.error("Ошибка загрузки теста:", error);
     throw error;
   }
 }

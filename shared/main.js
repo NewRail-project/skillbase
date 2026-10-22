@@ -1,4 +1,4 @@
-import { initAuth, subscribe } from "../core/auth.js";
+import { initAuth, subscribe } from "./core/auth.js";
 import { initRouter, router } from "./app.js";
 
 document.addEventListener("DOMContentLoaded", async () => {

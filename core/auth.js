@@ -29,7 +29,6 @@ export function initAuth() {
           if (docSnap.exists()) {
             State.profile = docSnap.data();
           } else {
-            // Default profile if missing
             State.profile = {
               email: user.email,
               role: "student",
