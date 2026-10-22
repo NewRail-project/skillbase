@@ -2,6 +2,7 @@ import { State } from "../../core/auth.js";
 
 export default function() {
   const div = document.createElement("div");
+  div.className = "card";
 
   if (State.user) {
     div.innerHTML = `

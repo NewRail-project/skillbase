@@ -1,58 +1,76 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
     function signedIn() { return request.auth != null; }
     function profile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
     function hasProfile() { return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)); }
-    function isStaff() { return hasProfile() && profile().role in ['teacher', 'admin']; }
     function isAdmin() { return hasProfile() && profile().role == 'admin'; }
+    function isTeacher() { return hasProfile() && profile().role == 'teacher'; }
     function sameOrg(orgId) { return hasProfile() && profile().orgId == orgId; }
     function validUi(v) { return v in ['education', 'operations', 'depot']; }
+    function isAuthorizedToReadTests() {
+      return hasProfile() && 
+        (sameOrg(resource.data.orgId) || 
+         (isAdmin() && resource.data.orgId == 'default-org'));
+    }
+    function isAuthorizedToWriteTests() {
+      return isAdmin() || isTeacher();
+    }
+    function isAuthorizedToAssignTests() {
+      return isAdmin() || isTeacher();
+    }
 
     match /users/{uid} {
-      allow read: if signedIn() && (request.auth.uid == uid || (isStaff() && sameOrg(resource.data.orgId)));
-      allow create: if signedIn() && request.auth.uid == uid
-        && request.resource.data.role == 'student'
-        && request.resource.data.orgId == 'default-org'
-        && validUi(request.resource.data.ui);
-      allow update: if signedIn()
-        && validUi(request.resource.data.ui)
-        && request.resource.data.orgId == resource.data.orgId
-        && ((request.auth.uid == uid && request.resource.data.role == resource.data.role)
-            || (isAdmin() && sameOrg(resource.data.orgId)));
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create: if signedIn() && request.auth.uid == uid && request.resource.data.role == 'student' && request.resource.data.orgId == 'default-org' && validUi(request.resource.data.ui);
+      allow update: if signedIn() && 
+        (request.auth.uid == uid || isAdmin() || (isTeacher() && sameOrg(resource.data.orgId)));
       allow delete: if false;
     }
 
     match /tests/{testId} {
-      allow read: if hasProfile() && sameOrg(resource.data.orgId)
-        && (resource.data.status == 'published' || resource.data.authorId == request.auth.uid);
-      allow create: if isStaff()
-        && request.resource.data.authorId == request.auth.uid
-        && sameOrg(request.resource.data.orgId);
-      allow update: if isStaff()
-        && resource.data.authorId == request.auth.uid
-        && request.resource.data.authorId == resource.data.authorId
-        && request.resource.data.orgId == resource.data.orgId;
-      allow delete: if isStaff() && resource.data.authorId == request.auth.uid;
+      allow read: if isAuthorizedToReadTests() && resource.data.status == 'published';
+      allow create: if isAuthorizedToWriteTests() && request.resource.data.authorId == request.auth.uid;
+      allow update: if isAuthorizedToWriteTests() && resource.data.authorId == request.auth.uid;
+      allow delete: if isAdmin() && resource.data.authorId == request.auth.uid;
 
       match /versions/{versionId} {
-        allow read: if hasProfile()
-          && sameOrg(get(/databases/$(database)/documents/tests/$(testId)).data.orgId);
-        allow create: if isStaff()
-          && get(/databases/$(database)/documents/tests/$(testId)).data.authorId == request.auth.uid;
+        allow read: if isAuthorizedToReadTests();
+        allow create: if isAuthorizedToWriteTests() && get(/databases/$(database)/documents/tests/$(testId)).data.authorId == request.auth.uid;
       }
     }
 
     match /testKeys/{testId} {
-      allow read: if isStaff() && resource.data.authorId == request.auth.uid;
-      allow create: if isStaff()
-        && request.resource.data.authorId == request.auth.uid
-        && sameOrg(request.resource.data.orgId);
-      allow update: if isStaff()
-        && resource.data.authorId == request.auth.uid
-        && request.resource.data.authorId == resource.data.authorId;
-      allow delete: if isStaff() && resource.data.authorId == request.auth.uid;
+      allow read: if isAdmin() || (isTeacher() && sameOrg(get(/databases/$(database)/documents/tests/$(testId)).data.orgId));
+      allow create: if isAdmin() || isTeacher() && request.resource.data.authorId == request.auth.uid;
+      allow update: if isAdmin() || isTeacher() && resource.data.authorId == request.auth.uid;
+      allow delete: if isAdmin() && resource.data.authorId == request.auth.uid;
+    }
+
+    match /assignments/{assignmentId} {
+      allow read: if signedIn() && 
+        (isAdmin() || 
+         (isTeacher() && sameOrg(get(/databases/$(database)/documents/assignments/$(assignmentId)).data.groupId)));
+      allow create: if isAdmin() || isTeacher();
+      allow update: if isAdmin() || isTeacher() && resource.data.createdBy == request.auth.uid;
+      allow delete: if isAdmin() && resource.data.createdBy == request.auth.uid;
+    }
+
+    match /attempts/{attemptId} {
+      allow read: if signedIn() && 
+        (isAdmin() || 
+         (isTeacher() && sameOrg(get(/databases/$(database)/documents/attempts/$(attemptId)).data.testId)));
+      allow create: if signedIn() && request.auth.uid == get(/databases/$(database)/documents/attempts/$(attemptId)).data.userId;
+      allow update: if isAdmin();
+    }
+
+    match /tests/{testId}/attempts/{attemptId} {
+      allow read: if signedIn() && 
+        (isAdmin() || 
+         (isTeacher() && sameOrg(get(/databases/$(database)/documents/tests/$(testId)).data.orgId)));
+      allow write: if signedIn() && 
+        (isAdmin() || 
+         (isTeacher() && get(/databases/$(database)/documents/tests/$(testId)).data.orgId == request.resource.data.testId));
     }
   }
 }

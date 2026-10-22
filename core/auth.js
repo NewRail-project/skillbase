@@ -18,7 +18,7 @@ function notify() {
   State.listeners.forEach(l => l(State.user, State.profile));
 }
 
-export function initAuth() {
+export async function initAuth() {
   return new Promise((resolve) => {
     onAuthStateChanged(auth, async (user) => {
       State.user = user;
@@ -38,7 +38,7 @@ export function initAuth() {
             await setDoc(docRef, State.profile);
           }
         } catch (e) {
-          console.error("Error fetching user profile:", e);
+          console.error("Ошибка загрузки профиля:", e);
           State.profile = { email: user.email, role: "student", orgId: "default-org", ui: "education" };
         }
         applyTheme(State.profile.ui);
@@ -59,25 +59,34 @@ export function applyTheme(uiName) {
 }
 
 export async function login(email, password) {
-  const cred = await signInWithEmailAndPassword(auth, email, password);
-  return cred.user;
+  try {
+    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    return userCredential.user;
+  } catch (err) {
+    throw err;
+  }
 }
 
 export async function register(email, password, role = "student", orgId = "default-org", ui = "education") {
-  const cred = await createUserWithEmailAndPassword(auth, email, password);
-  const user = cred.user;
-  const profileData = {
-    email,
-    role: "student",
-    orgId: "default-org",
-    ui,
-    createdAt: new Date().toISOString()
-  };
-  await setDoc(doc(db, "users", user.uid), profileData);
-  State.profile = profileData;
-  applyTheme(ui);
-  notify();
-  return user;
+  try {
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    const user = userCredential.user;
+    const profileData = {
+      email,
+      role,
+      orgId,
+      ui,
+      createdAt: new Date().toISOString()
+    };
+    const docRef = doc(db, "users", user.uid);
+    await setDoc(docRef, profileData);
+    State.profile = profileData;
+    applyTheme(ui);
+    notify();
+    return user;
+  } catch (err) {
+    throw err;
+  }
 }
 
 export async function logout() {
