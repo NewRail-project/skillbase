@@ -25,4 +25,23 @@ document.addEventListener("DOMContentLoaded", async () => {
     setSidebarOpen(false);
     mountSidebar();
   });
+
+  // Обработчик для кнопки переключения тем
+  const themeToggle = document.getElementById('theme-toggle');
+  if (themeToggle) {
+    themeToggle.addEventListener('click', () => {
+      const currentTheme = document.documentElement.getAttribute('data-theme');
+      const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', newTheme);
+      localStorage.setItem('sb-theme', newTheme);
+      window.dispatchEvent(new Event('themeChanged'));
+    });
+  }
+
+  // Обработчик изменения темы
+  window.addEventListener('themeChanged', () => {
+    // Перезагрузить компоненты, чтобы применить новую тему
+    const theme = document.documentElement.getAttribute('data-theme');
+    console.log('Тема изменена на:', theme);
+  });
 });

@@ -2,7 +2,6 @@ import { h, esc } from "../../shared/dom.js";
 import { State, logout } from "../../core/auth.js";
 import { displayName, initialsAvatar, validateFullName, processAvatarFile, saveProfile } from "../../core/profile.js";
 import { icons } from "../../shared/icons.js";
-import { getThemeMode, setThemeMode } from "../../shared/theme.js";
 import { toast } from "../../ui/components/toast.js";
 import { modal } from "../../ui/components/modal.js";
 
@@ -19,7 +18,11 @@ function renderAvatar(profile) {
 
 export default function ProfilePage() {
   const div = h("div", { class: "profile-page" });
-  const profile = State.profile || {};
+  const profile = State.profile || {}
+  if (!profile.uid) {
+    div.append(h("div", { class: "error-state" }, "Профиль недоступен. Пожалуйста, обновите страницу."));
+    return div;
+  }
   const name = displayName(profile, { viewerIsStaff: true, uid: profile.uid });
 
   function render() {
@@ -28,7 +31,7 @@ export default function ProfilePage() {
       h("div", { class: "profile-header" },
         renderAvatar(profile),
         h("div", { class: "profile-info" },
-          h("h2", {}, esc(name)),
+          h("h2", {}, esc(name || "Не указано")),
           h("span", { class: "badge badge-neutral" }, profile.role || "student")
         )
       ),
@@ -37,7 +40,7 @@ export default function ProfilePage() {
         h("div", { class: "profile-data" },
           h("div", { class: "profile-item" },
             h("span", {}, "Электронная почта:"),
-            h("span", {}, esc(profile.email))
+            h("span", {}, esc(profile.email || "Не указано"))
           ),
           h("div", { class: "profile-item" },
             h("span", {}, "Дата регистрации:"),
@@ -88,7 +91,7 @@ export default function ProfilePage() {
             id: "theme",
             value: getThemeMode(),
             onchange: (e) => setThemeMode(e.target.value)
-          },
+          }, 
             h("option", { value: "light" }, "Светлая"),
             h("option", { value: "dark" }, "Тёмная"),
             h("option", { value: "system" }, "Система")
@@ -100,7 +103,7 @@ export default function ProfilePage() {
             id: "ui",
             value: profile.ui,
             onchange: (e) => updateField("ui", e.target.value)
-          },
+          }, 
             h("option", { value: "education" }, "Образовательный"),
             h("option", { value: "operations" }, "Операционный"),
             h("option", { value: "depot" }, "Депо")
@@ -135,7 +138,7 @@ export default function ProfilePage() {
   }
 
   let state = { fullName: profile.fullName, position: profile.position, department: profile.department, ui: profile.ui };
-  
+
   function updateField(field, value) {
     state[field] = value;
     render();
@@ -144,12 +147,13 @@ export default function ProfilePage() {
   async function saveProfileData() {
     const patch = { ...state };
     const publicPatch = { displayName: displayName(profile, { viewerIsStaff: true, uid: profile.uid }), updatedAt: serverTimestamp() };
-    
+
     try {
       await saveProfile(profile.uid, patch, publicPatch, profile);
       toast("Профиль сохранён", "success");
     } catch (err) {
-      toast("Ошибка сохранения", "error");
+      console.error("Ошибка сохранения профиля:", err);
+      toast("Ошибка сохранения: " + (err.message || "Неизвестная ошибка"), "error");
     }
   }
 
@@ -159,7 +163,7 @@ export default function ProfilePage() {
     const preview = h("div", { class: "avatar-preview" });
     const cancelBtn = h("button", { class: "btn secondary", onclick: () => modalDiv.close() }, "Отмена");
     const saveBtn = h("button", { class: "btn primary", onclick: () => saveAvatar() }, "Сохранить");
-    
+
     modalDiv.append(
       h("div", { class: "modal-content" },
         h("h3", {}, "Загрузить аватар"),
@@ -173,14 +177,14 @@ export default function ProfilePage() {
       cancelBtn,
       saveBtn
     );
-    
+
     modalDiv.show();
   }
 
   async function handleFileChange(e) {
     const file = e.target.files[0];
     if (!file) return;
-    
+
     try {
       const dataUrl = await processAvatarFile(file);
       preview.textContent = "";
@@ -191,7 +195,7 @@ export default function ProfilePage() {
       preview.appendChild(img);
     } catch (err) {
       preview.textContent = "";
-      preview.appendChild(h("div", { class: "avatar-error" }, err.message));
+      preview.appendChild(h("div", { class: "avatar-error" }, err.message || "Неизвестная ошибка"));
     }
   }
 
@@ -208,7 +212,7 @@ export default function ProfilePage() {
       toast("Аватар сохранён", "success");
       modalDiv.close();
     };
-    
+
     modalDiv.append(
       h("div", { class: "modal-content" },
         h("h3", {}, "Сохранить аватар"),
@@ -216,14 +220,10 @@ export default function ProfilePage() {
         h("button", { class: "btn secondary", onclick: () => modalDiv.close() }, "Отмена")
       )
     );
-    
+
     modalDiv.show();
   }
 
   render();
   return div;
-}
-
-export function cleanup() {
-  // Очистка слушателей и таймеров
 }
