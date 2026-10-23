@@ -4,9 +4,24 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Skillbase</title>
-  <link rel="stylesheet" href="ui/css/style.css?v=5">
-  <link rel="stylesheet" href="ui/css/theme.css?v=5">
-  <script type="module" src="shared/main.js?v=5"></script>
+  <link rel="stylesheet" href="ui/css/style.css?v=6">
+  <link rel="stylesheet" href="ui/css/theme.css?v=6">
+  <link rel="stylesheet" href="ui/css/app.css?v=6">
+  <script>
+    // Диагностика: если приложение не запустилось — показываем причину, а не пустой экран
+    window.__bootErrors = [];
+    window.addEventListener('error', function (e) { window.__bootErrors.push(e.message || (e.target && e.target.src) || 'ошибка загрузки'); });
+    window.addEventListener('unhandledrejection', function (e) { window.__bootErrors.push(String(e.reason && e.reason.message || e.reason)); });
+    setTimeout(function () {
+      if (window.__booted) return;
+      var app = document.getElementById('app');
+      if (!app) return;
+      app.innerHTML = '<div class="card"><h2>Приложение не запустилось</h2>' +
+        '<p>Проверьте интернет и обновите страницу. Подробности: откройте <a href="probe.html">probe.html</a>.</p>' +
+        '<p class="error-msg">' + (window.__bootErrors.join('<br>') || 'нет данных (смотрите консоль)') + '</p></div>';
+    }, 7000);
+  </script>
+  <script type="module" src="shared/main.js?v=6"></script>
 </head>
 <body>
   <div id="app-container" class="app-container">
@@ -20,13 +35,7 @@
       </a>
       <nav id="nav"></nav>
     </header>
-    <main id="app"></main>
-  </div>
-  <div id="loading-spinner" class="loading-spinner" style="display: none;">
-    <svg viewBox="0 0 24 24" fill="none" stroke="#E5B94F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="12" cy="12" r="10"/>
-      <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M4.22 19.78l1.41-1.42M18.36 4.22l-1.42 1.42M19.78 18.36l-1.42-1.42"/>
-    </svg>
+    <main id="app"><div class="card"><div class="spinner"></div></div></main>
   </div>
 </body>
 </html>

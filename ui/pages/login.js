@@ -1,7 +1,7 @@
 import { login } from "../../core/auth.js";
 import { authErrorMessage } from "../../shared/errors.js";
 
-export default function() {
+export default function () {
   const div = document.createElement("div");
   div.className = "card";
   div.innerHTML = `
@@ -15,10 +15,11 @@ export default function() {
         <label for="password">Пароль</label>
         <input type="password" id="password" class="form-control" required autocomplete="current-password" />
       </div>
-      <div id="error" class="error-msg" role="alert"></div>
-      <button type="submit" class="primary" disabled>Войти</button>
+      <div id="error" class="error-msg" role="alert" hidden></div>
+      <button type="submit" class="primary">Войти</button>
     </form>
-    <a href="#register"><button class="secondary" type="button">Регистрация</button></a>
+    <p style="margin-top:16px">Нет аккаунта?</p>
+    <a class="btn btn-secondary" href="#register">Регистрация</a>
   `;
 
   const form = div.querySelector("#login-form");
@@ -27,19 +28,16 @@ export default function() {
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    errorDiv.textContent = "";
+    errorDiv.hidden = true;
     submitBtn.disabled = true;
     submitBtn.textContent = "Подождите...";
-
-    const email = div.querySelector("#email").value;
-    const password = div.querySelector("#password").value;
-
     try {
-      await login(email, password);
-      window.location.hash = "#profile";
+      await login(div.querySelector("#email").value.trim(), div.querySelector("#password").value);
+      window.location.hash = "";
     } catch (err) {
-      errorDiv.textContent = authErrorMessage(err);
       console.error("Login error:", err);
+      errorDiv.textContent = authErrorMessage(err);
+      errorDiv.hidden = false;
       submitBtn.disabled = false;
       submitBtn.textContent = "Войти";
     }

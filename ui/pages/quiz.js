@@ -1,152 +1,112 @@
 import { State } from "../../core/auth.js";
-import { loadTest, getTestKeys } from "../../core/editor.js";
-import { createAttempt, updateAttempt, finishAttempt } from "../../core/assign.js";
+import { loadTest } from "../../core/editor.js";
+import { submitAttempt } from "../../core/attempts.js";
+import { escapeHtml } from "../../shared/utils.js";
 
-// DOM-элемент для теста
-export default function QuizPage() {
+export default async function QuizPage({ params }) {
   const div = document.createElement("div");
-  div.className = "quiz-container";
-  const questions = [];
-  let timer = 10;
-  let currentQuestionIndex = 0;
-  let answers = {};
-  let isOnline = navigator.onLine;
-  let attemptId = null;
-  let isFinished = false;
-  let testId = null;
+  div.className = "card";
+  const testId = params[0];
+  let interval = null;
+  div._cleanup = () => clearInterval(interval);
 
-  window.addEventListener("online", () => { isOnline = true; });
-  window.addEventListener("offline", () => { isOnline = false; });
+  const fail = (text) => { div.innerHTML = `<p class="error-msg"></p><a class="btn" href="#tests">К списку тестов</a>`; div.querySelector("p").textContent = text; return div; };
 
-  // Загрузка теста и ключей
-  const loadQuestions = async () => {
-    const test = await loadTest(testId);
-    questions.length = 0;
-    questions.push(...(test.questions || []));
-    timer = test.timePerQuestion || 10;
-    renderQuestion();
-  };
+  if (!testId) return fail("Тест не указан.");
 
-  // Начало попытки
-  const startAttempt = async () => {
-    if (!State.user) return;
-    attemptId = await createAttempt(testId, State.user.uid);
-    await loadQuestions();
-  };
+  let test;
+  try {
+    test = await loadTest(testId);
+  } catch (e) {
+    console.error(e);
+    return fail("Не удалось загрузить тест: " + (e.code || e.message));
+  }
+  if (!test || test.status !== "published") return fail("Тест не найден или не опубликован.");
+  const qs = test.questions || [];
+  if (!qs.length) return fail("В тесте нет вопросов.");
 
-  // Сохранение ответа
-  const saveAnswer = async (questionIndex, answer) => {
-    if (!attemptId) return;
-    answers[questionIndex] = answer;
-    await updateAttempt(attemptId, questionIndex, answer, testId);
-  };
+  const answers = {};
+  const startedAt = Date.now();
+  let idx = 0;
+  let busy = false;
 
-  // Завершение попытки
-  const finishQuiz = async () => {
-    if (!attemptId) return;
-    await finishAttempt(attemptId, testId);
-    isFinished = true;
-    renderResults();
-  };
+  function collect() {
+    const q = qs[idx];
+    if (q.type === "short") {
+      const v = div.querySelector("#short")?.value.trim();
+      if (v) answers[idx] = v; else delete answers[idx];
+    } else {
+      const picked = [...div.querySelectorAll("input[name='answer']:checked")].map(i => Number(i.value));
+      if (!picked.length) delete answers[idx];
+      else answers[idx] = q.type === "multiple" ? picked : picked[0];
+    }
+  }
 
-  // Рендеринг вопроса
-  const renderQuestion = () => {
-    if (isFinished) return;
-    const question = questions[currentQuestionIndex];
-    if (!question) return;
+  async function go(step) {
+    if (busy) return;
+    collect();
+    if (idx + step >= qs.length) return finish();
+    idx = Math.max(0, idx + step);
+    render();
+  }
+
+  async function finish() {
+    busy = true;
+    clearInterval(interval);
+    div.innerHTML = `<div class="spinner"></div><p class="muted" style="text-align:center">Отправляем ответы...</p>`;
+    try {
+      await submitAttempt({ test, answers, startedAt }, State.user, State.profile);
+      div.innerHTML = `<h2>Ответы отправлены</h2>
+        <p>Вы ответили на ${Object.keys(answers).length} из ${qs.length} вопросов. Результат появится после проверки преподавателем.</p>
+        <a class="btn" href="#results">Мои результаты</a>`;
+    } catch (e) {
+      console.error(e);
+      div.innerHTML = `<p class="error-msg"></p><button type="button" id="retry">Отправить ещё раз</button>`;
+      div.querySelector("p").textContent = "Не удалось отправить: " + (e.code || e.message);
+      div.querySelector("#retry").addEventListener("click", finish);
+    }
+  }
+
+  function render() {
+    clearInterval(interval);
+    const q = qs[idx];
+    const saved = answers[idx];
+    const isMulti = q.type === "multiple";
+    const last = idx === qs.length - 1;
+
+    const body = q.type === "short"
+      ? `<input type="text" id="short" class="form-control" autocomplete="off" placeholder="Ваш ответ" value="${escapeHtml(saved ?? "")}" />`
+      : `<div class="options">${(q.options || []).map((o, i) => {
+          const checked = isMulti ? (saved || []).includes(i) : saved === i;
+          return `<div class="option"><label><input type="${isMulti ? "checkbox" : "radio"}" name="answer" value="${i}" ${checked ? "checked" : ""}> <span>${escapeHtml(o.text)}</span></label></div>`;
+        }).join("")}</div>`;
 
     div.innerHTML = `
-      <div class="question">
-        <h2>Вопрос ${currentQuestionIndex + 1} из ${questions.length}</h2>
-        <p>${question.text}</p>
-        <div class="options">
-          ${question.options.map((option, index) => `
-            <label>
-              <input type="${question.type === 'multiple' ? 'checkbox' : 'radio'}" name="answer" value="${index}" ${answers[currentQuestionIndex] === index ? 'checked' : ''}> ${option.text}
-            </label>
-          `).join('')}
-        </div>
-        <div class="timer">Осталось: ${timer} сек</div>
-        <div class="navigation">
-          <button class="secondary" ${currentQuestionIndex === 0 ? 'disabled' : ''}>Назад</button>
-          <button class="primary">${currentQuestionIndex === questions.length - 1 ? 'Завершить' : 'Далее'}</button>
-        </div>
-      </div>
-    `;
+      <h3>${escapeHtml(test.title)}</h3>
+      <div class="quiz-progress"><i style="width:${(idx / qs.length) * 100}%"></i></div>
+      <p class="muted">Вопрос ${idx + 1} из ${qs.length}${isMulti ? " · выберите все верные" : ""}</p>
+      <p><b>${escapeHtml(q.text)}</b></p>
+      ${body}
+      ${test.timePerQuestion > 0 ? `<p class="timer">Осталось: <span id="t">${test.timePerQuestion}</span> сек</p>` : ""}
+      <div class="btn-row" style="margin-top:12px">
+        <button type="button" class="secondary" id="prev" ${idx === 0 ? "disabled" : ""}>Назад</button>
+        <button type="button" id="next">${last ? "Завершить" : "Далее"}</button>
+      </div>`;
 
-    // Обработчики событий
-    const nextBtn = div.querySelector('.navigation .primary');
-    const prevBtn = div.querySelector('.navigation .secondary');
+    div.querySelector("#prev").addEventListener("click", () => go(-1));
+    div.querySelector("#next").addEventListener("click", () => go(1));
 
-    nextBtn.addEventListener('click', async () => {
-      const selected = div.querySelector('input[name="answer"]:checked');
-      if (selected) {
-        await saveAnswer(currentQuestionIndex, parseInt(selected.value));
-      }
-      if (currentQuestionIndex < questions.length - 1) {
-        currentQuestionIndex++;
-        renderQuestion();
-      } else {
-        await finishQuiz();
-      }
-    });
-
-    prevBtn.addEventListener('click', () => {
-      if (currentQuestionIndex > 0) {
-        currentQuestionIndex--;
-        renderQuestion();
-      }
-    });
-
-    // Таймер
-    const timerElement = div.querySelector('.timer');
-    const interval = setInterval(() => {
-      timer--;
-      timerElement.textContent = `Осталось: ${timer} сек`;
-      if (timer <= 0) {
-        clearInterval(interval);
-        nextBtn.click();
-      }
-    }, 1000);
-  };
-
-  // Рендеринг результатов
-  const renderResults = async () => {
-    const testKeys = await getTestKeys(testId);
-    let score = 0;
-    questions.forEach((question, index) => {
-      const correctAnswers = question.options.filter(option => option.correct).map((_, i) => i);
-      if (answers[index] === correctAnswers[0]) {
-        score++;
-      }
-    });
-
-    div.innerHTML = `
-      <div class="results">
-        <h2>Результаты</h2>
-        <p>Вы набрали ${score} из ${questions.length} баллов.</p>
-        <a href="#profile"><button class="primary">Вернуться в профиль</button></a>
-      </div>
-    `;
-  };
-
-  // Инициализация
-  const init = async () => {
-    const urlParams = new URLSearchParams(window.location.search);
-    testId = urlParams.get('testId');
-    if (!testId) {
-      div.innerHTML = '<div class="error">Тест не найден</div>';
-      return;
+    if (test.timePerQuestion > 0) {
+      let left = test.timePerQuestion;
+      const t = div.querySelector("#t");
+      interval = setInterval(() => {
+        left--;
+        if (t) t.textContent = left;
+        if (left <= 0) { clearInterval(interval); go(1); }
+      }, 1000);
     }
+  }
 
-    if (!State.user) {
-      div.innerHTML = '<div class="error">Нужно войти в аккаунт</div>';
-      return;
-    }
-
-    await startAttempt();
-  };
-
-  init();
+  render();
   return div;
 }

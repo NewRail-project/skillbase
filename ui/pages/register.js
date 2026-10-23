@@ -1,7 +1,7 @@
 import { register } from "../../core/auth.js";
 import { authErrorMessage } from "../../shared/errors.js";
 
-export default function() {
+export default function () {
   const div = document.createElement("div");
   div.className = "card";
   div.innerHTML = `
@@ -18,15 +18,16 @@ export default function() {
       <div class="form-group">
         <label for="ui">Интерфейс (тема)</label>
         <select id="ui" class="form-control">
-          <option value="education">Образование (education)</option>
-          <option value="operations">Операции (operations)</option>
-          <option value="depot">Депо (depot)</option>
+          <option value="education">Образование</option>
+          <option value="operations">Операции</option>
+          <option value="depot">Депо</option>
         </select>
       </div>
-      <div id="error" class="error-msg" role="alert"></div>
-      <button type="submit" class="primary" disabled>Подождите...</button>
+      <div id="error" class="error-msg" role="alert" hidden></div>
+      <button type="submit" class="primary">Зарегистрироваться</button>
     </form>
-    <a href="#login"><button class="secondary" type="button">Вернуться ко входу</button></a>
+    <p style="margin-top:16px" class="muted">Новые аккаунты создаются с ролью «студент». Роль преподавателя выдаёт администратор.</p>
+    <a class="btn btn-secondary" href="#login">Вернуться ко входу</a>
   `;
 
   const form = div.querySelector("#register-form");
@@ -35,20 +36,16 @@ export default function() {
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    errorDiv.textContent = "";
+    errorDiv.hidden = true;
     submitBtn.disabled = true;
     submitBtn.textContent = "Подождите...";
-
-    const email = div.querySelector("#email").value;
-    const password = div.querySelector("#password").value;
-    const ui = div.querySelector("#ui").value;
-
     try {
-      await register(email, password, "student", "default-org", ui);
-      window.location.hash = "#profile";
+      await register(div.querySelector("#email").value.trim(), div.querySelector("#password").value, div.querySelector("#ui").value);
+      window.location.hash = "";
     } catch (err) {
-      errorDiv.textContent = authErrorMessage(err);
       console.error("Registration error:", err);
+      errorDiv.textContent = authErrorMessage(err);
+      errorDiv.hidden = false;
       submitBtn.disabled = false;
       submitBtn.textContent = "Зарегистрироваться";
     }

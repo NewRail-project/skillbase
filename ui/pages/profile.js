@@ -1,65 +1,46 @@
 import { State, logout, updateProfileData } from "../../core/auth.js";
+import { escapeHtml } from "../../shared/utils.js";
 
-export default function() {
-  const div = document.createElement("div");
+export default function () {
   const profile = State.profile || {};
+  const div = document.createElement("div");
+  div.className = "card";
+  const sel = (v) => (profile.ui === v ? "selected" : "");
 
   div.innerHTML = `
-    <div class="card">
-      <h2>Профиль</h2>
-      <p><strong>Email:</strong> ${State.user ? State.user.email : profile.email || 'N/A'}</p>
-
-      <form id="profile-form">
-        <div class="form-group">
-          <label for="role">Роль</label>
-          <select id="role" class="form-control">
-            <option value="student" ${profile.role === 'student' ? 'selected' : ''}>Студент</option>
-            <option value="teacher" ${profile.role === 'teacher' ? 'selected' : ''}>Преподаватель</option>
-            <option value="admin" ${profile.role === 'admin' ? 'selected' : ''}>Администратор</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="orgId">Организация (orgId)</label>
-          <input type="text" id="orgId" value="${profile.orgId || ''}" required class="form-control" />
-        </div>
-        <div class="form-group">
-          <label for="ui">Интерфейс (тема)</label>
-          <select id="ui" class="form-control">
-            <option value="education" ${profile.ui === 'education' ? 'selected' : ''}>Образование (education)</option>
-            <option value="operations" ${profile.ui === 'operations' ? 'selected' : ''}>Операции (operations)</option>
-            <option value="depot" ${profile.ui === 'depot' ? 'selected' : ''}>Депо (depot)</option>
-          </select>
-        </div>
-        <div id="msg" class="success-msg" role="alert"></div>
-        <button type="submit" class="primary">Сохранить</button>
-      </form>
-      <a href="#logout"><button class="secondary" type="button" id="logout-btn">Выйти</button></a>
-    </div>
+    <h2>Профиль</h2>
+    <p><strong>Email:</strong> ${escapeHtml(State.user?.email || profile.email || "")}<br>
+       <strong>Роль:</strong> ${escapeHtml(profile.role || "student")}<br>
+       <strong>Организация:</strong> ${escapeHtml(profile.orgId || "")}</p>
+    <form id="profile-form">
+      <div class="form-group">
+        <label for="ui">Интерфейс (тема)</label>
+        <select id="ui" class="form-control">
+          <option value="education" ${sel("education")}>Образование</option>
+          <option value="operations" ${sel("operations")}>Операции</option>
+          <option value="depot" ${sel("depot")}>Депо</option>
+        </select>
+      </div>
+      <div id="msg" role="alert" hidden></div>
+      <button type="submit" class="primary">Сохранить</button>
+    </form>
+    <button class="btn-secondary secondary" type="button" id="logout-btn" style="margin-top:12px;width:100%">Выйти</button>
   `;
 
-  const form = div.querySelector("#profile-form");
-  const msgDiv = div.querySelector("#msg");
-  const logoutBtn = div.querySelector("#logout-btn");
-
-  form.addEventListener("submit", async (e) => {
+  const msg = div.querySelector("#msg");
+  div.querySelector("#profile-form").addEventListener("submit", async (e) => {
     e.preventDefault();
-    msgDiv.className = "success-msg";
-    msgDiv.textContent = "";
-    const role = div.querySelector("#role").value;
-    const orgId = div.querySelector("#orgId").value;
-    const ui = div.querySelector("#ui").value;
-
     try {
-      await updateProfileData({ role, orgId, ui });
-      msgDiv.textContent = "Профиль обновлён";
-      setTimeout(() => { msgDiv.textContent = ""; }, 3000);
+      await updateProfileData({ ui: div.querySelector("#ui").value });
+      msg.className = "success-msg"; msg.textContent = "Сохранено";
     } catch (err) {
-      msgDiv.className = "error-msg";
-      msgDiv.textContent = err.message;
+      msg.className = "error-msg"; msg.textContent = "Не удалось сохранить: " + (err.code || err.message);
     }
+    msg.hidden = false;
+    setTimeout(() => { msg.hidden = true; }, 3000);
   });
 
-  logoutBtn.addEventListener("click", async () => {
+  div.querySelector("#logout-btn").addEventListener("click", async () => {
     await logout();
     window.location.hash = "#login";
   });

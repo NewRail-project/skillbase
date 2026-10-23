@@ -1,5 +1,5 @@
 export function authErrorMessage(err) {
-  const code = err.code || err.message;
+  const code = (err && (err.code || err.message)) || 'unknown';
   switch (code) {
     case 'auth/invalid-email':
       return 'Некорректный email.';
@@ -19,9 +19,19 @@ export function authErrorMessage(err) {
       return 'Нет подключения к интернету. Проверьте соединение.';
     case 'auth/api-key-not-valid':
       return 'Ошибка конфигурации Firebase. Проверьте настройки.';
+    case 'auth/operation-not-allowed':
+      return 'В Firebase не включён вход по Email/Password (Authentication → Sign-in method).';
+    case 'auth/unauthorized-domain':
+      return 'Домен сайта не добавлен в Firebase (Authentication → Settings → Authorized domains).';
+    case 'auth/invalid-api-key':
+      return 'Неверный apiKey в configs/firebase.js.';
+    case 'auth/user-disabled':
+      return 'Аккаунт отключён.';
+    case 'unavailable':
+      return 'Сервер недоступен. Проверьте интернет.';
     case 'permission-denied':
       return 'Нет прав для выполнения операции.';
     default:
-      return 'Что-то пошло не так. Попробуйте ещё раз.';
+      return `Что-то пошло не так (${code}). Попробуйте ещё раз.`;
   }
 }
