@@ -16,6 +16,7 @@ const routes = {
   "login":        { file: "ui/pages/login.js",             title: "Вход",                 guestOnly: true },
   "register":     { file: "ui/pages/register.js",          title: "Регистрация",          guestOnly: true },
   "profile":      { file: "ui/pages/profile.js",           title: "Профиль",              auth: true },
+  "tests":        { file: "ui/pages/tests.js",             title: "Каталог тестов",       auth: true },
   "create-test":  { file: "ui/pages/create-test.js",       title: "Создать тест",         auth: true, roles: STAFF },
   "quiz":         { file: "ui/pages/quiz.js",              title: "Тест",                 auth: true },
   "results":      { file: "ui/pages/results.js",           title: "Результаты",           auth: true, roles: STAFF },

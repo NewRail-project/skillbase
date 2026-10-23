@@ -254,34 +254,6 @@ input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; min-hei
 .toast.success, .toast-success { background: var(--ok-bg); color: var(--ok); border-color: var(--ok-border); }
 .toast.error, .toast-error { background: var(--danger-bg); color: var(--danger); border-color: var(--danger-border); }
 
-#theme-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  background: var(--elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-s);
-  color: var(--text);
-  cursor: pointer;
-  padding: 0;
-  font-size: 1.25rem;
-  transition: background var(--dur-fast) ease, border-color var(--dur-fast) ease;
-  box-shadow: inset 0 0 0 var(--border);
-  position: relative;
-  z-index: 1;
-  margin-left: auto;
-  margin-right: 1rem;
-  @media (max-width: 899px) { margin-left: 0; margin-right: 0; }
-}
-
-#theme-toggle:hover {
-  background: var(--accent);
-  border-color: var(--accent);
-}
 @keyframes fadeIn { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
 .modal-content, .modal-overlay { animation: none; }
 
-/* Depot: тонкая «шпальная» линия под шапкой */
-html[data-ui="depot"] .topbar { border-bottom: 2px solid var(--accent); }

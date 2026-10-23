@@ -3,10 +3,7 @@ import { parseQuiz } from '../core/import/parser.js';
 
 function assertEqual(actual, expected, message) {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    console.error(`FAIL: ${message}`);
-    console.log('Expected:', expected);
-    console.log('Actual:', actual);
-    process.exit(1);
+    throw new Error(`${message}\n  ожидалось: ${JSON.stringify(expected)}\n  получено:  ${JSON.stringify(actual)}`);
   }
 }
 
@@ -20,7 +17,7 @@ A) Вариант [правильный]
 Пояснение: Это важный вопрос.
 B) Вариант 2 [правильный]
 2. Вопрос 2?
-A) Вариант 3
+A) Вариант 3 [правильный]
 Баллы: 1.5
 Пояснение: Это другой вопрос.
 B) Вариант 4
@@ -41,7 +38,7 @@ A) Вариант [правильный]
 Пояснение: Это объяснение.
 B) Вариант 2
 2. Вопрос 2?
-A) Вариант 3
+A) Вариант 3 [правильный]
 Пояснение: Это другое объяснение.
 B) Вариант 4
 `;
@@ -90,7 +87,8 @@ A) Вариант
   const result = parseQuiz(input);
   assertEqual(result.structuredErrors.length, 1, 'One structured error');
   assertEqual(result.structuredErrors[0].severity, 'error', 'Severity');
-  assertEqual(result.structuredErrors[0].message.includes('не содержит правильного ответа'), true, 'Error message');
+  assertEqual(result.structuredErrors[0].line, 1, 'Error line');
+  assertEqual(result.structuredErrors[0].message.includes('меньше двух вариантов'), true, 'Error message');
 }
 
 // Предупреждения
@@ -244,13 +242,13 @@ B) Вариант
 });
 
 // Баллы и пояснение
-testWithPoints();
-testWithExplanation();
+test('Баллы и пояснение', testWithPoints);
+test('Пояснение', testWithExplanation);
 
 // Варианты A-J
-testWithAJOptions();
+test('Варианты A-J', testWithAJOptions);
 
 // Ошибки и предупреждения
-testErrors();
-testStructuredErrors();
-testWarnings();
+test('Вопрос без вариантов', testErrors);
+test('Структурированные ошибки', testStructuredErrors);
+test('Предупреждение об одинаковых вариантах', testWarnings);

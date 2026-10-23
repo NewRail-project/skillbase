@@ -7,14 +7,23 @@ export function error({ text = "Произошла ошибка", retryText = "�
   msg.className = "error-msg";
   msg.textContent = text;
   
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "btn primary";
-  btn.textContent = retryText;
-  btn.addEventListener("click", onRetry || (() => window.location.reload()));
-  
   div.appendChild(msg);
-  div.appendChild(btn);
-  
+
+  // Повтор только там, где есть что повторять. Перезагрузка страницы —
+  // не «исправление» ошибки, поэтому действием по умолчанию она не является.
+  if (typeof onRetry === "function") {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn secondary";
+    btn.textContent = retryText;
+    btn.addEventListener("click", onRetry);
+    div.appendChild(btn);
+  } else {
+    const hint = document.createElement("p");
+    hint.className = "muted";
+    hint.textContent = "Обновите страницу, если ошибка повторяется.";
+    div.appendChild(hint);
+  }
+
   return div;
 }

@@ -1,4 +1,7 @@
-module.exports.parseQuiz = function parseQuiz(raw) {
+// core/import/parser.js — разбор текстового формата теста.
+// Чистая логика без DOM и Firebase: вызывается из редактора и из тестов.
+
+export function parseQuiz(raw) {
   const structuredErrors = [];
   const questions = [];
   const lines = raw.replace(/\r/g, '').split('\n');
@@ -35,15 +38,6 @@ module.exports.parseQuiz = function parseQuiz(raw) {
       });
     }
     const correctCount = q.options.filter(o => o.correct).length;
-    if (correctCount === 0) {
-      structuredErrors.push({
-        line: q.lineNumber,
-        questionIndex: questions.length,
-        severity: 'error',
-        message: `Вопрос "${q.text}" не содержит правильного ответа`
-      });
-    }
-
     if (q.options.length > 10) {
       structuredErrors.push({
         line: q.lineNumber,
@@ -53,7 +47,7 @@ module.exports.parseQuiz = function parseQuiz(raw) {
       });
     }
 
-    if (q.options.length > 0) {
+    if (q.options.length >= 2) {
       if (correctCount > 1) {
         q.type = 'multiple';
       }
@@ -111,15 +105,22 @@ module.exports.parseQuiz = function parseQuiz(raw) {
   };
 
   const parseOptionLine = (text) => {
-    let optText = text;
+    let optText = text.trim();
     let correct = false;
 
+    // Маркеры правильного ответа: [правильный], [correct], (+), [*]
     const markerRegex = /[\[(](правильный|верный|correct|плюс|\+|\*)[\])]/gi;
-
     if (markerRegex.test(optText)) {
       correct = true;
       optText = optText.replace(markerRegex, '').trim();
     }
+
+    // Также допускается звёздочка в конце строки: "Вариант *"
+    if (/(^|\s)\*\s*$/.test(optText)) {
+      correct = true;
+      optText = optText.replace(/\s*\*\s*$/, '').trim();
+    }
+
     return { text: optText.trim(), correct };
   }
 
@@ -201,4 +202,4 @@ module.exports.parseQuiz = function parseQuiz(raw) {
   const errors = structuredErrors.filter(e => e.severity === 'error').map(e => e.message);
 
   return { questions, errors, structuredErrors };
-};
+}

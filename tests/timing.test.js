@@ -1,105 +1,47 @@
 import { test } from 'node:test';
-import { effectiveDeadline } from '../core/editor.js';
+import assert from 'node:assert/strict';
+import { effectiveDeadline } from '../core/timing.js';
 
-function assertEqual(actual, expected, message) {
-  if (actual !== expected) {
-    console.error(`FAIL: ${message}`);
-    console.log('Expected:', expected);
-    console.log('Actual:', actual);
-    process.exit(1);
-  }
-}
+// effectiveDeadline(qStartMs, attemptDeadlineMs, timePerQuestionSec)
+// Возвращает ближайший из двух дедлайнов.
 
-// Тесты для effectiveDeadline
-
-// Оба таймера
-function testBothTimers() {
-  const qStartMs = Date.now();
-  const attemptDeadlineMs = qStartMs + 10000;
-  const timePerQuestionSec = 5;
-  const result = effectiveDeadline(qStartMs, attemptDeadlineMs, timePerQuestionSec);
-  assertEqual(result, attemptDeadlineMs, 'Both timers: min(qDeadline, attemptDeadlineMs)');
-}
-
-// Только один таймер
-function testOnlyQuestionTimer() {
-  const qStartMs = Date.now();
-  const attemptDeadlineMs = Date.now() + 15000;
-  const timePerQuestionSec = 10;
-  const result = effectiveDeadline(qStartMs, null, timePerQuestionSec);
-  assertEqual(result, qStartMs + 10000, 'Only question timer: qDeadline');
-}
-
-// Ни одного таймера
-function testNoTimers() {
-  const qStartMs = Date.now();
-  const timePerQuestionSec = 5;
-  const result = effectiveDeadline(qStartMs, null, null);
-  assertEqual(result, qStartMs + 5000, 'No timers: qDeadline');
-}
-
-// totalTime истёк раньше таймера вопроса
-function testTotalTimeExpiredBeforeQuestion() {
-  const qStartMs = Date.now();
-  const attemptDeadlineMs = qStartMs + 10000;
-  const timePerQuestionSec = 15;
-  const result = effectiveDeadline(qStartMs, attemptDeadlineMs, timePerQuestionSec);
-  assertEqual(result, attemptDeadlineMs, 'Total time expired before question: min(qDeadline, attemptDeadlineMs)');
-}
-
-// totalTime больше, чем сумма времени на вопросы
-function testTotalTimeGreaterThanQuestions() {
-  const qStartMs = Date.now();
-  const attemptDeadlineMs = qStartMs + 20000;
-  const timePerQuestionSec = 3;
-  const questions = 10;
-  const result = effectiveDeadline(qStartMs, attemptDeadlineMs, timePerQuestionSec);
-  assertEqual(result, qStartMs + questions * timePerQuestionSec * 1000, 'Total time greater than questions');
-}
-
-// Тесты запускаются
-
-// Оба таймера
-test('Both timers', () => {
-  const qStartMs = Date.now();
-  const attemptDeadlineMs = qStartMs + 10000;
-  const timePerQuestionSec = 5;
-  const result = effectiveDeadline(qStartMs, attemptDeadlineMs, timePerQuestionSec);
-  assertEqual(result, attemptDeadlineMs, 'Both timers');
+test('оба таймера: вопрос истекает раньше попытки', () => {
+  const qStart = 1_000_000;
+  const attemptDeadline = qStart + 10_000;
+  assert.equal(
+    effectiveDeadline(qStart, attemptDeadline, 5),
+    qStart + 5_000,
+    'должен выбираться дедлайн вопроса'
+  );
 });
 
-// Только один таймер
-test('Only question timer', () => {
-  const qStartMs = Date.now();
-  const attemptDeadlineMs = Date.now() + 15000;
-  const timePerQuestionSec = 10;
-  const result = effectiveDeadline(qStartMs, null, timePerQuestionSec);
-  assertEqual(result, qStartMs + 10000, 'Only question timer');
+test('оба таймера: попытка истекает раньше вопроса', () => {
+  const qStart = 1_000_000;
+  const attemptDeadline = qStart + 4_000;
+  assert.equal(
+    effectiveDeadline(qStart, attemptDeadline, 15),
+    attemptDeadline,
+    'должен выбираться дедлайн попытки'
+  );
 });
 
-// Ни одного таймера
-test('No timers', () => {
-  const qStartMs = Date.now();
-  const timePerQuestionSec = 5;
-  const result = effectiveDeadline(qStartMs, null, null);
-  assertEqual(result, qStartMs + 5000, 'No timers');
+test('только таймер вопроса', () => {
+  const qStart = 1_000_000;
+  assert.equal(effectiveDeadline(qStart, null, 10), qStart + 10_000);
 });
 
-// totalTime истёк раньше таймера вопроса
-test('Total time expired before question', () => {
-  const qStartMs = Date.now();
-  const attemptDeadlineMs = qStartMs + 10000;
-  const timePerQuestionSec = 15;
-  const result = effectiveDeadline(qStartMs, attemptDeadlineMs, timePerQuestionSec);
-  assertEqual(result, attemptDeadlineMs, 'Total time expired before question');
+test('только общий таймер попытки', () => {
+  const qStart = 1_000_000;
+  const attemptDeadline = qStart + 20_000;
+  assert.equal(effectiveDeadline(qStart, attemptDeadline, null), attemptDeadline);
 });
 
-// totalTime больше, чем сумма времени на вопросы
-test('Total time greater than questions', () => {
-  const qStartMs = Date.now();
-  const attemptDeadlineMs = qStartMs + 20000;
-  const timePerQuestionSec = 3;
-  const questions = 10;
-  const result = effectiveDeadline(qStartMs, attemptDeadlineMs, timePerQuestionSec);
-  assertEqual(result, qStartMs + questions * timePerQuestionSec * 1000, 'Total time greater than questions');
+test('таймеров нет — используется значение по умолчанию 5 секунд', () => {
+  const qStart = 1_000_000;
+  assert.equal(effectiveDeadline(qStart, null, null), qStart + 5_000);
+});
+
+test('нулевые значения таймеров трактуются как отсутствие ограничения', () => {
+  const qStart = 1_000_000;
+  assert.equal(effectiveDeadline(qStart, 0, 0), qStart + 5_000);
 });

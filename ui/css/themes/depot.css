@@ -1,24 +1,68 @@
+/* Скин Depot — индустриальный: жёсткие углы, оливково-сигнальный акцент.
+   Светлая и тёмная темы равноправны. */
+
 html[data-ui="depot"] {
-  --bg: #0F1317;
-  --surface: #171C22;
-  --elevated: #1F262E;
-  --border: #2B343E;
-  --text: #E6EBF0;
-  --text-2: #9AA6B2;
-  --accent: #CDEA3F;
-  --on-accent: #0B1018;
-  --warn: #E5B94F;
-  --on-warn: #0B1018;
-  --ok: #5FAE86;
-  --danger: #E07A7F;
-  --focus: #CDEA3F;
-  --danger-bg: #2A1A1E;
-  --danger-border: #5A2A30;
+  --accent-2: #6B5A12;
+  --radius-s: 4px;
+  --radius-m: 6px;
+  --radius-l: 8px;
+}
+
+html[data-ui="depot"][data-theme="light"] {
+  --bg: #F1F2EC;
+  --surface: #FFFFFF;
+  --elevated: #E6E8DE;
+  --border: #CCD0C2;
+  --text: #1B2014;
+  --text-2: #525A46;
+  --accent: #4F6B12;
+  --on-accent: #FFFFFF;
+  --accent-2: #6B5A12;
+  --signal: #F2B233;
+  --warn: #7A4E00;
+  --on-warn: #FFFFFF;
+  --ok: #2A6234;
+  --danger: #9B2C2C;
+  --focus: #4F6B12;
+  --ok-bg: #E3EEDD;
+  --ok-border: #AFCE9F;
+  --warn-bg: #F8EEDA;
+  --warn-border: #E2C173;
+  --danger-bg: #F8E4E4;
+  --danger-border: #E3AEAE;
+  --shadow: 0 1px 2px rgba(27, 32, 20, .06), 0 6px 18px rgba(27, 32, 20, .08);
+  --shadow-lift: 0 2px 4px rgba(27, 32, 20, .08), 0 14px 30px rgba(27, 32, 20, .14);
+}
+
+html[data-ui="depot"][data-theme="dark"] {
+  --bg: #0C0F0A;
+  --surface: #141812;
+  --elevated: #1D231A;
+  --border: #2E3528;
+  --text: #E9EFDD;
+  --text-2: #A7B199;
+  --accent: #C6E04A;
+  --on-accent: #10160A;
+  --accent-2: #E0C86A;
+  --signal: #F2B233;
+  --warn: #F0B45A;
+  --on-warn: #1A1204;
+  --ok: #8BD68A;
+  --danger: #F09A8C;
+  --focus: #C6E04A;
+  --ok-bg: #14240F;
+  --ok-border: #2C4A22;
   --warn-bg: #2A2416;
   --warn-border: #5C4A1E;
-  --ok-bg: #16261F;
-  --ok-border: #24523F;
-  --radius-s: 3px;
-  --radius-m: 4px;
-  --shadow: none;
+  --danger-bg: #2A1A17;
+  --danger-border: #5A2A26;
+  --shadow: 0 1px 0 rgba(255, 255, 255, .04), 0 10px 26px rgba(0, 0, 0, .55);
+  --shadow-lift: 0 2px 0 rgba(255, 255, 255, .05), 0 18px 40px rgba(0, 0, 0, .65);
+}
+
+html[data-ui="depot"][data-theme="light"] {
+  color-scheme: light;
+}
+html[data-ui="depot"][data-theme="dark"] {
+  color-scheme: dark;
 }

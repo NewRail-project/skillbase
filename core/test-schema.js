@@ -1,4 +1,4 @@
-module.exports.emptyTest = function emptyTest() {
+export function emptyTest() {
   return {
     id: null,
     title: "",
@@ -32,7 +32,7 @@ module.exports.emptyTest = function emptyTest() {
   };
 }
 
-module.exports.validateTest = function validateTest(test, { publishing } = {}) {
+export function validateTest(test, { publishing } = {}) {
   const errors = [];
   const warnings = [];
 

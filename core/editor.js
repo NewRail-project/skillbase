@@ -1,7 +1,16 @@
-const { doc, collection, getDoc, setDoc, updateDoc, addDoc, serverTimestamp, deleteDoc, onSnapshot, runTransaction, writeBatch, limit, startAfter, Timestamp, increment, arrayUnion, arrayRemove, documentId } = require('../shared/firebase.js');
-const { State } = require('./auth.js');
-const { parseQuiz } = require('./import/parser.js');
-const { emptyTest, validateTest } = require('./test-schema.js');
+// core/editor.js — создание, публикация и чтение тестов.
+// ES-модуль: раньше файл был на CommonJS (require/module.exports) и не мог
+// исполняться в браузере — страницы тестов падали на импорте.
+
+import {
+  auth, db, doc, collection, getDoc, getDocs, setDoc, updateDoc, addDoc,
+  query, where, serverTimestamp
+} from "../shared/firebase.js";
+import { State } from "./auth.js";
+import { parseQuiz } from "./import/parser.js";
+import { emptyTest, validateTest } from "./test-schema.js";
+
+export { effectiveDeadline } from "./timing.js";
 
 const draftKey = (id) => {
   const uid = auth.currentUser?.uid || State?.user?.uid || "guest";
@@ -21,8 +30,14 @@ function readDraftLocally(id) {
   } catch (_) { return null; }
 }
 
-// Делит тест на публичную часть и ключи
-module.exports.splitForStorage = function splitForStorage(test) {
+function currentOrgId() {
+  return State?.profile?.orgId ?? "default-org";
+}
+
+const byUpdatedDesc = (a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0);
+
+// Делит тест на публичную часть и ключи.
+export function splitForStorage(test) {
   const publicQuestions = [];
   const items = {};
   (test.questions || []).forEach((q, i) => {
@@ -33,7 +48,7 @@ module.exports.splitForStorage = function splitForStorage(test) {
       options: type === "short" ? [] : (q.options || []).map((o) => ({ text: o.text ?? "" })),
       points: q.points || 1,
       required: q.required || false,
-      image: q.image,
+      image: q.image
     });
     if (type === "short") {
       items[String(i)] = { type, answer: String(q.answer ?? "") };
@@ -47,8 +62,8 @@ module.exports.splitForStorage = function splitForStorage(test) {
   return { publicTest: { ...rest, questions: publicQuestions }, keys: items };
 }
 
-// Возвращает правильные ответы в вопросы
-module.exports.mergeKeys = function mergeKeys(publicTest, items) {
+// Возвращает правильные ответы в вопросы (для автора теста).
+export function mergeKeys(publicTest, items) {
   const questions = (publicTest.questions || []).map((q, i) => {
     const k = items?.[String(i)];
     if (!k) return q;
@@ -56,21 +71,14 @@ module.exports.mergeKeys = function mergeKeys(publicTest, items) {
     const set = new Set(k.correct || []);
     return {
       ...q,
-      options: (q.options || []).map((o, j) => {
-        const option = { ...o, correct: set.has(j) };
-        return option;
-      })
+      options: (q.options || []).map((o, j) => ({ ...o, correct: set.has(j) }))
     };
   });
   return { ...publicTest, questions };
 }
 
-function currentOrgId() {
-  return State?.profile?.orgId ?? State?.user?.orgId ?? "default-org";
-}
-
-// Сохраняет тест
-module.exports.saveTest = async function saveTest(testId) {
+// Сохраняет тест: публичная часть — в tests, ответы — в testKeys.
+export async function saveTest(testId) {
   try {
     if (!navigator.onLine) throw new Error("Нет подключения к интернету. Черновик сохранён локально.");
     const uid = auth.currentUser?.uid || State?.user?.uid;
@@ -83,13 +91,11 @@ module.exports.saveTest = async function saveTest(testId) {
     const orgId = currentOrgId();
 
     await setDoc(doc(db, "tests", id), {
-      ...publicTest, id, authorId: uid, orgId, updatedAt: serverTimestamp(),
-      version: 1
+      ...publicTest, id, authorId: uid, orgId, updatedAt: serverTimestamp(), version: 1
     }, { merge: true });
 
     await setDoc(doc(db, "testKeys", id), {
-      authorId: uid, orgId, items: keys, updatedAt: serverTimestamp(),
-      version: 1
+      authorId: uid, orgId, items: keys, updatedAt: serverTimestamp(), version: 1
     });
 
     saveDraftLocally();
@@ -101,7 +107,7 @@ module.exports.saveTest = async function saveTest(testId) {
   }
 }
 
-module.exports.parseQuizText = function parseQuizText(quizText) {
+export function parseQuizText(quizText) {
   try {
     return parseQuiz(quizText);
   } catch (error) {
@@ -110,17 +116,22 @@ module.exports.parseQuizText = function parseQuizText(quizText) {
   }
 }
 
-module.exports.getCurrentTest = function getCurrentTest() {
+export function getCurrentTest() {
   return JSON.parse(JSON.stringify(currentTest));
 }
 
-module.exports.updateTest = function updateTest(updates) {
+export function updateTest(updates) {
   Object.assign(currentTest, updates);
   saveDraftLocally();
 }
 
-// Публикация теста
-module.exports.publishTest = async function publishTest(testId) {
+export function resetTest(test) {
+  currentTest = { ...emptyTest(), ...(test || {}) };
+  return getCurrentTest();
+}
+
+// Публикация теста.
+export async function publishTest(testId) {
   try {
     if (!navigator.onLine) throw new Error("Нет подключения к интернету. Публикация невозможна.");
     const id = await saveTest(testId);
@@ -128,12 +139,12 @@ module.exports.publishTest = async function publishTest(testId) {
 
     const version = await addDoc(collection(db, "tests", id, "versions"), {
       ...publicTest, id, createdAt: serverTimestamp(), status: "published",
-      version: currentTest.version + 1
+      version: (currentTest.version || 1) + 1
     });
     await updateDoc(doc(db, "tests", id), {
       status: "published",
       publishedAt: serverTimestamp(),
-      version: currentTest.version + 1
+      version: (currentTest.version || 1) + 1
     });
     currentTest.status = "published";
     return version.id;
@@ -143,8 +154,7 @@ module.exports.publishTest = async function publishTest(testId) {
   }
 }
 
-// Загрузка теста
-module.exports.loadTest = async function loadTest(testId) {
+export async function loadTest(testId) {
   try {
     if (!navigator.onLine) {
       const local = readDraftLocally(testId);
@@ -160,7 +170,7 @@ module.exports.loadTest = async function loadTest(testId) {
       const keysSnap = await getDoc(doc(db, "testKeys", testId));
       if (keysSnap.exists()) test = mergeKeys(test, keysSnap.data().items);
     } catch (_) {
-      // нет прав на ключи (не автор): остаётся публичная часть
+      // Нет прав на ключи (не автор): остаётся публичная часть.
     }
 
     currentTest = { ...emptyTest(), ...test };
@@ -171,8 +181,8 @@ module.exports.loadTest = async function loadTest(testId) {
   }
 }
 
-// Ключи ответов теста
-module.exports.getTestKeys = async function getTestKeys(testId) {
+// Ключи ответов теста. Доступны только автору/администратору по правилам.
+export async function getTestKeys(testId) {
   try {
     const snap = await getDoc(doc(db, "testKeys", testId));
     return snap.exists() ? snap.data().items : null;
@@ -181,7 +191,7 @@ module.exports.getTestKeys = async function getTestKeys(testId) {
   }
 }
 
-module.exports.loadDraft = function loadDraft(testId) {
+export function loadDraft(testId) {
   try {
     const local = readDraftLocally(testId);
     if (local) {
@@ -195,15 +205,33 @@ module.exports.loadDraft = function loadDraft(testId) {
   }
 }
 
-module.exports.effectiveDeadline = function effectiveDeadline(qStartMs, attemptDeadlineMs, timePerQuestionSec) {
-  if (!attemptDeadlineMs) return qStartMs + (timePerQuestionSec || 5) * 1000;
-  if (!timePerQuestionSec) return attemptDeadlineMs;
-  
-  const qDeadline = qStartMs + timePerQuestionSec * 1000;
-  return Math.min(qDeadline, attemptDeadlineMs);
-}
-
-module.exports.validateTestDraft = function validateTestDraft(test) {
+export function validateTestDraft(test) {
   const { errors, warnings } = validateTest(test, { publishing: false });
   return { errors, warnings };
+}
+
+// ---------- Списки тестов ----------
+
+// Тесты, созданные преподавателем.
+export async function listMyTests(uid) {
+  const snap = await getDocs(query(collection(db, "tests"), where("authorId", "==", uid)));
+  return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byUpdatedDesc);
+}
+
+// Опубликованные тесты организации (для студентов).
+// Запрос требует составного индекса orgId + status — см. firestore.indexes.json.
+export async function listPublishedTests(orgId) {
+  const snap = await getDocs(query(
+    collection(db, "tests"),
+    where("orgId", "==", orgId),
+    where("status", "==", "published")
+  ));
+  return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byUpdatedDesc);
+}
+
+export async function setTestStatus(testId, status) {
+  await updateDoc(doc(db, "tests", testId), {
+    status,
+    updatedAt: serverTimestamp()
+  });
 }

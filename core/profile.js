@@ -1,10 +1,12 @@
 import { db } from "../shared/firebase.js";
-import { doc, getDoc, updateDoc, writeBatch, serverTimestamp, query, where, getDocs, collection, documentId } from "../shared/firebase.js";
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp, query, where, getDocs, collection } from "../shared/firebase.js";
+import { State } from "./auth.js";
 
-export function displayName(profile, { viewerIsStaff, uid }) {
-  if (profile.fullName) return profile.fullName;
-  if (viewerIsStaff && profile.email) return profile.email.split('@')[0];
-  return "Участник ·" + (uid || "").slice(-4);
+export function displayName(profile, { viewerIsStaff, uid } = {}) {
+  if (profile && profile.fullName) return profile.fullName;
+  if (viewerIsStaff && profile && profile.email) return profile.email.split('@')[0];
+  const suffix = (uid || profile?.uid || "").slice(-4);
+  return suffix ? "Участник ·" + suffix : "Участник";
 }
 
 export function initialsAvatar(name, uid) {
@@ -46,24 +48,45 @@ export async function processAvatarFile(file) {
   });
 }
 
-export async function saveProfile(uid, patch, publicPatch, profileData) {
-  try {
-    const batch = writeBatch(db);
-    batch.update(doc(db, "users", uid), patch);
-    batch.set(doc(db, "publicProfiles", uid), { ...publicPatch, updatedAt: serverTimestamp() }, { merge: true });
-    await batch.commit();
+// Сохраняет личные поля профиля. Набор полей совпадает с правилом update
+// в firestore.rules; роль и организацию здесь изменить нельзя.
+export async function saveProfile(uid, patch, publicPatch) {
+  const allowed = ["fullName", "position", "department", "ui", "themeMode"];
+  const clean = {};
+  for (const key of allowed) {
+    if (patch && patch[key] !== undefined) clean[key] = patch[key];
+  }
+  if (clean.fullName !== undefined) {
+    const check = validateFullName(clean.fullName);
+    if (!check.ok) throw new Error(check.error);
+    clean.fullName = check.value;
+  }
+  if (!Object.keys(clean).length && !publicPatch) return State.profile;
 
-    // Обновляем State.profile
-    const docRef = doc(db, "users", uid);
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) {
-      const updatedProfile = { ...docSnap.data(), ...patch };
-      State.profile = updatedProfile;
+  try {
+    if (Object.keys(clean).length) {
+      await updateDoc(doc(db, "users", uid), clean);
+    }
+    if (publicPatch) {
+      // Документа может ещё не быть — setDoc с merge создаст его.
+      await setDoc(doc(db, "publicProfiles", uid), {
+        ...publicPatch,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
     }
   } catch (error) {
     console.error("Ошибка сохранения профиля:", error);
-    throw new Error("Не удалось сохранить профиль");
+    throw new Error("Не удалось сохранить профиль. Проверьте подключение и права доступа.");
   }
+
+  const docSnap = await getDoc(doc(db, "users", uid));
+  if (docSnap.exists()) {
+    // uid берём из документа-ссылки: в data() его нет.
+    State.profile = { ...docSnap.data(), uid };
+  } else {
+    State.profile = { ...State.profile, ...clean, uid };
+  }
+  return State.profile;
 }
 
 export async function loadPublicProfiles(uids) {
@@ -83,17 +106,22 @@ export async function loadPublicProfiles(uids) {
 export async function resolveNames(uids, { viewerIsStaff }) {
   const profiles = await loadPublicProfiles(uids);
   const nameMap = new Map();
-  profiles.forEach(p => nameMap.set(p.uid, displayName(p, { viewerIsStaff })));
-  
+  // Документ publicProfiles хранит uid в id, а не в поле data().uid.
+  profiles.forEach(p => nameMap.set(p.id, displayName(p, { viewerIsStaff })));
+
   return uids.map(uid => nameMap.get(uid) || "Участник").join(", ");
 }
 
-export function computeProfileStats(attempts) {
+export function computeProfileStats(attempts, passPercent = 60) {
   if (!attempts || attempts.length === 0) return null;
-  const finished = attempts.filter(a => a.status === 'graded');
-  if (finished.length === 0) return { total: attempts.length, graded: 0, avg: 0, passed: 0 };
-  
-  const avg = finished.reduce((acc, a) => acc + (a.percent || 0), 0) / finished.length;
-  const passed = finished.filter(a => a.passed).length;
-  return { total: attempts.length, graded: finished.length, avg: Math.round(avg), passed };
+  // Попытка хранит score/total; percent может отсутствовать у старых записей.
+  const graded = attempts.filter(a => a.status === "graded" && a.total);
+  if (!graded.length) return { total: attempts.length, graded: 0, avg: 0, passed: 0 };
+
+  const percents = graded.map(a => Number.isFinite(a.percent)
+    ? a.percent
+    : Math.round(((a.score || 0) / a.total) * 100));
+  const avg = Math.round(percents.reduce((sum, p) => sum + p, 0) / percents.length);
+  const passed = percents.filter(p => p >= passPercent).length;
+  return { total: attempts.length, graded: graded.length, avg, passed };
 }

@@ -1,4 +1,11 @@
-/* Общие токены: шкала отступов, размеры, движение. Цвета лежат в themes/*.css. */
+/* ============================================================
+   Skillbase — общие токены: отступы, размеры, движение, шрифты.
+   Цветовые значения живут в themes/*.css и зависят от:
+     data-ui    — скин интерфейса (education / operations / depot)
+     data-theme — светлая или тёмная тема (light / dark)
+   Оба атрибута ставятся на <html>. Скин не отменяет тему.
+   ============================================================ */
+
 :root {
   --space-1: 4px;
   --space-2: 8px;
@@ -6,39 +13,83 @@
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
 
   --tap: 44px;
   --dur-fast: 120ms;
   --dur: 200ms;
-  --sidebar-w: 264px;
-  --topbar-h: 56px;
+  --dur-slow: 420ms;
+  --ease: cubic-bezier(.2, .7, .3, 1);
 
-  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --sidebar-w: 268px;
+  --topbar-h: 60px;
+  --content-max: 1180px;
+
+  --font: "Inter", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
-  /* значения по умолчанию, если тема не выбрана (= Education) */
-  --bg: #F4F6FF;
-  --surface: #FFFFFF;
-  --elevated: #EEF1FF;
-  --border: #D9DEF5;
-  --text: #1B1F3B;
-  --text-2: #555C7A;
-  --accent: #4F46E5;
-  --on-accent: #FFFFFF;
-  --warn: #B45309;
-  --on-warn: #FFFFFF;
-  --ok: #166534;
-  --danger: #B91C1C;
-  --focus: #4F46E5;
-  --ok-bg: #E7F6EC;
-  --ok-border: #A3E6A0;
-  --warn-bg: #FFF4E0;
-  --warn-border: #FCD34D;
-  --danger-bg: #FDECEC;
-  --danger-border: #FECACA;
   --radius-s: 10px;
   --radius-m: 14px;
-  --shadow: 0 4px 16px rgba(27, 31, 59, 0.06);
+  --radius-l: 20px;
+  --radius-pill: 999px;
+
+  /* Значения по умолчанию (education, светлая), если тема не загрузилась. */
+  --bg: #F5F3EF;
+  --surface: #FFFFFF;
+  --elevated: #EDE9E2;
+  --border: #D8D2C7;
+  --text: #15212B;
+  --text-2: #54626E;
+  --accent: #1B5A7A;
+  --on-accent: #FFFFFF;
+  --accent-2: #0E6B5C;
+  --signal: #F2B233;
+  --warn: #8A5A00;
+  --on-warn: #FFFFFF;
+  --ok: #1E6B47;
+  --danger: #A32B2B;
+  --focus: #1B5A7A;
+  --ok-bg: #E4F3EA;
+  --ok-border: #A9D8BD;
+  --warn-bg: #FBF0DC;
+  --warn-border: #E7C67E;
+  --danger-bg: #FAE6E6;
+  --danger-border: #E7B4B4;
+  --shadow: 0 1px 2px rgba(21, 33, 43, .05), 0 10px 30px rgba(21, 33, 43, .07);
+  --shadow-lift: 0 2px 4px rgba(21, 33, 43, .06), 0 18px 44px rgba(21, 33, 43, .12);
+
+  /* Шапка с железной дорогой */
+  --hero-sky-1: #D9E6F0;
+  --hero-sky-2: #EBE5DA;
+  --hero-sky-3: #F5F3EF;
+  --hero-glow: #F2B233;
+  --hero-far: #7C8A96;
+  --hero-mast: #6A7885;
+  --hero-sleeper: #9A8B77;
+  --hero-rail: #5A6874;
+  --hero-ballast-1: #BCB1A0;
+  --hero-ballast-2: #D6CDBE;
+  --hero-fade: rgba(245, 243, 239, .86);
+  --hero-scrim: linear-gradient(100deg, rgba(245, 243, 239, .97) 0%, rgba(245, 243, 239, .88) 42%, rgba(245, 243, 239, .35) 74%, rgba(245, 243, 239, 0) 100%);
+  --hero-ink: #15212B;
+}
+
+/* Ночная железная дорога: единая для всех скинов — меняется только акцент. */
+html[data-theme="dark"] {
+  --hero-sky-1: #070C12;
+  --hero-sky-2: #0F1C28;
+  --hero-sky-3: #0D1218;
+  --hero-glow: #F2B233;
+  --hero-far: #2C3D4C;
+  --hero-mast: #4A5D6E;
+  --hero-sleeper: #3B4956;
+  --hero-rail: #9DB0C2;
+  --hero-ballast-1: #1B2530;
+  --hero-ballast-2: #121A22;
+  --hero-fade: rgba(13, 18, 24, .88);
+  --hero-scrim: linear-gradient(100deg, rgba(13, 18, 24, .97) 0%, rgba(13, 18, 24, .9) 42%, rgba(13, 18, 24, .45) 74%, rgba(13, 18, 24, 0) 100%);
+  --hero-ink: #E7EDF3;
 }
 
 /* Старые имена переменных (ui/editor/EditorStyles.css) -> новые токены */

@@ -1,84 +1,150 @@
+import { h } from "../../shared/dom.js";
 import { parseQuizText, updateTest, saveTest, publishTest } from "../../core/editor.js";
 import { authErrorMessage } from "../../shared/errors.js";
+import { icons } from "../../shared/icons.js";
 
-export default function () {
-  const div = document.createElement("div");
-  div.className = "card";
-  div.innerHTML = `
-    <h2>Создание теста</h2>
-    <div class="form-group">
-      <label for="t-title">Название</label>
-      <input id="t-title" class="form-control" type="text" maxlength="120" />
-    </div>
-    <div class="form-group">
-      <label for="quiz-text">Вопросы</label>
-      <textarea id="quiz-text" class="form-control" rows="10"
-        placeholder="1. Столица Франции?&#10;A) Берлин&#10;B) Париж [+]&#10;C) Рим"></textarea>
-    </div>
-    <p class="hint">Правильный ответ отмечайте [+]. Короткий ответ: «1. Вопрос? Ответ: текст».</p>
-    <button type="button" class="primary" id="parse-btn">Разобрать</button>
-    <div id="preview"></div>
-    <div id="status" role="status"></div>
-    <div class="button-group" id="actions" hidden>
-      <button type="button" class="secondary" id="save-btn">Сохранить черновик</button>
-      <button type="button" class="primary" id="publish-btn">Опубликовать</button>
-    </div>
-  `;
+const EXAMPLE = `1. Какой сигнал разрешает движение?
+A) Красный
+B) Зелёный [+]
+C) Жёлтый
 
-  const $ = (s) => div.querySelector(s);
-  const preview = $("#preview"), status = $("#status"), actions = $("#actions");
+2. Что означает жёлтый сигнал?
+A) Стой
+B) Разрешено движение с готовностью остановиться [+]
+C) Ограничение скорости`;
+
+function errorText(err) {
+  if (err?.code === "permission-denied") {
+    return "Правила Firestore не разрешают запись теста. Сохранение недоступно до настройки правил.";
+  }
+  if (err?.code === "unavailable") {
+    return "Нет связи с Firestore. Черновик сохранён в браузере.";
+  }
+  return err?.message || authErrorMessage(err);
+}
+
+export default function CreateTestPage() {
+  const page = h("div", { class: "page" });
   let parsed = null;
 
-  const say = (text, isError) => {
-    status.className = isError ? "error-msg" : "success-msg";
-    status.textContent = text;
-  };
+  page.appendChild(h("div", { class: "page-head" },
+    h("div", {},
+      h("div", { class: "eyebrow" }, "Преподавателю"),
+      h("h1", {}, "Создание теста"),
+      h("p", { class: "page-sub" }, "Вставьте вопросы в текстовом формате или соберите их вручную. Проверьте предпросмотр перед публикацией.")
+    ),
+    h("div", { class: "page-head-actions" },
+      h("a", { class: "btn secondary", href: "#tests" }, "Мои тесты")
+    )
+  ));
+
+  const status = h("div", { class: "form-error", role: "status", "aria-live": "polite" });
+
+  const titleInput = h("input", {
+    type: "text", id: "t-title", maxlength: "120",
+    placeholder: "Например: Охрана труда на перегоне", autocomplete: "off"
+  });
+  const descriptionInput = h("textarea", {
+    id: "t-description", rows: "2", placeholder: "Короткое описание для каталога"
+  });
+  const quizText = h("textarea", {
+    id: "quiz-text", rows: "12", spellcheck: "false",
+    placeholder: EXAMPLE
+  });
+  const parseBtn = h("button", { type: "button", class: "btn primary" }, "Разобрать вопросы");
+
+  const actions = h("div", { class: "btn-row", hidden: "hidden" },
+    h("button", { type: "button", class: "btn secondary", id: "save-btn" }, "Сохранить черновик"),
+    h("button", { type: "button", class: "btn primary", id: "publish-btn" }, "Опубликовать")
+  );
+
+  const editor = h("form", { class: "panel", novalidate: "novalidate" },
+    h("div", { class: "field" },
+      h("label", { for: "t-title" }, "Название"),
+      titleInput
+    ),
+    h("div", { class: "field" },
+      h("label", { for: "t-description" }, "Описание"),
+      descriptionInput
+    ),
+    h("div", { class: "field" },
+      h("label", { for: "quiz-text" }, "Вопросы"),
+      quizText,
+      h("span", { class: "form-hint" },
+        "Правильный ответ отмечайте [+], [правильный] или * в конце строки. Несколько отмеченных вариантов — вопрос с множественным выбором. Короткий ответ: «Ответ: текст».")
+    ),
+    status,
+    h("div", { class: "btn-row" }, parseBtn),
+    actions
+  );
+
+  const preview = h("section", { class: "panel" },
+    h("div", { class: "section-title" },
+      h("h2", {}, "Предпросмотр"),
+      h("span", { class: "muted", id: "preview-count" }, "не разобрано")
+    ),
+    h("div", { id: "preview-body" },
+      h("div", { class: "empty-state" },
+        h("div", { class: "empty-state-icon", innerHTML: icons.book }),
+        h("p", { class: "muted" }, "Вставьте вопросы и нажмите «Разобрать вопросы».")
+      )
+    )
+  );
+
+  page.append(h("div", { class: "split" }, editor, preview));
+
+  const previewBody = preview.querySelector("#preview-body");
+  const previewCount = preview.querySelector("#preview-count");
+
+  function say(text, isError) {
+    status.textContent = text || "";
+    status.className = isError ? "form-error" : "form-hint";
+    status.style.color = isError ? "" : "var(--ok)";
+  }
 
   function renderPreview(result) {
-    preview.textContent = "";
-    const h = document.createElement("h3");
-    h.textContent = `Вопросов: ${result.questions.length}`;
-    preview.appendChild(h);
+    previewBody.textContent = "";
+    previewCount.textContent = `${result.questions.length} вопросов`;
+
+    if (!result.questions.length) {
+      previewBody.appendChild(h("div", { class: "empty-state" },
+        h("p", { class: "muted" }, "Вопросы не распознаны. Проверьте формат.")
+      ));
+    }
 
     result.questions.forEach((q, i) => {
-      const box = document.createElement("div");
-      box.className = "question";
-      const t = document.createElement("h4");
-      t.textContent = `${i + 1}. ${q.text}`;
-      box.appendChild(t);
+      const box = h("div", { class: "item" },
+        h("div", { class: "list-row-title" }, `${i + 1}. ${q.text}`),
+        h("div", { class: "list-row-sub" },
+          `${q.type === "short" ? "Короткий ответ" : q.type === "multiple" ? "Несколько ответов" : "Один ответ"} · ${q.points || 1} б.`)
+      );
       if (q.type === "short") {
-        const a = document.createElement("div");
-        a.className = "option correct";
-        a.textContent = `Ответ: ${q.answer}`;
-        box.appendChild(a);
+        box.appendChild(h("div", { class: "option correct" }, `Ответ: ${q.answer}`));
       } else {
-        const opts = document.createElement("div");
-        opts.className = "options";
-        q.options.forEach((o) => {
-          const row = document.createElement("div");
-          row.className = o.correct ? "option correct" : "option";
-          row.textContent = (o.correct ? "✓ " : "") + o.text;
-          opts.appendChild(row);
+        const opts = h("div", { class: "options" });
+        (q.options || []).forEach(o => {
+          opts.appendChild(h("div", { class: o.correct ? "option correct" : "option" },
+            (o.correct ? "✓ " : "") + o.text));
         });
         box.appendChild(opts);
       }
-      preview.appendChild(box);
+      previewBody.appendChild(box);
     });
 
-    if (result.errors && result.errors.length) {
-      const e = document.createElement("div");
-      e.className = "error-msg";
-      e.textContent = result.errors.join("\n");
-      preview.appendChild(e);
+    if (result.errors?.length) {
+      previewBody.appendChild(h("div", { class: "form-error" }, result.errors.join("\n")));
     }
   }
 
-  $("#parse-btn").addEventListener("click", async () => {
-    status.textContent = "";
+  parseBtn.addEventListener("click", async () => {
+    say("");
     try {
-      parsed = await parseQuizText($("#quiz-text").value);
+      parsed = await parseQuizText(quizText.value);
       renderPreview(parsed);
-      actions.hidden = !(parsed.questions.length && !(parsed.errors && parsed.errors.length));
+      const ok = parsed.questions.length && !(parsed.errors && parsed.errors.length);
+      actions.hidden = !ok;
+      if (!ok) say("Исправьте ошибки в вопросах — публикация недоступна.", true);
+      else say(`Распознано вопросов: ${parsed.questions.length}.`, false);
     } catch (e) {
       actions.hidden = true;
       say(e.message, true);
@@ -86,23 +152,37 @@ export default function () {
   });
 
   async function persist(publish) {
-    const title = $("#t-title").value.trim();
-    if (!title) { say("Введите название теста.", true); return; }
+    const title = titleInput.value.trim();
+    if (!title) { say("Введите название теста.", true); titleInput.focus(); return; }
     if (!parsed || !parsed.questions.length) { say("Сначала разберите вопросы.", true); return; }
-    $("#save-btn").disabled = $("#publish-btn").disabled = true;
+
+    const saveBtn = actions.querySelector("#save-btn");
+    const publishBtn = actions.querySelector("#publish-btn");
+    saveBtn.disabled = publishBtn.disabled = true;
+    const label = publish ? "Публикуем…" : "Сохраняем…";
+    (publish ? publishBtn : saveBtn).textContent = label;
+
     try {
-      updateTest({ title, questions: parsed.questions });
-      if (publish) await publishTest(); else await saveTest();
+      updateTest({
+        title,
+        description: descriptionInput.value.trim(),
+        questions: parsed.questions
+      });
+      if (publish) await publishTest();
+      else await saveTest();
       say(publish ? "Тест опубликован." : "Черновик сохранён.", false);
     } catch (e) {
       console.error(e);
-      say(e && e.code ? authErrorMessage(e) : (e.message || "Не удалось сохранить."), true);
+      say(errorText(e), true);
     } finally {
-      $("#save-btn").disabled = $("#publish-btn").disabled = false;
+      saveBtn.disabled = publishBtn.disabled = false;
+      saveBtn.textContent = "Сохранить черновик";
+      publishBtn.textContent = "Опубликовать";
     }
   }
-  $("#save-btn").addEventListener("click", () => persist(false));
-  $("#publish-btn").addEventListener("click", () => persist(true));
 
-  return div;
+  actions.querySelector("#save-btn").addEventListener("click", () => persist(false));
+  actions.querySelector("#publish-btn").addEventListener("click", () => persist(true));
+
+  return page;
 }

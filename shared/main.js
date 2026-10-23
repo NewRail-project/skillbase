@@ -1,7 +1,8 @@
 import { initAuth, subscribe, State } from '../core/auth.js';
 import { initRouter, router } from './app.js';
 import { renderSidebar, initSidebar, setSidebarOpen } from '../ui/components/sidebar.js';
-import { getThemeMode, setThemeMode, getThemeVariables } from './theme.js';
+import { initTheme, toggleTheme, getTheme, subscribeTheme } from './theme.js';
+import { icons } from './icons.js';
 
 function mountSidebar() {
   const box = document.getElementById("sidebar-container");
@@ -12,14 +13,53 @@ function mountSidebar() {
   if (loggedIn) box.appendChild(renderSidebar(mountSidebar));
 }
 
-document.addEventListener('DOMContentLoaded', async () => {
+// Кнопка темы в шапке: иконка и подпись отражают фактическое состояние.
+function paintThemeButton() {
+  const btn = document.getElementById("theme-toggle");
+  if (!btn) return;
+  const theme = getTheme();
+  const next = theme === "dark" ? "светлую" : "тёмную";
+  btn.innerHTML = theme === "dark" ? icons.sun : icons.moon;
+  btn.setAttribute("aria-label", `Включить ${next} тему`);
+  btn.setAttribute("title", `Включить ${next} тему`);
+  btn.dataset.theme = theme;
+}
+
+function initThemeToggle() {
+  const btn = document.getElementById("theme-toggle");
+  if (!btn) return;
+  btn.addEventListener("click", () => toggleTheme());
+  paintThemeButton();
+  subscribeTheme(() => {
+    paintThemeButton();
+    // Боковая панель показывает название текущей темы — перерисовываем её.
+    mountSidebar();
+  });
+}
+
+// Перерисовываем страницу только при смене пользователя или данных профиля.
+// Смена темы и скина применяется к уже отрисованной странице через CSS.
+function renderKey() {
+  const p = State.profile || {};
+  return [State.user?.uid || "guest", State.profileStatus, p.fullName || "", p.position || "", p.department || ""].join("|");
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+  initTheme();
+  initThemeToggle();
   initSidebar();
   await initAuth();
-  initRouter();
+
+  let key = renderKey();
+  initRouter(); // вешает обработчик hashchange и рисует первую страницу
 
   subscribe(() => {
     mountSidebar();
-    router();
+    const next = renderKey();
+    if (next !== key) {
+      key = next;
+      router();
+    }
   });
 
   window.addEventListener("hashchange", () => {
@@ -27,15 +67,5 @@ document.addEventListener('DOMContentLoaded', async () => {
     mountSidebar();
   });
 
-  // Обработка изменения темы
-  window.addEventListener('themeChanged', () => {
-    const theme = document.documentElement.getAttribute('data-theme');
-    const themeVariables = getThemeVariables(theme);
-    const allComponents = document.querySelectorAll('[data-theme]');
-    allComponents.forEach(component => {
-      Object.entries(themeVariables).forEach(([key, value]) => {
-        component.style.setProperty(key, value);
-      });
-    });
-  });
+  document.body.classList.add("ready");
 });
