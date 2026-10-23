@@ -1,6 +1,8 @@
 import { State, isStaff } from "../../core/auth.js";
 import { listMyTests, listPublishedTests, setTestStatus } from "../../core/editor.js";
 import { escapeHtml, formatDate } from "../../shared/utils.js";
+import { empty } from "../../ui/components/empty.js";
+import { error } from "../../ui/components/error.js";
 
 export default async function () {
   const div = document.createElement("div");
@@ -15,21 +17,23 @@ export default async function () {
     try {
       const tests = staff ? await listMyTests(State.user.uid) : await listPublishedTests(State.profile.orgId);
       if (!tests.length) {
-        list.innerHTML = `<p class="muted">${staff ? "Вы ещё не создали ни одного теста." : "Пока нет опубликованных тестов."}</p>`;
+        list.replaceChildren(empty({ text: staff ? "Вы ещё не создали ни одного теста." : "Пока нет опубликованных тестов." }));
         return;
       }
       list.innerHTML = tests.map(t => `
         <div class="item">
           <h3>${escapeHtml(t.title)}</h3>
           <p class="muted">Вопросов: ${t.questions?.length || 0} · ${t.timePerQuestion ? t.timePerQuestion + " сек/вопрос" : "без лимита времени"} · ${formatDate(t.createdAt)}</p>
+          <span class="status-pills ${t.status === "published" ? "status-ok" : "status-wait"}">
+            ${t.status === "published" ? "✓ опубликован" : "● черновик"}
+          </span>
           ${staff
-            ? `<p><span class="tag ${t.status === "published" ? "ok" : "wait"}">${t.status === "published" ? "опубликован" : "черновик"}</span></p>
-               <div class="row-actions"><button type="button" class="secondary toggle" data-id="${t.id}" data-status="${t.status}">${t.status === "published" ? "Снять с публикации" : "Опубликовать"}</button></div>`
+            ? `<div class="row-actions"><button type="button" class="secondary toggle" data-id="${t.id}" data-status="${t.status}">${t.status === "published" ? "Снять с публикации" : "Опубликовать"}</button></div>`
             : `<a class="btn" href="#quiz/${encodeURIComponent(t.id)}">Начать</a>`}
         </div>`).join("");
     } catch (e) {
       console.error(e);
-      list.innerHTML = `<p class="error-msg">Не удалось загрузить тесты: ${escapeHtml(e.code || e.message)}</p>`;
+      list.replaceChildren(error({ text: "Не удалось загрузить тесты: " + (e.code || e.message) }));
     }
   }
 

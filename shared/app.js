@@ -1,4 +1,7 @@
 import { State, applyTheme } from "../core/auth.js";
+import { loading } from "../ui/components/loading.js";
+import { empty } from "../ui/components/empty.js";
+import { error } from "../ui/components/error.js";
 
 const STAFF = ["teacher", "admin"];
 
@@ -43,16 +46,16 @@ export async function router() {
 
   updateNav();
 
-  if (!route) { app.replaceChildren(message("Страница не найдена")); return; }
+  if (!route) { app.replaceChildren(error({ text: "Страница не найдена" })); return; }
   if (route.auth && !State.user) { window.location.hash = "#login"; return; }
   if (route.guest && State.user) { window.location.hash = ""; return; }
   if (route.roles && !route.roles.includes(State.profile?.role)) {
-    app.replaceChildren(message("Нет доступа к этой странице"));
+    app.replaceChildren(error({ text: "Нет доступа к этой странице" }));
     return;
   }
 
   document.title = `${route.title} — Skillbase`;
-  app.innerHTML = `<div class="card"><div class="spinner"></div></div>`;
+  app.replaceChildren(loading());
 
   try {
     const module = await import(`../ui/pages/${route.file}`);
@@ -62,22 +65,43 @@ export async function router() {
     app.replaceChildren(el);
   } catch (err) {
     console.error("Router error:", err);
-    if (token === renderToken) app.replaceChildren(message("Ошибка загрузки страницы: " + (err.message || err)));
+    if (token === renderToken) app.replaceChildren(error({ text: "Ошибка загрузки страницы: " + (err.message || err) }));
   }
 }
 
 export function updateNav() {
   const nav = document.getElementById("nav");
-  if (!nav) return;
+  const bottomNav = document.getElementById("bottom-nav");
   const hash = (window.location.hash.slice(1) || "").split("/")[0];
   const role = State.profile?.role;
+
   const links = State.user
-    ? [["", "Главная"], ["tests", "Тесты"], ["results", "Результаты"],
-       ...(STAFF.includes(role) ? [["create-test", "Создать"]] : []),
-       ...(role === "admin" ? [["users", "Люди"]] : []),
-       ["profile", "Профиль"]]
-    : [["login", "Вход"], ["register", "Регистрация"]];
-  nav.innerHTML = links.map(([h, t]) => `<a href="#${h}" class="${hash === h ? "active" : ""}">${t}</a>`).join("");
+    ? [
+        ["", "Главная", "home"],
+        ["tests", "Тесты", "tests"],
+        ["results", "Результаты", "results"],
+        ...(STAFF.includes(role) ? [["create-test", "Создать", "create"]] : []),
+        ...(role === "admin" ? [["users", "Люди", "users"]] : []),
+        ["profile", "Профиль", "profile"]
+      ]
+    : [
+        ["login", "Вход", "login"],
+        ["register", "Регистрация", "register"]
+      ];
+
+  const render = (container, className) => {
+    if (!container) return;
+    container.innerHTML = links.map(([h, t, iconName]) => {
+      const icon = iconHTML(iconName);
+      return `<a href="#${h}" class="${hash === h ? "active" : ""} ${className}" aria-current="${h === hash ? "page" : "false"}">
+        ${icon}
+        <span>${t}</span>
+      </a>`;
+    }).join("");
+  };
+
+  render(nav, "navigation-item");
+  render(bottomNav, "bottom-nav-item");
 }
 
 export function initRouter() {

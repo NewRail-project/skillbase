@@ -2,6 +2,31 @@ import { State } from "../../core/auth.js";
 import { loadTest } from "../../core/editor.js";
 import { submitAttempt } from "../../core/attempts.js";
 import { escapeHtml } from "../../shared/utils.js";
+import { empty } from "../../ui/components/empty.js";
+import { error } from "../../ui/components/error.js";
+
+function routeIndicator(current, total) {
+  if (total <= 12) {
+    return `<div class="route-indicator">
+      ${Array(total).fill().map((_, i) => `
+        <div class="route-stop ${i < current ? "route-stop-passed" : i === current ? "route-stop-current" : ""}">
+          ${i < current ? "✓" : i === current ? "◐" : "○"}
+        </div>`).join("")}
+    </div>`;
+  } else {
+    return `<div class="progress-bar">
+      <div class="progress-fill" style="width: ${(current / total) * 100}%"></div>
+    </div>`;
+  }
+}
+
+function timerDisplay(seconds) {
+  return `<div class="timer-tile">
+    <div class="timer-label">Осталось</div>
+    <div class="timer-value">${seconds}</div>
+    <div class="timer-unit">сек</div>
+  </div>`;
+}
 
 export default async function QuizPage({ params }) {
   const div = document.createElement("div");
@@ -10,7 +35,10 @@ export default async function QuizPage({ params }) {
   let interval = null;
   div._cleanup = () => clearInterval(interval);
 
-  const fail = (text) => { div.innerHTML = `<p class="error-msg"></p><a class="btn" href="#tests">К списку тестов</a>`; div.querySelector("p").textContent = text; return div; };
+  const fail = (text) => {
+    div.replaceChildren(error({ text, retryText: "К списку тестов", onRetry: () => window.location.hash = "#tests" }));
+    return div;
+  };
 
   if (!testId) return fail("Тест не указан.");
 
@@ -61,9 +89,11 @@ export default async function QuizPage({ params }) {
         <a class="btn" href="#results">Мои результаты</a>`;
     } catch (e) {
       console.error(e);
-      div.innerHTML = `<p class="error-msg"></p><button type="button" id="retry">Отправить ещё раз</button>`;
-      div.querySelector("p").textContent = "Не удалось отправить: " + (e.code || e.message);
-      div.querySelector("#retry").addEventListener("click", finish);
+      div.replaceChildren(error({
+        text: "Не удалось отправить: " + (e.code || e.message),
+        retryText: "Отправить ещё раз",
+        onRetry: finish
+      }));
     }
   }
 
@@ -78,16 +108,21 @@ export default async function QuizPage({ params }) {
       ? `<input type="text" id="short" class="form-control" autocomplete="off" placeholder="Ваш ответ" value="${escapeHtml(saved ?? "")}" />`
       : `<div class="options">${(q.options || []).map((o, i) => {
           const checked = isMulti ? (saved || []).includes(i) : saved === i;
-          return `<div class="option"><label><input type="${isMulti ? "checkbox" : "radio"}" name="answer" value="${i}" ${checked ? "checked" : ""}> <span>${escapeHtml(o.text)}</span></label></div>`;
+          return `<div class="option ${checked ? "option-selected" : ""}">
+            <label>
+              <input type="${isMulti ? "checkbox" : "radio"}" name="answer" value="${i}" ${checked ? "checked" : ""}>
+              <span>${escapeHtml(o.text)}</span>
+            </label>
+          </div>`;
         }).join("")}</div>`;
 
     div.innerHTML = `
       <h3>${escapeHtml(test.title)}</h3>
-      <div class="quiz-progress"><i style="width:${(idx / qs.length) * 100}%"></i></div>
+      ${routeIndicator(idx, qs.length)}
       <p class="muted">Вопрос ${idx + 1} из ${qs.length}${isMulti ? " · выберите все верные" : ""}</p>
       <p><b>${escapeHtml(q.text)}</b></p>
       ${body}
-      ${test.timePerQuestion > 0 ? `<p class="timer">Осталось: <span id="t">${test.timePerQuestion}</span> сек</p>` : ""}
+      ${test.timePerQuestion > 0 ? timerDisplay(test.timePerQuestion) : ""}
       <div class="btn-row" style="margin-top:12px">
         <button type="button" class="secondary" id="prev" ${idx === 0 ? "disabled" : ""}>Назад</button>
         <button type="button" id="next">${last ? "Завершить" : "Далее"}</button>
@@ -98,10 +133,10 @@ export default async function QuizPage({ params }) {
 
     if (test.timePerQuestion > 0) {
       let left = test.timePerQuestion;
-      const t = div.querySelector("#t");
+      const timerElement = div.querySelector(".timer-value");
       interval = setInterval(() => {
         left--;
-        if (t) t.textContent = left;
+        if (timerElement) timerElement.textContent = left;
         if (left <= 0) { clearInterval(interval); go(1); }
       }, 1000);
     }

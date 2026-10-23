@@ -4,9 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Skillbase</title>
-  <link rel="stylesheet" href="ui/css/style.css?v=6">
-  <link rel="stylesheet" href="ui/css/theme.css?v=6">
-  <link rel="stylesheet" href="ui/css/app.css?v=6">
+  <link rel="stylesheet" href="ui/css/tokens.css?v=7">
+  <link rel="stylesheet" href="ui/css/themes/operations.css?v=7">
+  <link rel="stylesheet" href="ui/css/themes/depot.css?v=7">
+  <link rel="stylesheet" href="ui/css/themes/education.css?v=7">
+  <link rel="stylesheet" href="ui/css/base.css?v=7">
+  <link rel="stylesheet" href="ui/css/components.css?v=7">
   <script>
     // Диагностика: если приложение не запустилось — показываем причину, а не пустой экран
     window.__bootErrors = [];
@@ -25,17 +28,25 @@
 </head>
 <body>
   <div id="app-container" class="app-container">
-    <header>
+    <header class="header">
       <a href="#" class="logo">
-        <svg viewBox="0 0 24 24" fill="none" stroke="#E5B94F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M4 8h16M4 16h16M8 3v18M16 3v18M4 3h16v18H4z"/>
-          <path d="M12 3v18"/>
+        <svg width="24" height="24" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M16 48L240 48" stroke-linecap="round"/>
+          <path d="M16 96L240 96" stroke-linecap="round"/>
+          <path d="M16 64L20 80" stroke-linecap="round"/>
+          <path d="M48 64L52 80" stroke-linecap="round"/>
+          <path d="M80 64L84 80" stroke-linecap="round"/>
+          <path d="M112 64L116 80" stroke-linecap="round"/>
+          <path d="M144 64L148 80" stroke-linecap="round"/>
+          <path d="M176 64L180 80" stroke-linecap="round"/>
+          <path d="M208 64L212 80" stroke-linecap="round"/>
         </svg>
         Skillbase
       </a>
-      <nav id="nav"></nav>
+      <nav id="nav" aria-label="Основная"></nav>
     </header>
-    <main id="app"><div class="card"><div class="spinner"></div></div></main>
+    <div class="bottom-nav" id="bottom-nav" aria-label="Основная"></div>
+    <main id="app" class="main-content"><div class="card"><div class="spinner"></div></div></main>
   </div>
 </body>
 </html>

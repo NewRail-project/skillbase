@@ -1,11 +1,30 @@
 import { register } from "../../core/auth.js";
 import { authErrorMessage } from "../../shared/errors.js";
+import { empty } from "../../ui/components/empty.js";
+import { error } from "../../ui/components/error.js";
+import { iconHTML } from "../../ui/icons.js";
+import { applyTheme } from "../../core/auth.js";
 
 export default function () {
   const div = document.createElement("div");
   div.className = "card";
   div.innerHTML = `
-    <h2>Регистрация</h2>
+    <div class="header-section">
+      <div class="logo-bar">
+        <svg width="24" height="24" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M16 48L240 48" stroke-linecap="round"/>
+          <path d="M16 96L240 96" stroke-linecap="round"/>
+          <path d="M16 64L20 80" stroke-linecap="round"/>
+          <path d="M48 64L52 80" stroke-linecap="round"/>
+          <path d="M80 64L84 80" stroke-linecap="round"/>
+          <path d="M112 64L116 80" stroke-linecap="round"/>
+          <path d="M144 64L148 80" stroke-linecap="round"/>
+          <path d="M176 64L180 80" stroke-linecap="round"/>
+          <path d="M208 64L212 80" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <h2>Регистрация</h2>
+    </div>
     <form id="register-form">
       <div class="form-group">
         <label for="email">Email</label>
