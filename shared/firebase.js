@@ -5,7 +5,8 @@ import {
 } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
 import {
   getFirestore, doc, getDoc, setDoc, updateDoc, addDoc, collection,
-  query, where, orderBy, getDocs, serverTimestamp
+  query, where, orderBy, getDocs, serverTimestamp,
+  deleteDoc, onSnapshot, runTransaction, writeBatch, limit, startAfter, Timestamp, increment, arrayUnion, arrayRemove, documentId
 } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 import { firebaseConfig } from '../configs/firebase.js';
 
@@ -17,5 +18,6 @@ export const db = getFirestore(app);
 export {
   initializeApp, getAuth, getFirestore,
   onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
-  doc, getDoc, setDoc, updateDoc, addDoc, collection, query, where, orderBy, getDocs, serverTimestamp
+  doc, getDoc, setDoc, updateDoc, addDoc, collection, query, where, orderBy, getDocs, serverTimestamp,
+  deleteDoc, onSnapshot, runTransaction, writeBatch, limit, startAfter, Timestamp, increment, arrayUnion, arrayRemove, documentId
 };

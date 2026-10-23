@@ -1,10 +1,12 @@
-// ui/pages/loading.js
+import { h } from "../../shared/dom.js";
+import { skeleton } from "../components/skeleton.js";
+
 export default function LoadingComponent() {
-  const div = document.createElement("div");
-  div.className = "card loading";
-  div.innerHTML = `
-    <div class="spinner"></div>
-    <p>Загрузка...</p>
-  `;
-  return div;
+  return h("div", { class: "card card-1" },
+    h("div", { class: "skeleton" },
+      skeleton(),
+      skeleton(),
+      skeleton()
+    )
+  );
 }

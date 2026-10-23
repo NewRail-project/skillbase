@@ -1,6 +1,7 @@
 import { State, isStaff } from "../../core/auth.js";
 import { listMyTests, listPublishedTests, setTestStatus } from "../../core/editor.js";
 import { escapeHtml, formatDate } from "../../shared/utils.js";
+import { h } from "../../shared/dom.js";
 import { empty } from "../../ui/components/empty.js";
 import { error } from "../../ui/components/error.js";
 
@@ -8,9 +9,11 @@ export default async function () {
   const div = document.createElement("div");
   div.className = "card";
   const staff = isStaff();
-  div.innerHTML = `<h2>${staff ? "Мои тесты" : "Доступные тесты"}</h2>
-    ${staff ? `<a class="btn" href="#create-test" style="margin-bottom:16px">+ Создать тест</a>` : ""}
-    <div id="list" class="stack"><div class="spinner"></div></div>`;
+  div.append(
+  h("h2", {}, staff ? "Мои тесты" : "Доступные тесты"),
+  ...(staff ? [h("a", { class: "btn", href: "#create-test", style: "margin-bottom:16px" }, "+ Создать тест")] : []),
+  h("div", { id: "list", class: "stack" }, h("div", { class: "spinner" }))
+);
   const list = div.querySelector("#list");
 
   async function load() {

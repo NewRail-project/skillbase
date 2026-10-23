@@ -46,5 +46,49 @@ for (const f of files) {
   for (const m of s.matchAll(/import\(\s*['"`](\.{1,2}\/[^'"`$]+)['"`]\s*\)/g))
     if (!fs.existsSync(path.resolve(path.dirname(f), m[1]))) bad(f, `нет файла ${m[1]}`);
 }
-console.log(problems ? `\nНайдено проблем: ${problems}` : "Всё в порядке: импорты, экспорты и файлы согласованы.");
+// (а) innerHTML/insertAdjacentHTML с шаблонными строками — ошибка (XSS)
+for (const f of files) {
+  const s = fs.readFileSync(f, "utf8");
+  for (const m of s.matchAll(/(?:innerHTML|insertAdjacentHTML)\s*=\s*(`[^`]*\$\{|\$\{[^}]*\}[^`]*`|'[^']*\$\{|\$\{[^}]*\}[^']*')/g)) {
+    bad(f, "innerHTML/insertAdjacentHTML с подстановкой данных (R7)");
+  }
+}
+
+// (б) атрибуты onclick= / onerror= / onload= в строках шаблонов — ошибка
+for (const f of files) {
+  const s = fs.readFileSync(f, "utf8");
+  if (/\bonclick\s*=\s*["']/m.test(s) || /\bonerror\s*=\s*["']/m.test(s) || /\bonload\s*=\s*["']/m.test(s)) {
+    bad(f, "inline onclick/onerror/onload в шаблоне (R7)");
+  }
+}
+
+// (в) каждый `file:` из routes в shared/app.js существует
+const appPath = path.join(root, "shared/app.js");
+if (fs.existsSync(appPath)) {
+  const appS = fs.readFileSync(appPath, "utf8");
+  for (const m of appS.matchAll(/file:\s*"([^"]+)"/g)) {
+    const relPath = m[1];
+    const absPath = path.resolve(root, relPath);
+    if (!fs.existsSync(absPath)) bad(appPath, `routes: нет файла ${relPath}`);
+  }
+}
+
+// (г) каждая var(--x) в ui/css/*.css определена (предупреждение до этапа 2)
+const cssDir = path.join(root, "ui/css");
+if (fs.existsSync(cssDir)) {
+  const cssFiles = fs.readdirSync(cssDir).filter(n => n.endsWith(".css")).map(n => path.join(cssDir, n));
+  const defined = new Set();
+  for (const cf of cssFiles) {
+    const cs = fs.readFileSync(cf, "utf8");
+    for (const m of cs.matchAll(/--[A-Za-z0-9_-]+/g)) defined.add(m[0]);
+  }
+  for (const cf of cssFiles) {
+    const cs = fs.readFileSync(cf, "utf8");
+    for (const m of cs.matchAll(/var\((--[A-Za-z0-9_-]+)\)/g)) {
+      if (!defined.has(m[1])) console.log("⚠", path.relative(root, cf) + ": неизвестная переменная", m[1]);
+    }
+  }
+}
+
+console.log(problems ? `\nНайдено проблем: ${problems}` : "Всё в порядке: импорты, экспорты, файлы, безопасность согласованы.");
 process.exit(problems ? 1 : 0);

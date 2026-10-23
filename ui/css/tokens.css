@@ -1,11 +1,100 @@
-:root {
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
-  --dur-fast: 120ms;
-  --dur: 200ms;
-  --tap: 44px;
+--space-1: 4px;
+--space-2: 8px;
+--space-3: 12px;
+--space-4: 16px;
+--space-5: 24px;
+--space-6: 32px;
+--space-7: 48px;
+
+--radius: 16px;
+--radius-ctl: 12px;
+
+--shadow-1: 0 1px 3px rgba(0, 0, 0, 0.1);
+--shadow-2: 0 2px 4px rgba(0, 0, 0, 0.1);
+--shadow-3: 0 4px 8px rgba(0, 0, 0, 0.1);
+
+--bg: #F8F9FA;
+--bg-dark: #1A202C;
+--surface-1: #FFFFFF;
+--surface-1-dark: #161B22;
+--surface-2: #E2E8F0;
+--surface-2-dark: #2D3748;
+--surface-3: #CBD5E0;
+--surface-3-dark: #4A5568;
+
+--text: #1F2937;
+--text-muted: #6B7280;
+--text-secondary: #9CA3AF;
+
+--primary: #3B82F6;
+--on-primary: #FFFFFF;
+--accent: #F59E0B;
+--on-accent: #000000;
+--success: #10B981;
+--on-success: #FFFFFF;
+--warning: #F59E0B;
+--on-warning: #000000;
+--danger: #EF4444;
+--on-danger: #FFFFFF;
+--info: #3B82F6;
+--on-info: #FFFFFF;
+--focus-ring: #3B82F6;
+
+--font-size-h1: 2.5rem;
+--font-size-h2: 2rem;
+--font-size-h3: 1.75rem;
+--font-size-h4: 1.5rem;
+--font-size-body: 1rem;
+--font-size-small: 0.875rem;
+--font-size-mono: 0.875rem;
+
+--font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+--font-variant-numeric: tabular-nums;
+
+--dur-fast: 150ms;
+--dur-base: 200ms;
+--dur-slow: 300ms;
+
+--theme-light: {
+  --bg: #F8F9FA;
+  --surface-1: #FFFFFF;
+  --surface-2: #E2E8F0;
+  --surface-3: #CBD5E0;
+  --text: #1F2937;
+  --text-muted: #6B7280;
+  --text-secondary: #9CA3AF;
+  --primary: #3B82F6;
+  --on-primary: #FFFFFF;
+  --accent: #F5996B;
+  --on-accent: #000000;
+  --success: #10B981;
+  --on-success: #FFFFFF;
+  --warning: #F5996B;
+  --on-warning: #000000;
+  --danger: #EF4444;
+  --on-danger: #FFFFFF;
+  --info: #3B82F6;
+  --on-info: #FFFFFF;
+}
+
+--theme-dark: {
+  --bg: #1A202C;
+  --surface-1: #161B22;
+  --surface-2: #2D3748;
+  --surface-3: #4A5568;
+  --text: #E2E8F0;
+  --text-muted: #9CA3AF;
+  --text-secondary: #6B7280;
+  --primary: #3B82F6;
+  --on-primary: #FFFFFF;
+  --accent: #F5996B;
+  --on-accent: #000000;
+  --success: #10B981;
+  --on-success: #FFFFFF;
+  --warning: #F5996B;
+  --on-warning: #000000;
+  --danger: #EF4444;
+  --on-danger: #FFFFFF;
+  --info: #3B82F6;
+  --on-info: #FFFFFF;
 }

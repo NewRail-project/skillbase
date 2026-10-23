@@ -1,11 +1,11 @@
-// ui/pages/404.js
+import { h } from "../../shared/dom.js";
+import { icons } from "../../shared/icons.js";
+
 export default function NotFoundComponent() {
-  const div = document.createElement("div");
-  div.className = "card";
-  div.innerHTML = `
-    <h2>404</h2>
-    <p>Страница не найдена</p>
-    <button onclick="window.location.hash='#/'">Вернуться на главную</button>
-  `;
-  return div;
+  return h("div", { class: "empty-state" },
+    h("div", { class: "empty-state-icon", innerHTML: icons.book }),
+    h("h2", {}, "404"),
+    h("p", {}, "Страница не найдена"),
+    h("a", { class: "btn primary", href: "#/" }, "Вернуться на главную")
+  );
 }

@@ -1,32 +1,35 @@
-// ui/pages/settings.js
+// STATUS: stub, будет заменён на этапе 3.
+import { h, esc } from "../../shared/dom.js";
+import { State } from "../../core/auth.js";
 
 // Обновление профиля
 const updateProfileData = async (newData) => {
   // TODO: Заменить на Firestore-запрос
 };
 
-// DOM-элемент для настроек
 function SettingsPage() {
-  const div = document.createElement("div");
-  div.className = "card";
-  div.innerHTML = `
-    <h2>Настройки</h2>
-    <form id="settings-form">
-      <div class="form-group">
-        <label for="email">Email</label>
-        <input type="email" id="email" value="${user.email}" readonly class="form-control" />
-      </div>
-      <div class="form-group">
-        <label for="role">Роль</label>
-        <select id="role" disabled class="form-control">
-          <option value="student">Студент</option>
-          <option value="teacher">Преподаватель</option>
-          <option value="admin">Администратор</option>
-        </select>
-      </div>
-      <button type="submit" class="primary">Сохранить</button>
-    </form>
-  `;
+  const div = h("div", { class: "card" });
+  const user = State.user;
+  const email = user?.email ?? '';
+
+  div.append(
+    h("h2", {}, "Настройки"),
+    h("form", { id: "settings-form" },
+      h("div", { class: "form-group" },
+        h("label", { for: "email" }, "Email"),
+        h("input", { type: "email", id: "email", value: esc(email), readonly: true, class: "form-control" })
+      ),
+      h("div", { class: "form-group" },
+        h("label", { for: "role" }, "Роль"),
+        h("select", { id: "role", disabled: true, class: "form-control" },
+          h("option", { value: "student" }, "Студент"),
+          h("option", { value: "teacher" }, "Преподаватель"),
+          h("option", { value: "admin" }, "Администратор")
+        )
+      ),
+      h("button", { type: "submit", class: "primary" }, "Сохранить")
+    )
+  );
 
   const form = div.querySelector('#settings-form');
   form.addEventListener('submit', async (e) => {
@@ -42,5 +45,4 @@ function SettingsPage() {
 
   return div;
 }
-
 export default SettingsPage;

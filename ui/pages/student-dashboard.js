@@ -1,29 +1,30 @@
-// ui/pages/student-dashboard.js
+// STATUS: stub, будет заменён на этапе 5.
+import { h, esc } from "../../shared/dom.js";
 
-// Загрузка заданий студента
 const getStudentAssignments = async (groupId) => {
   // TODO: Заменить на Firestore-запрос
   return [];
 };
 
-// DOM-элемент для панели студента
 async function StudentDashboardPage() {
-  const div = document.createElement("div");
-  div.className = "card";
-  div.innerHTML = "<h2>Мои задания</h2><div id='list'>Загрузка...</div>";
+  const div = h("div", { class: "card" });
+  div.append(h("h2", {}, "Мои задания"), h("div", { id: "list" }, "Загрузка..."));
 
   try {
     const assignments = await getStudentAssignments('groupId');
     const list = div.querySelector('#list');
-    list.innerHTML = assignments.map(a => {
-      return `<div class="card">` +
-        `<h3>Тест: ${a.testId}</h3>` +
-        `<p>Дедлайн: ${new Date(a.deadline.seconds * 1000).toLocaleString()}</p>` +
-        `<button class="primary" onclick="window.location.hash='#quiz/${a.testId}'">Начать</button>` +
-        `</div>`;
-    }).join("");
+    list.textContent = "";
+    assignments.forEach(a => {
+      const card = h("div", { class: "card" });
+      card.append(
+        h("h3", {}, "Тест: " + esc(a.testId)),
+        h("p", {}, "Дедлайн: " + new Date(a.deadline.seconds * 1000).toLocaleString()),
+        h("button", { class: "primary", onclick: () => { window.location.hash = '#quiz/' + a.testId; } }, "Начать")
+      );
+      list.appendChild(card);
+    });
   } catch (e) {
-    div.querySelector('#list').innerHTML = "Ошибка загрузки.";
+    div.querySelector('#list').textContent = "Ошибка загрузки.";
   }
 
   return div;

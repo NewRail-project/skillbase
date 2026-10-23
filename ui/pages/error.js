@@ -1,11 +1,11 @@
-// ui/pages/error.js
+import { h, esc } from "../../shared/dom.js";
+import { icons } from "../../shared/icons.js";
+
 export default function ErrorComponent({ message }) {
-  const div = document.createElement("div");
-  div.className = "card error";
-  div.innerHTML = `
-    <h2>Ошибка</h2>
-    <p>${message}</p>
-    <button onclick="window.location.hash='#/'">Вернуться на главную</button>
-  `;
-  return div;
+  return h("div", { class: "empty-state" },
+    h("div", { class: "empty-state-icon", innerHTML: icons.warning }),
+    h("h2", {}, "Ошибка"),
+    h("p", {}, esc(message)),
+    h("a", { class: "btn primary", href: "#/" }, "Вернуться на главную")
+  );
 }

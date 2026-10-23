@@ -1,6 +1,6 @@
 import {
   auth, db, signInWithEmailAndPassword, createUserWithEmailAndPassword,
-  signOut, onAuthStateChanged, doc, getDoc, setDoc, updateDoc
+  signOut, onAuthStateChanged, doc, getDoc, setDoc, updateDoc, serverTimestamp
 } from "../shared/firebase.js";
 
 export const State = {
@@ -75,7 +75,7 @@ export async function register(email, password, _role, _orgId, ui = "education")
       role: "student",
       orgId: "default-org",
       ui,
-      createdAt: new Date().toISOString()
+      createdAt: serverTimestamp()
     };
     await setDoc(doc(db, "users", cred.user.uid), profileData);
     State.profile = profileData;
@@ -96,6 +96,21 @@ export async function logout() {
 }
 
 // С клиента меняется только тема. Роль и организацию правила Firestore менять не дают.
+export async function getProfile(uid) {
+  try {
+    const docRef = doc(db, "users", uid);
+    const docSnap = await getDoc(docRef);
+    return docSnap.exists() ? docSnap.data() : null;
+  } catch (e) {
+    console.error("getProfile error:", e);
+    return null;
+  }
+}
+
+export function isStaff() {
+  return State.profile?.role === "teacher" || State.profile?.role === "admin";
+}
+
 export async function updateProfileData(newData) {
   if (!State.user) return;
   const patch = {};

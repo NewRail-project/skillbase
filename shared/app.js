@@ -1,3 +1,12 @@
+// shared/app.js — роутер.
+//
+// Контракт страницы (R8):
+//   export default function PageName() { ... }  // может быть async, возвращает HTMLElement
+//   export function cleanup() { ... }         // (опционально) очистка: onSnapshot, таймеры, слушатели window
+//
+// Маршруты: хэш-роутинг. Параметры после слэша: #quiz/<assignmentId>, #test/<id>, #join/<code>, #results/<testId>.
+// 404: ui/pages/404.js. Очистка страницы при уходе. Один вызов router() при старте.
+
 import { State, applyTheme } from "../core/auth.js";
 
 const STAFF = ["teacher", "admin"];
@@ -12,10 +21,14 @@ const routes = {
   "results":      { file: "ui/pages/results.js",           title: "Результаты",           auth: true, roles: STAFF },
   "assignments":  { file: "ui/pages/assignments.js",       title: "Задания",              auth: true },
   "student":      { file: "ui/pages/student-dashboard.js", title: "Панель студента",      auth: true },
-  "teacher":      { file: "ui/pages/teacher-dashboard.js", title: "Панель преподавателя", auth: true, roles: STAFF }
+  "teacher":      { file: "ui/pages/teacher-dashboard.js", title: "Панель преподавателя", auth: true, roles: STAFF },
+  "users":        { file: "ui/pages/users.js",             title: "Пользователи",         auth: true, roles: STAFF },
+  "settings":     { file: "ui/pages/settings.js",          title: "Настройки",            auth: true },
+  "admin":        { file: "ui/pages/admin-panel.js",       title: "Админ-панель",         auth: true, roles: STAFF }
 };
 
 let renderId = 0;
+let currentCleanup = null;
 
 function message(container, text, isError) {
   container.textContent = "";
@@ -33,27 +46,41 @@ export async function router() {
   const raw = (window.location.hash.slice(1) || "").replace(/^\//, "");
   const [name, ...rest] = raw.split("/");
   State.routeParam = rest.join("/");
-  const route = routes[name] || routes[""];
+  const route = routes[name];
 
-  if (route.auth && !State.user) { window.location.hash = "#login"; return; }
-  if (route.guestOnly && State.user) { window.location.hash = "#profile"; return; }
+  if (route && route.auth && !State.user) {
+    const next = window.location.hash || "#/";
+    try { sessionStorage.setItem("sb:returnTo", next); } catch (_) {}
+    window.location.hash = "#login";
+    return;
+  }
+  if (route && route.guestOnly && State.user) { window.location.hash = "#profile"; return; }
 
-  document.title = `${route.title} — Skillbase`;
+  const target = route || { file: "ui/pages/404.js", title: "Не найдено" };
+  document.title = `${target.title} — Skillbase`;
+
   const container = document.getElementById("app");
   if (!container) return;
 
   updateHeaderNav();
 
-  if (route.roles && !route.roles.includes(State.profile?.role)) {
+  if (target.roles && !target.roles.includes(State.profile?.role)) {
     message(container, "Этот раздел доступен преподавателям.", true);
     return;
   }
 
+  // Очистка предыдущей страницы
+  if (currentCleanup) {
+    try { currentCleanup(); } catch (e) { console.error("cleanup error:", e); }
+    currentCleanup = null;
+  }
+
   try {
     message(container, "Загрузка...", false);
-    const module = await import(`../${route.file}`);
+    const module = await import(`../${target.file}`);
     const node = await module.default();
-    if (id !== renderId) return;            // пользователь уже перешёл на другую страницу
+    if (id !== renderId) return;
+    if (typeof module.cleanup === "function") currentCleanup = module.cleanup;
     container.textContent = "";
     container.appendChild(node);
   } catch (err) {
@@ -85,7 +112,14 @@ export function updateHeaderNav() {
 }
 
 export function initRouter() {
+  if (initRouter._started) return;
+  initRouter._started = true;
   window.addEventListener("hashchange", router);
   if (State.profile && State.profile.ui) applyTheme(State.profile.ui);
   router();
+}
+
+export function consumeReturnTo() {
+  try { return sessionStorage.getItem("sb:returnTo") || null; }
+  finally { try { sessionStorage.removeItem("sb:returnTo"); } catch (_) {} }
 }

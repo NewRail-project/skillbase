@@ -1,6 +1,5 @@
 // core/quiz.js
-import { db } from '../shared/firebase.js';
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp, collection } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+import { db, doc, getDoc, setDoc, updateDoc, serverTimestamp, collection, deleteDoc, onSnapshot, runTransaction, writeBatch, limit, startAfter, Timestamp, increment, arrayUnion, arrayRemove, documentId } from '../shared/firebase.js';
 
 export async function startAttempt(userId, testId) {
   try {
@@ -17,7 +16,7 @@ export async function startAttempt(userId, testId) {
       testId,
       startedAt: serverTimestamp(),
       answers: {},
-      status: 'active'
+      status: 'in_progress'
     });
     
     return attemptId;
@@ -82,7 +81,7 @@ export async function finishAttempt(attemptId, testId) {
     }
     
     await updateDoc(attemptRef, {
-      status: 'finished',
+      status: 'graded',
       finishedAt: serverTimestamp(),
       score,
       results

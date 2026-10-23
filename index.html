@@ -4,22 +4,31 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Skillbase</title>
-  <link rel="stylesheet" href="ui/css/style.css?v=6">
-  <link rel="stylesheet" href="ui/css/theme.css?v=6">
-  <script type="module" src="shared/main.js?v=6"></script>
+  <link rel="stylesheet" href="ui/css/tokens.css?v=7">
+  <link rel="stylesheet" href="ui/css/style.css?v=7">
+  <link rel="stylesheet" href="ui/css/theme.css?v=7">
+  <script type="module" src="shared/main.js?v=7"></script>
+  <script>
+    (function() {
+      var theme = localStorage.getItem('sb-theme') || 'system';
+      if (theme === 'system') {
+        theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+      document.documentElement.setAttribute('data-theme', theme);
+    })();
+  </script>
 </head>
 <body>
-  <div id="app-container" class="app-container">
-    <header>
-      <a href="#" class="logo">
-        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-          <path d="M8 21 11 3M16 21 13 3M7.4 17h9.2M8.6 11.5h6.8M9.8 6.5h4.4"/>
-        </svg>
-        Skillbase
-      </a>
-      <nav id="nav"></nav>
+  <a href="#app" class="skip-link">К содержимому</a>
+  <div id="sidebar-container"></div>
+  <div class="shell">
+    <header class="topbar">
+      <button id="sidebar-toggle" aria-expanded="false" aria-controls="sidebar">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+      </button>
+      <div class="logo">Skillbase</div>
     </header>
-    <main id="app"></main>
+    <main id="app" tabindex="-1"></main>
   </div>
   <div id="loading-spinner" class="loading-spinner" style="display: none;">
     <svg viewBox="0 0 24 24" fill="none" stroke="#E5B94F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

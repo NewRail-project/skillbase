@@ -1,17 +1,16 @@
-// ui/pages/admin-panel.js
+// STATUS: stub, будет заменён на этапе 3.
+import { h } from "../../shared/dom.js";
 
-// DOM-элемент для админ-панели
 function AdminPanelPage() {
-  const div = document.createElement("div");
-  div.className = "card";
-  div.innerHTML = `
-    <h2>Админ-панель</h2>
-    <div id="admin-content">
-      <p>Добро пожаловать, администратор!</p>
-      <button class="primary" onclick="window.location.hash='#create-test'">Создать тест</button>
-      <button class="secondary" onclick="window.location.hash='#users'">Управление пользователями</button>
-    </div>
-  `;
+  const div = h("div", { class: "card" });
+  div.append(
+    h("h2", {}, "Админ-панель"),
+    h("div", { id: "admin-content" },
+      h("p", {}, "Добро пожаловать, администратор!"),
+      h("button", { class: "primary", onclick: () => { window.location.hash = '#create-test'; } }, "Создать тест"),
+      h("button", { class: "secondary", onclick: () => { window.location.hash = '#users'; } }, "Управление пользователями")
+    )
+  );
   return div;
 }
 export default AdminPanelPage;
