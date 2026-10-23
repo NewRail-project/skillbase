@@ -50,13 +50,17 @@ function testCard(test, index, staff) {
     )
   );
 
-  const foot = h("div", { class: "course-foot" });
+  const foot = h("div", { class: "course-foot", style: "flex-wrap:wrap" });
   const status = h("span", {
     class: "badge " + (test.status === "published" ? "badge-success" : "badge-warning")
   }, test.status === "published" ? "Опубликован" : "Черновик");
 
   if (staff) {
-    foot.append(status, h("a", { class: "btn secondary", href: "#create-test" }, "Открыть"));
+    foot.append(
+      status,
+      h("a", { class: "btn secondary", href: `#create-test/${encodeURIComponent(test.id)}` }, "Редактировать"),
+      h("a", { class: "btn secondary", href: `#quiz/${encodeURIComponent(test.id)}` }, "Открыть")
+    );
   } else {
     foot.append(status, h("a", {
       class: "btn primary",

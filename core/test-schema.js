@@ -32,76 +32,136 @@ export function emptyTest() {
   };
 }
 
-export function validateTest(test, { publishing } = {}) {
+// Единый источник правил для сохранения черновика и публикации.
+// publishing=true включает требования, без которых тест нельзя публиковать.
+export function validateTest(test, { publishing = false } = {}) {
   const errors = [];
   const warnings = [];
 
-  // Проверка на наличие названия
-  if (!test.title || typeof test.title !== 'string') {
-    errors.push("Тест должен иметь название");
+  if (!test || typeof test !== "object") {
+    return { errors: ["Некорректные данные теста"], warnings };
   }
 
-  // Проверка на наличие вопросов
-  if (!test.questions || test.questions.length === 0) {
+  const rawSettings = test.settings;
+  let settings = {};
+  if (rawSettings === undefined || rawSettings === null) {
+    settings = {};
+  } else if (typeof rawSettings !== "object" || Array.isArray(rawSettings)) {
+    errors.push("Настройки теста должны быть объектом");
+  } else {
+    settings = rawSettings;
+  }
+
+  if (test.questions !== undefined && !Array.isArray(test.questions)) {
+    errors.push("Список вопросов повреждён");
+  }
+  const questions = Array.isArray(test.questions) ? test.questions : [];
+
+  if (typeof test.title !== "string" || !test.title.trim()) {
+    errors.push("Тест должен иметь название");
+  } else if (test.title.trim().length > 120) {
+    errors.push("Название теста не должно превышать 120 символов");
+  }
+
+  if (!questions.length) {
     errors.push("Тест должен содержать вопросы");
   }
 
-  // Проверка на правильность вопросов
-  test.questions.forEach((question, index) => {
-    if (!question.text || typeof question.text !== 'string') {
-      errors.push(`Вопрос ${index + 1}: отсутствует текст`);
+  questions.forEach((question, index) => {
+    const n = index + 1;
+    if (!question || typeof question !== "object") {
+      errors.push(`Вопрос ${n}: некорректные данные`);
+      return;
     }
-    if (question.type === 'single' && question.options.length !== 1) {
-      errors.push(`Вопрос ${index + 1}: тип single должен иметь ровно один вариант ответа`);
+
+    if (typeof question.text !== "string" || !question.text.trim()) {
+      errors.push(`Вопрос ${n}: отсутствует текст`);
     }
-    if (question.type === 'multiple' && question.options.length < 2) {
-      errors.push(`Вопрос ${index + 1}: тип multiple должен иметь хотя бы два варианта ответа`);
+
+    const options = Array.isArray(question.options) ? question.options : [];
+    const correctCount = options.filter(option => option?.correct === true).length;
+
+    if (question.type === "single") {
+      if (options.length < 2) {
+        errors.push(`Вопрос ${n}: добавьте минимум два варианта ответа`);
+      }
+      if (correctCount !== 1) {
+        errors.push(`Вопрос ${n}: укажите ровно один правильный вариант`);
+      }
+    } else if (question.type === "multiple") {
+      if (options.length < 2) {
+        errors.push(`Вопрос ${n}: тип multiple должен иметь хотя бы два варианта ответа`);
+      }
+      if (correctCount < 2) {
+        errors.push(`Вопрос ${n}: отметьте минимум два правильных варианта`);
+      }
+    } else if (question.type === "short") {
+      if (typeof question.answer !== "string" || !question.answer.trim()) {
+        errors.push(`Вопрос ${n}: тип short должен иметь ответ`);
+      }
+    } else {
+      errors.push(`Вопрос ${n}: неизвестный тип вопроса`);
     }
-    if (question.type === 'short' && !question.answer) {
-      errors.push(`Вопрос ${index + 1}: тип short должен иметь ответ`);
+
+    if (question.type !== "short") {
+      options.forEach((option, optionIndex) => {
+        if (typeof option?.text !== "string" || !option.text.trim()) {
+          errors.push(`Вопрос ${n}: вариант ${optionIndex + 1} пуст`);
+        }
+      });
     }
-    if (question.points <= 0) {
-      errors.push(`Вопрос ${index + 1}: баллы должны быть больше 0`);
+
+    if (!Number.isFinite(question.points) || question.points <= 0) {
+      errors.push(`Вопрос ${n}: баллы должны быть числом больше 0`);
     }
   });
 
-  // Проверка на правильность режима и настроек
-  if (test.mode === 'self' && !test.settings.passScore) {
-    errors.push("Для режима self должен быть задан проходной балл");
-  }
-
-  // Проверка на корректность времени
-  if (test.settings.timePerQuestion || test.settings.totalTime) {
-    if (!Number.isInteger(test.settings.timePerQuestion) || test.settings.timePerQuestion < 5 || test.settings.timePerQuestion > 3600) {
-      errors.push("Время на вопрос должно быть целым числом от 5 до 3600 секунд");
-    }
-    if (!Number.isInteger(test.settings.totalTime) || test.settings.totalTime < 30 || test.settings.totalTime > 28800) {
-      errors.push("Общее время теста должно быть целым числом от 30 до 28800 секунд");
-    }
-    if (test.settings.timePerQuestion && test.settings.totalTime) {
-      const totalTime = test.questions.length * test.settings.timePerQuestion;
-      if (totalTime > test.settings.totalTime) {
-        warnings.push("Общее время теста меньше суммы времени на вопросы");
-      }
-    }
-  }
-
-  // Проверка на корректность проходного балла
-  if (test.settings.passScore && (test.settings.passScore < 1 || test.settings.passScore > 100)) {
+  // Проходной балл необязателен: в emptyTest он по умолчанию null.
+  // Если значение задано, оно должно быть корректным.
+  if (settings.passScore != null &&
+      (!Number.isFinite(settings.passScore) ||
+       settings.passScore < 1 || settings.passScore > 100)) {
     errors.push("Проходной балл должен быть числом от 1 до 100");
   }
 
-  // Проверка на ограничение количества попыток
-  if (test.settings.attemptsLimit && (test.settings.attemptsLimit < 1 || test.settings.attemptsLimit > 50)) {
-    errors.push("Количество попыток должно быть числом от 1 до 50");
+  const timePerQuestion = settings.timePerQuestion;
+  const totalTime = settings.totalTime;
+
+  if (timePerQuestion != null &&
+      (!Number.isInteger(timePerQuestion) ||
+       timePerQuestion < 5 || timePerQuestion > 3600)) {
+    errors.push("Время на вопрос должно быть целым числом от 5 до 3600 секунд");
   }
 
-  // Проверка на ограничение размера документа
-  const sizeLimit = 700; // КБ
+  if (totalTime != null &&
+      (!Number.isInteger(totalTime) ||
+       totalTime < 30 || totalTime > 28800)) {
+    errors.push("Общее время теста должно быть целым числом от 30 до 28800 секунд");
+  }
+
+  if (timePerQuestion != null && totalTime != null &&
+      questions.length * timePerQuestion > totalTime) {
+    warnings.push("Общее время теста меньше суммы времени на вопросы");
+  }
+
+  if (settings.attemptsLimit != null &&
+      (!Number.isInteger(settings.attemptsLimit) ||
+       settings.attemptsLimit < 1 || settings.attemptsLimit > 50)) {
+    errors.push("Количество попыток должно быть целым числом от 1 до 50");
+  }
+
+  const sizeLimit = 700;
   const jsonSize = JSON.stringify(test).length / 1024;
   if (jsonSize > sizeLimit) {
-    warnings.push(`Тест превышает размер ${sizeLimit} КБ`);
+    const message = `Тест превышает размер ${sizeLimit} КБ`;
+    if (publishing) errors.push(message);
+    else warnings.push(message);
+  }
+
+  if (questions.length > 200) {
+    if (publishing) errors.push("В тесте не может быть больше 200 вопросов");
+    else warnings.push("В черновике больше 200 вопросов: опубликовать его не получится");
   }
 
   return { errors, warnings };
-};
+}

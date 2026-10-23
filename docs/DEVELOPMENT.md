@@ -46,6 +46,8 @@ node --check core/editor.js
 
 ## Firebase
 
+Подробная инструкция: [`docs/FIREBASE_SETUP.md`](FIREBASE_SETUP.md).
+
 1. Создать проект в Firebase Console
 2. Настроить Auth (Email/Password)
 3. Настроить Firestore Security Rules

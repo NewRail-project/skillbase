@@ -53,7 +53,7 @@ export default async function AssignmentsPage() {
   body.appendChild(h("div", { class: "panel-body" }, h("div", { class: "spinner" })));
 
   try {
-    const items = await getStudentAssignments(profile.groupId);
+    const items = await getStudentAssignments(profile.groupId, profile.orgId);
 
     if (!items.length) {
       body.textContent = "";
@@ -86,7 +86,7 @@ export default async function AssignmentsPage() {
           h("div", { class: "list-row-end" },
             h("a", {
               class: "btn " + (overdue ? "secondary" : "primary"),
-              href: `#quiz/${encodeURIComponent(a.testId)}`
+              href: `#quiz/${encodeURIComponent(a.testId)}/${encodeURIComponent(a.id)}`
             }, "Открыть")
           )
         );

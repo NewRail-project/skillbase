@@ -1,9 +1,11 @@
 import { db } from "../shared/firebase.js";
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp, query, where, getDocs, collection } from "../shared/firebase.js";
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from "../shared/firebase.js";
 import { State } from "./auth.js";
 
 export function displayName(profile, { viewerIsStaff, uid } = {}) {
   if (profile && profile.fullName) return profile.fullName;
+  // publicProfiles хранит displayName, а users — fullName.
+  if (profile && profile.displayName) return profile.displayName;
   if (viewerIsStaff && profile && profile.email) return profile.email.split('@')[0];
   const suffix = (uid || profile?.uid || "").slice(-4);
   return suffix ? "Участник ·" + suffix : "Участник";
@@ -89,22 +91,32 @@ export async function saveProfile(uid, patch, publicPatch) {
   return State.profile;
 }
 
-export async function loadPublicProfiles(uids) {
+export async function loadPublicProfiles(uids, orgId) {
   if (!uids.length) return [];
-  const chunks = [];
-  for (let i = 0; i < uids.length; i += 10) chunks.push(uids.slice(i, i + 10));
-  
+  const unique = [...new Set(uids.filter(Boolean))];
   const results = [];
-  for (const chunk of chunks) {
-    const q = query(collection(db, "publicProfiles"), where(documentId(), "in", chunk));
-    const snap = await getDocs(q);
-    snap.docs.forEach(d => results.push({ id: d.id, ...d.data() }));
+
+  // Читаем документы по одному: правило publicProfiles проверяет orgId,
+  // а list-запрос с documentId(in) + orgId требует дополнительной осторожности
+  // с индексами. getDoc оценивается по каждому документу.
+  for (let i = 0; i < unique.length; i += 20) {
+    const chunk = unique.slice(i, i + 20);
+    const snaps = await Promise.all(chunk.map(uid =>
+      getDoc(doc(db, "publicProfiles", uid)).catch(() => null)
+    ));
+    snaps.forEach(snap => {
+      if (!snap?.exists()) return;
+      const data = snap.data();
+      if (orgId && data.orgId !== orgId) return;
+      results.push({ id: snap.id, ...data });
+    });
   }
+
   return results;
 }
 
-export async function resolveNames(uids, { viewerIsStaff }) {
-  const profiles = await loadPublicProfiles(uids);
+export async function resolveNames(uids, { viewerIsStaff, orgId } = {}) {
+  const profiles = await loadPublicProfiles(uids, orgId);
   const nameMap = new Map();
   // Документ publicProfiles хранит uid в id, а не в поле data().uid.
   profiles.forEach(p => nameMap.set(p.id, displayName(p, { viewerIsStaff })));

@@ -3,7 +3,7 @@ import { State, isAdmin } from "../../core/auth.js";
 import { displayName } from "../../core/profile.js";
 import { icons } from "../../shared/icons.js";
 import { toast } from "../../ui/components/toast.js";
-import { db, collection, doc, getDocs, getDoc, query, where, updateDoc, serverTimestamp } from "../../shared/firebase.js";
+import { db, collection, doc, getDocs, query, where, updateDoc, serverTimestamp } from "../../shared/firebase.js";
 
 const ROLE_LABEL = { student: "Студент", teacher: "Преподаватель", admin: "Администратор" };
 
@@ -68,6 +68,7 @@ export default async function UsersPage() {
         h("th", {}, "Сотрудник"),
         h("th", {}, "Почта"),
         h("th", {}, "Подразделение"),
+        h("th", {}, "Группа"),
         h("th", {}, "Роль")
       ))
     );
@@ -76,6 +77,7 @@ export default async function UsersPage() {
     visible.forEach(user => {
       const name = displayName(user, { viewerIsStaff: true, uid: user.id });
       const roleCell = h("td", {});
+      const groupCell = h("td", {});
 
       if (admin && user.id !== State.user.uid) {
         const select = h("select", {
@@ -110,6 +112,39 @@ export default async function UsersPage() {
         roleCell.appendChild(h("span", { class: "badge badge-neutral" }, ROLE_LABEL[user.role] || "—"));
       }
 
+      if (admin && user.id !== State.user.uid) {
+        const groupInput = h("input", {
+          type: "text",
+          value: user.groupId || "",
+          maxlength: "100",
+          placeholder: "не назначена",
+          "aria-label": `Группа: ${name}`,
+          style: "max-width:140px"
+        });
+        groupInput.addEventListener("change", async () => {
+          const next = groupInput.value.trim();
+          groupInput.disabled = true;
+          try {
+            await updateDoc(doc(db, "users", user.id), {
+              groupId: next || null,
+              updatedAt: serverTimestamp()
+            });
+            user.groupId = next || null;
+            toast("Группа обновлена", "success");
+          } catch (err) {
+            console.error("Смена группы:", err);
+            toast("Не удалось изменить группу: нет прав или связи", "error");
+            groupInput.value = user.groupId || "";
+          } finally {
+            groupInput.disabled = false;
+          }
+        });
+        groupCell.appendChild(groupInput);
+      } else {
+        groupCell.appendChild(h("span", { class: user.groupId ? "badge badge-info" : "muted" },
+          user.groupId || "—"));
+      }
+
       tbody.appendChild(h("tr", {},
         h("td", {},
           h("div", { class: "user-header" },
@@ -123,6 +158,7 @@ export default async function UsersPage() {
         ),
         h("td", { class: "muted" }, user.email || "—"),
         h("td", { class: "muted" }, user.department || "—"),
+        groupCell,
         roleCell
       ));
     });

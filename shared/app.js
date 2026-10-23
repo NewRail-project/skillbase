@@ -20,6 +20,7 @@ const routes = {
   "create-test":  { file: "ui/pages/create-test.js",       title: "Создать тест",         auth: true, roles: STAFF },
   "quiz":         { file: "ui/pages/quiz.js",              title: "Тест",                 auth: true },
   "results":      { file: "ui/pages/results.js",           title: "Результаты",           auth: true, roles: STAFF },
+  "review":       { file: "ui/pages/review.js",            title: "Проверка попытки",     auth: true, roles: STAFF },
   "assignments":  { file: "ui/pages/assignments.js",       title: "Задания",              auth: true },
   "student":      { file: "ui/pages/student-dashboard.js", title: "Панель студента",      auth: true },
   "teacher":      { file: "ui/pages/teacher-dashboard.js", title: "Панель преподавателя", auth: true, roles: STAFF },
@@ -49,6 +50,13 @@ export async function router() {
   State.routeParam = rest.join("/");
   const route = routes[name];
 
+  // Уходим со старой страницы сразу, ещё до редиректов и проверки ролей:
+  // иначе таймеры и автосохранение прохождения остались бы работать.
+  if (currentCleanup) {
+    try { currentCleanup(); } catch (e) { console.error("cleanup error:", e); }
+    currentCleanup = null;
+  }
+
   if (route && route.auth && !State.user) {
     const next = window.location.hash || "#/";
     try { sessionStorage.setItem("sb:returnTo", next); } catch (_) {}
@@ -68,12 +76,6 @@ export async function router() {
   if (target.roles && !target.roles.includes(State.profile?.role)) {
     message(container, "Этот раздел доступен преподавателям.", true);
     return;
-  }
-
-  // Очистка предыдущей страницы
-  if (currentCleanup) {
-    try { currentCleanup(); } catch (e) { console.error("cleanup error:", e); }
-    currentCleanup = null;
   }
 
   try {

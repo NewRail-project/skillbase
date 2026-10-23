@@ -1,5 +1,10 @@
 import { h } from "../../shared/dom.js";
-import { parseQuizText, updateTest, saveTest, publishTest } from "../../core/editor.js";
+import {
+  parseQuizText, updateTest, saveTest, publishTest, loadTest,
+  getCurrentTest, resetTest, validateTestDraft, validateTestForPublish
+} from "../../core/editor.js";
+import { State, isAdmin } from "../../core/auth.js";
+import { serializeTest } from "../../core/import/serializer.js";
 import { authErrorMessage } from "../../shared/errors.js";
 import { icons } from "../../shared/icons.js";
 
@@ -15,30 +20,97 @@ C) Ограничение скорости`;
 
 function errorText(err) {
   if (err?.code === "permission-denied") {
-    return "Правила Firestore не разрешают запись теста. Сохранение недоступно до настройки правил.";
+    return "Правила Firestore не разрешают запись теста.";
   }
   if (err?.code === "unavailable") {
-    return "Нет связи с Firestore. Черновик сохранён в браузере.";
+    return "Нет связи с Firestore. Проверьте подключение к интернету.";
   }
   return err?.message || authErrorMessage(err);
 }
 
-export default function CreateTestPage() {
+function errorPage(title, text, action) {
+  return h("div", { class: "page" },
+    h("div", { class: "panel" },
+      h("div", { class: "empty-state" },
+        h("div", { class: "empty-state-icon", innerHTML: icons.book }),
+        h("h2", {}, title),
+        h("p", { class: "muted" }, text),
+        action
+      )
+    )
+  );
+}
+
+function hasStoredKeys(test) {
+  const questions = Array.isArray(test?.questions) ? test.questions : [];
+  return questions.some(question => {
+    if (question?.type === "short") return Boolean(question.answer);
+    return (question?.options || []).some(option => option?.correct === true);
+  });
+}
+
+export default async function CreateTestPage() {
+  const editId = decodeURIComponent((State.routeParam || "").split("/")[0] || "");
+  const back = h("a", { class: "btn secondary", href: "#tests" }, "Мои тесты");
+  let editing = null;
+
+  if (editId) {
+    try {
+      editing = await loadTest(editId);
+    } catch (err) {
+      return errorPage(
+        "Не удалось открыть тест",
+        err?.code === "permission-denied"
+          ? "Правила Firestore не разрешают чтение этого теста."
+          : errorText(err),
+        back
+      );
+    }
+
+    if (!editing) {
+      return errorPage("Тест не найден", "Возможно, он был удалён или ссылка устарела.", back);
+    }
+
+    if (editing.authorId !== State.user?.uid && !isAdmin()) {
+      return errorPage(
+        "Нет прав на редактирование",
+        "Редактировать тест может только автор или администратор организации.",
+        h("div", { class: "btn-row" },
+          h("a", { class: "btn secondary", href: `#quiz/${encodeURIComponent(editId)}` }, "Открыть просмотр"),
+          back
+        )
+      );
+    }
+  } else if (getCurrentTest().id) {
+    // После сохранения предыдущего теста currentTest хранит его id.
+    // Без сброса новая форма перезаписала бы старый документ.
+    resetTest();
+  }
+
+  const saveLabel = editId ? "Сохранить изменения" : "Сохранить черновик";
   const page = h("div", { class: "page" });
   let parsed = null;
 
   page.appendChild(h("div", { class: "page-head" },
     h("div", {},
       h("div", { class: "eyebrow" }, "Преподавателю"),
-      h("h1", {}, "Создание теста"),
-      h("p", { class: "page-sub" }, "Вставьте вопросы в текстовом формате или соберите их вручную. Проверьте предпросмотр перед публикацией.")
+      h("h1", {}, editId ? "Редактирование теста" : "Создание теста"),
+      h("p", { class: "page-sub" }, editId
+        ? "Изменения сохраняются в тот же тест: ID, автор и версия не меняются."
+        : "Вставьте вопросы в текстовом формате или соберите их вручную. Проверьте предпросмотр перед публикацией.")
     ),
-    h("div", { class: "page-head-actions" },
-      h("a", { class: "btn secondary", href: "#tests" }, "Мои тесты")
-    )
+    h("div", { class: "page-head-actions" }, back)
   ));
 
-  const status = h("div", { class: "form-error", role: "status", "aria-live": "polite" });
+  const status = h("div", {
+    class: "form-error", role: "status", "aria-live": "polite",
+    style: "white-space:pre-line"
+  });
+
+  const warnings = h("div", {
+    class: "form-hint", role: "status", "aria-live": "polite",
+    style: "white-space:pre-line"
+  });
 
   const titleInput = h("input", {
     type: "text", id: "t-title", maxlength: "120",
@@ -54,11 +126,11 @@ export default function CreateTestPage() {
   const parseBtn = h("button", { type: "button", class: "btn primary" }, "Разобрать вопросы");
 
   const actions = h("div", { class: "btn-row", hidden: "hidden" },
-    h("button", { type: "button", class: "btn secondary", id: "save-btn" }, "Сохранить черновик"),
+    h("button", { type: "button", class: "btn secondary", id: "save-btn" }, saveLabel),
     h("button", { type: "button", class: "btn primary", id: "publish-btn" }, "Опубликовать")
   );
 
-  const editor = h("form", { class: "panel", novalidate: "novalidate" },
+  const editor = h("form", { class: "panel", novalidate: "novalidate", onsubmit: (event) => event.preventDefault() },
     h("div", { class: "field" },
       h("label", { for: "t-title" }, "Название"),
       titleInput
@@ -74,6 +146,7 @@ export default function CreateTestPage() {
         "Правильный ответ отмечайте [+], [правильный] или * в конце строки. Несколько отмеченных вариантов — вопрос с множественным выбором. Короткий ответ: «Ответ: текст».")
     ),
     status,
+    warnings,
     h("div", { class: "btn-row" }, parseBtn),
     actions
   );
@@ -96,10 +169,21 @@ export default function CreateTestPage() {
   const previewBody = preview.querySelector("#preview-body");
   const previewCount = preview.querySelector("#preview-count");
 
+  if (editing) {
+    titleInput.value = editing.title || "";
+    descriptionInput.value = editing.description || "";
+    quizText.value = serializeTest(editing);
+  }
+
   function say(text, isError) {
     status.textContent = text || "";
     status.className = isError ? "form-error" : "form-hint";
     status.style.color = isError ? "" : "var(--ok)";
+  }
+
+  function sayWarnings(list) {
+    const items = Array.isArray(list) ? list.filter(Boolean) : [];
+    warnings.textContent = items.length ? "Предупреждения:\n" + items.join("\n") : "";
   }
 
   function renderPreview(result) {
@@ -136,11 +220,16 @@ export default function CreateTestPage() {
     }
   }
 
-  parseBtn.addEventListener("click", async () => {
+  async function runParse() {
     say("");
+    sayWarnings([]);
     try {
       parsed = await parseQuizText(quizText.value);
       renderPreview(parsed);
+      const warningsFound = (parsed.structuredErrors || [])
+        .filter(item => item.severity === "warning")
+        .map(item => item.message);
+      sayWarnings(warningsFound);
       const ok = parsed.questions.length && !(parsed.errors && parsed.errors.length);
       actions.hidden = !ok;
       if (!ok) say("Исправьте ошибки в вопросах — публикация недоступна.", true);
@@ -149,9 +238,13 @@ export default function CreateTestPage() {
       actions.hidden = true;
       say(e.message, true);
     }
-  });
+  }
+
+  parseBtn.addEventListener("click", runParse);
 
   async function persist(publish) {
+    say("");
+    sayWarnings([]);
     const title = titleInput.value.trim();
     if (!title) { say("Введите название теста.", true); titleInput.focus(); return; }
     if (!parsed || !parsed.questions.length) { say("Сначала разберите вопросы.", true); return; }
@@ -163,26 +256,62 @@ export default function CreateTestPage() {
     (publish ? publishBtn : saveBtn).textContent = label;
 
     try {
-      updateTest({
+      // Проверяем ровно тот объект, который будет сохранён: настройки
+      // (mode, settings) берутся из текущего теста, а не подставляются здесь.
+      // Служебные Timestamp-поля не клонируем через JSON: editor сохраняет
+      // исходные значения документа при обновлении.
+      const base = getCurrentTest();
+      delete base.createdAt;
+      delete base.updatedAt;
+      delete base.publishedAt;
+      const draft = {
+        ...base,
         title,
         description: descriptionInput.value.trim(),
         questions: parsed.questions
-      });
+      };
+
+      const validation = publish
+        ? validateTestForPublish(draft)
+        : validateTestDraft(draft);
+      sayWarnings(validation.warnings);
+
+      if (validation.errors.length) {
+        say(validation.errors.join("\n"), true);
+        return;
+      }
+
+      updateTest(draft);
+
       if (publish) await publishTest();
       else await saveTest();
-      say(publish ? "Тест опубликован." : "Черновик сохранён.", false);
+      say(publish ? "Тест опубликован." : (editId ? "Изменения сохранены." : "Черновик сохранён."), false);
     } catch (e) {
-      console.error(e);
-      say(errorText(e), true);
+      if (e?.code === "validation") {
+        say((e.errors?.length ? e.errors : [e.message]).join("\n"), true);
+        sayWarnings(e.warnings || []);
+      } else {
+        console.error(e);
+        say(errorText(e), true);
+      }
     } finally {
       saveBtn.disabled = publishBtn.disabled = false;
-      saveBtn.textContent = "Сохранить черновик";
+      saveBtn.textContent = saveLabel;
       publishBtn.textContent = "Опубликовать";
     }
   }
 
   actions.querySelector("#save-btn").addEventListener("click", () => persist(false));
   actions.querySelector("#publish-btn").addEventListener("click", () => persist(true));
+
+  if (editId && editing) {
+    await runParse();
+    if (!hasStoredKeys(editing)) {
+      sayWarnings([
+        "Не удалось загрузить правильные ответы из testKeys. Проверьте отметки [+] и ответы вручную перед сохранением."
+      ]);
+    }
+  }
 
   return page;
 }

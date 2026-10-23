@@ -140,7 +140,7 @@ async function loadStudentData(profile) {
   const tasks = [
     (async () => {
       if (!profile.groupId) return;
-      try { data.assignments = await getStudentAssignments(profile.groupId); }
+      try { data.assignments = await getStudentAssignments(profile.groupId, profile.orgId); }
       catch (e) { console.error("Задания:", e); data.errors.push("задания"); }
     })(),
     (async () => {
@@ -229,7 +229,7 @@ function studentView(profile, data) {
           dot: a.left <= 2 ? "warn" : "ok",
           title: a.title || a.testTitle || "Назначенный тест",
           sub: `Срок: ${formatDate(a.deadline)} · ${a.left <= 0 ? "просрочено" : `осталось ${a.left} дн.`}`,
-          end: h("a", { class: "btn secondary", href: `#quiz/${encodeURIComponent(a.testId)}` }, "Начать")
+          end: h("a", { class: "btn secondary", href: `#quiz/${encodeURIComponent(a.testId)}/${encodeURIComponent(a.id)}` }, "Начать")
         })),
         emptyText: "Активных дедлайнов нет.",
         emptyAction: { href: "#assignments", label: "Все задания" }
@@ -247,12 +247,16 @@ function studentView(profile, data) {
       title: "Недавние результаты",
       items: data.attempts.slice(0, 5).map(a => {
         const percent = a.status === "graded" && a.total ? Math.round((a.score / a.total) * 100) : null;
+        const inProgress = a.status === "in_progress";
         return row({
-          dot: percent === null ? "warn" : percent >= 60 ? "ok" : "warn",
+          dot: percent === null ? (inProgress ? "muted" : "warn") : percent >= 60 ? "ok" : "warn",
           title: a.testTitle || "Тест",
-          sub: formatDate(a.submittedAt),
-          end: h("span", { class: "badge " + (percent === null ? "badge-neutral" : "badge-success") },
-            percent === null ? "На проверке" : percent + "%")
+          sub: formatDate(a.submittedAt || a.startedAt),
+          end: h("span", {
+            class: "badge " + (percent === null
+              ? (inProgress ? "badge-warning" : "badge-info")
+              : "badge-success")
+          }, percent === null ? (inProgress ? "Не завершена" : "На проверке") : percent + "%")
         });
       }),
       emptyText: "Результатов пока нет. Первый пройденный тест появится здесь.",
@@ -272,7 +276,7 @@ function staffView(profile, data) {
   const avg = graded.length
     ? Math.round(graded.reduce((sum, a) => sum + (a.score / a.total) * 100, 0) / graded.length)
     : null;
-  const pending = data.attempts.filter(a => a.status !== "graded").length;
+  const pending = data.attempts.filter(a => a.status === "submitted").length;
 
   return [
     hero({
@@ -323,7 +327,7 @@ function staffView(profile, data) {
           sub: `${(t.questions || []).length} вопросов · ${formatDate(t.updatedAt)}`,
           end: h("span", { class: "badge " + (t.status === "published" ? "badge-success" : "badge-warning") },
             t.status === "published" ? "Опубликован" : "Черновик"),
-          href: "#create-test"
+          href: "#create-test/" + encodeURIComponent(t.id)
         })),
         emptyText: "Вы ещё не создали ни одного теста.",
         emptyAction: { href: "#create-test", label: "Создать тест" }
@@ -342,12 +346,17 @@ function staffView(profile, data) {
       action: { href: "#results", label: "Все результаты" },
       items: data.attempts.slice(0, 5).map(a => {
         const percent = a.status === "graded" && a.total ? Math.round((a.score / a.total) * 100) : null;
+        const inProgress = a.status === "in_progress";
         return row({
-          dot: percent === null ? "warn" : percent >= 60 ? "ok" : "warn",
+          dot: percent === null ? (inProgress ? "muted" : "warn") : percent >= 60 ? "ok" : "warn",
           title: a.testTitle || "Тест",
-          sub: (a.userEmail || "участник") + " · " + formatDate(a.submittedAt),
-          end: h("span", { class: "badge " + (percent === null ? "badge-neutral" : "badge-success") },
-            percent === null ? "На проверке" : percent + "%")
+          sub: (a.userEmail || "участник") + " · " + formatDate(a.submittedAt || a.startedAt),
+          end: h("span", {
+            class: "badge " + (percent === null
+              ? (inProgress ? "badge-warning" : "badge-info")
+              : "badge-success")
+          }, percent === null ? (inProgress ? "Не завершена" : "На проверке") : percent + "%"),
+          href: inProgress ? null : "#review/" + encodeURIComponent(a.id)
         });
       }),
       emptyText: "Попыток пока нет. Опубликуйте тест и назначьте его группе.",

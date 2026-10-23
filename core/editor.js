@@ -6,11 +6,13 @@ import {
   auth, db, doc, collection, getDoc, getDocs, setDoc, updateDoc, addDoc,
   query, where, serverTimestamp
 } from "../shared/firebase.js";
-import { State } from "./auth.js";
+import { State, isStaff } from "./auth.js";
 import { parseQuiz } from "./import/parser.js";
 import { emptyTest, validateTest } from "./test-schema.js";
+import { splitForStorage, mergeKeys } from "./test-storage.js";
 
 export { effectiveDeadline } from "./timing.js";
+export { splitForStorage, mergeKeys };
 
 const draftKey = (id) => {
   const uid = auth.currentUser?.uid || State?.user?.uid || "guest";
@@ -36,45 +38,13 @@ function currentOrgId() {
 
 const byUpdatedDesc = (a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0);
 
-// Делит тест на публичную часть и ключи.
-export function splitForStorage(test) {
-  const publicQuestions = [];
-  const items = {};
-  (test.questions || []).forEach((q, i) => {
-    const type = q.type || "single";
-    publicQuestions.push({
-      type,
-      text: q.text ?? "",
-      options: type === "short" ? [] : (q.options || []).map((o) => ({ text: o.text ?? "" })),
-      points: q.points || 1,
-      required: q.required || false,
-      image: q.image
-    });
-    if (type === "short") {
-      items[String(i)] = { type, answer: String(q.answer ?? "") };
-    } else {
-      const correct = [];
-      (q.options || []).forEach((o, j) => { if (o.correct) correct.push(j); });
-      items[String(i)] = { type, correct };
-    }
-  });
-  const { questions, ...rest } = test;
-  return { publicTest: { ...rest, questions: publicQuestions }, keys: items };
-}
-
-// Возвращает правильные ответы в вопросы (для автора теста).
-export function mergeKeys(publicTest, items) {
-  const questions = (publicTest.questions || []).map((q, i) => {
-    const k = items?.[String(i)];
-    if (!k) return q;
-    if (q.type === "short") return { ...q, answer: k.answer ?? "" };
-    const set = new Set(k.correct || []);
-    return {
-      ...q,
-      options: (q.options || []).map((o, j) => ({ ...o, correct: set.has(j) }))
-    };
-  });
-  return { ...publicTest, questions };
+// Ошибка валидации для UI: code="validation" и полные списки errors/warnings.
+function validationFailure({ errors, warnings }) {
+  const error = new Error(errors[0] || "Тест не прошёл проверку");
+  error.code = "validation";
+  error.errors = errors;
+  error.warnings = warnings;
+  return error;
 }
 
 // Сохраняет тест: публичная часть — в tests, ответы — в testKeys.
@@ -84,24 +54,63 @@ export async function saveTest(testId) {
     const uid = auth.currentUser?.uid || State?.user?.uid;
     if (!uid) throw new Error("Нужно войти в аккаунт.");
 
-    const id = testId || currentTest.id || doc(collection(db, "tests")).id;
+    // Черновик проверяем тем же валидатором, что и публикацию, но без
+    // требований, которые нужны только опубликованному тесту. Если тест уже
+    // опубликован, сохраняем его по правилам публикации: иначе Firestore
+    // отклонит, например, больше 200 вопросов уже после записи.
+    const validation = validateTest(currentTest, {
+      publishing: currentTest.status === "published"
+    });
+    if (validation.errors.length) {
+      saveDraftLocally();
+      throw validationFailure(validation);
+    }
+
+    const existingId = testId || currentTest.id;
+    const id = existingId || doc(collection(db, "tests")).id;
     currentTest.id = id;
 
     const { publicTest, keys } = splitForStorage(currentTest);
-    const orgId = currentOrgId();
+    // Для существующего документа не перезаписываем createdAt/publishedAt:
+    // после JSON-клонирования они могут стать обычными объектами, а правила
+    // ожидают Timestamp. setDoc с merge сохранит исходные значения.
+    if (existingId) {
+      delete publicTest.createdAt;
+      delete publicTest.publishedAt;
+    } else {
+      // Новый тест всегда создаётся черновиком; служебные поля не должны
+      // приходить из локального черновика в виде простых объектов.
+      publicTest.createdAt = serverTimestamp();
+      publicTest.publishedAt = null;
+    }
+    // Автора и организацию берём из существующего документа, а для нового
+    // теста — из текущей сессии. Так сохранение не переписывает чужие данные.
+    const authorId = existingId && currentTest.authorId ? currentTest.authorId : uid;
+    const orgId = existingId && currentTest.orgId ? currentTest.orgId : currentOrgId();
+    const version = Number.isInteger(currentTest.version) && currentTest.version > 0
+      ? currentTest.version
+      : 1;
 
     await setDoc(doc(db, "tests", id), {
-      ...publicTest, id, authorId: uid, orgId, updatedAt: serverTimestamp(), version: 1
+      ...publicTest, id, authorId, orgId, updatedAt: serverTimestamp(), version
     }, { merge: true });
 
     await setDoc(doc(db, "testKeys", id), {
-      authorId: uid, orgId, items: keys, updatedAt: serverTimestamp(), version: 1
+      authorId, orgId, items: keys, updatedAt: serverTimestamp(), version
     });
+
+    // Держим локальную копию в согласии с тем, что записали в Firestore:
+    // иначе публикация возьмёт пустые authorId/orgId и старую версию.
+    currentTest.authorId = authorId;
+    currentTest.orgId = orgId;
+    currentTest.version = version;
 
     saveDraftLocally();
     return id;
   } catch (error) {
-    console.error("Ошибка сохранения теста:", error);
+    if (error?.code !== "validation") {
+      console.error("Ошибка сохранения теста:", error);
+    }
     saveDraftLocally();
     throw error;
   }
@@ -134,22 +143,43 @@ export function resetTest(test) {
 export async function publishTest(testId) {
   try {
     if (!navigator.onLine) throw new Error("Нет подключения к интернету. Публикация невозможна.");
+
+    // Полная проверка до записи: не публикуем тест, который нельзя пройти.
+    const validation = validateTest(currentTest, { publishing: true });
+    if (validation.errors.length) {
+      saveDraftLocally();
+      throw validationFailure(validation);
+    }
+
     const id = await saveTest(testId);
     const { publicTest } = splitForStorage(currentTest);
+    const version = (Number.isInteger(currentTest.version) && currentTest.version > 0
+      ? currentTest.version
+      : 1) + 1;
 
-    const version = await addDoc(collection(db, "tests", id, "versions"), {
-      ...publicTest, id, createdAt: serverTimestamp(), status: "published",
-      version: (currentTest.version || 1) + 1
+    const versionRef = await addDoc(collection(db, "tests", id, "versions"), {
+      ...publicTest, id,
+      authorId: currentTest.authorId,
+      orgId: currentTest.orgId,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      publishedAt: serverTimestamp(),
+      status: "published",
+      version
     });
     await updateDoc(doc(db, "tests", id), {
       status: "published",
       publishedAt: serverTimestamp(),
-      version: (currentTest.version || 1) + 1
+      version
     });
     currentTest.status = "published";
-    return version.id;
+    currentTest.version = version;
+    saveDraftLocally();
+    return versionRef.id;
   } catch (error) {
-    console.error("Ошибка публикации теста:", error);
+    if (error?.code !== "validation") {
+      console.error("Ошибка публикации теста:", error);
+    }
     throw error;
   }
 }
@@ -159,18 +189,24 @@ export async function loadTest(testId) {
     if (!navigator.onLine) {
       const local = readDraftLocally(testId);
       if (local) { currentTest = local; return getCurrentTest(); }
-      throw new Error("Нет подключения к интернету. Данные недоступны.");
+      const offline = new Error("Нет подключения к интернету. Данные недоступны.");
+      offline.code = "unavailable";
+      throw offline;
     }
 
     const snap = await getDoc(doc(db, "tests", testId));
     if (!snap.exists()) return null;
     let test = { ...snap.data(), id: testId };
 
-    try {
-      const keysSnap = await getDoc(doc(db, "testKeys", testId));
-      if (keysSnap.exists()) test = mergeKeys(test, keysSnap.data().items);
-    } catch (_) {
-      // Нет прав на ключи (не автор): остаётся публичная часть.
+    // Ключи нужны только автору/администратору при редактировании.
+    // Ученику незачем даже пытаться читать testKeys.
+    if (isStaff()) {
+      try {
+        const keysSnap = await getDoc(doc(db, "testKeys", testId));
+        if (keysSnap.exists()) test = mergeKeys(test, keysSnap.data().items);
+      } catch (_) {
+        // Нет прав на ключи (например, чужой тест): остаётся публичная часть.
+      }
     }
 
     currentTest = { ...emptyTest(), ...test };
@@ -181,14 +217,33 @@ export async function loadTest(testId) {
   }
 }
 
-// Ключи ответов теста. Доступны только автору/администратору по правилам.
+// Ключи ответов теста. Доступны только сотрудникам организации по правилам.
 export async function getTestKeys(testId) {
+  if (!isStaff()) return null;
   try {
     const snap = await getDoc(doc(db, "testKeys", testId));
     return snap.exists() ? snap.data().items : null;
   } catch (_) {
     return null;
   }
+}
+
+// Чтение теста и ключей для экрана проверки. Не трогает currentTest,
+// чтобы преподаватель, открывший проверку, не потерял черновик редактора.
+export async function getTestForReview(testId) {
+  const snap = await getDoc(doc(db, "tests", testId));
+  if (!snap.exists()) return null;
+
+  const test = { ...snap.data(), id: testId };
+  let keys = null;
+  try {
+    const keysSnap = await getDoc(doc(db, "testKeys", testId));
+    if (keysSnap.exists()) keys = keysSnap.data().items;
+  } catch (_) {
+    keys = null;
+  }
+
+  return { test, keys };
 }
 
 export function loadDraft(testId) {
@@ -207,6 +262,11 @@ export function loadDraft(testId) {
 
 export function validateTestDraft(test) {
   const { errors, warnings } = validateTest(test, { publishing: false });
+  return { errors, warnings };
+}
+
+export function validateTestForPublish(test) {
+  const { errors, warnings } = validateTest(test, { publishing: true });
   return { errors, warnings };
 }
 

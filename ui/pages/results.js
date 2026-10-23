@@ -1,6 +1,7 @@
 import { h } from "../../shared/dom.js";
 import { State } from "../../core/auth.js";
 import { listOrgAttempts } from "../../core/attempts.js";
+import { loadPublicProfiles, displayName } from "../../core/profile.js";
 import { toCsv } from "../../shared/csv.js";
 import { icons } from "../../shared/icons.js";
 
@@ -18,7 +19,7 @@ function explainError(err) {
     return "Правила Firestore не разрешают чтение попыток организации.";
   }
   if (err?.code === "failed-precondition") {
-    return "Для выборки нужен индекс Firestore по orgId и submittedAt.";
+    return "Firestore отклонил запрос. Проверьте права доступа и настройки индексов.";
   }
   return "Не удалось загрузить результаты. Проверьте подключение к сети.";
 }
@@ -30,8 +31,10 @@ function downloadCsv(rows) {
     "Тест": r.test,
     "Балл": r.score,
     "Всего": r.total,
-    "Процент": r.percent,
-    "Статус": r.status,
+    "Процент": r.percent === null ? "" : r.percent,
+    "Статус": r.status === "graded"
+      ? "Проверено"
+      : r.status === "in_progress" ? "Не завершена" : "Ожидает",
     "Отправлено": r.submitted
   }));
   const blob = new Blob([toCsv(data)], { type: "text/csv;charset=utf-8" });
@@ -101,11 +104,22 @@ export default async function ResultsPage() {
         h("th", {}, "Тест"),
         h("th", {}, "Результат"),
         h("th", {}, "Статус"),
-        h("th", {}, "Отправлено")
+        h("th", {}, "Отправлено"),
+        h("th", {}, "Проверка")
       ))
     );
     const tbody = h("tbody");
     visible.forEach(r => {
+      const statusLabel = r.status === "graded"
+        ? "Проверено"
+        : r.status === "in_progress"
+          ? "Не завершена"
+          : "Ожидает";
+      const badge = r.status === "graded"
+        ? "badge-success"
+        : r.status === "in_progress"
+          ? "badge-warning"
+          : "badge-info";
       tbody.appendChild(h("tr", {},
         h("td", {},
           h("div", { class: "list-row-title" }, r.student),
@@ -113,11 +127,14 @@ export default async function ResultsPage() {
         ),
         h("td", {}, r.test || "—"),
         h("td", {}, r.percent === null ? "—" : `${r.score} / ${r.total} · ${r.percent}%`),
+        h("td", {}, h("span", { class: "badge " + badge }, statusLabel)),
+        h("td", { class: "muted" }, r.submitted),
         h("td", {},
-          h("span", { class: "badge " + (r.status === "graded" ? "badge-success" : "badge-warning") },
-            r.status === "graded" ? "Проверено" : "Ожидает")
-        ),
-        h("td", { class: "muted" }, r.submitted)
+          h("a", {
+            class: "btn secondary",
+            href: `#review/${encodeURIComponent(r.id)}`
+          }, r.status === "graded" ? "Открыть" : "Проверить")
+        )
       ));
     });
     el.appendChild(tbody);
@@ -131,15 +148,34 @@ export default async function ResultsPage() {
 
   try {
     const attempts = await listOrgAttempts(State.profile.orgId);
+    let names = new Map();
+    try {
+      const profiles = await loadPublicProfiles(
+        attempts.map(a => a.userId),
+        State.profile.orgId
+      );
+      names = new Map(profiles.map(profile => [
+        profile.id,
+        displayName(profile, { viewerIsStaff: true, uid: profile.id })
+      ]));
+    } catch (nameErr) {
+      console.warn("Не удалось загрузить имена участников:", nameErr);
+    }
+
     rows = attempts.map(a => ({
-      student: a.userName || (a.userEmail ? a.userEmail.split("@")[0] : "Участник"),
+      id: a.id,
+      student: names.get(a.userId)
+        || a.userName
+        || (a.userEmail ? a.userEmail.split("@")[0] : "Участник"),
       email: a.userEmail || "",
       test: a.testTitle || a.testId || "—",
       score: a.score ?? 0,
       total: a.total ?? 0,
-      percent: a.status === "graded" && a.total ? Math.round((a.score / a.total) * 100) : null,
+      percent: a.status === "graded" && a.total
+        ? (Number.isFinite(a.percent) ? a.percent : Math.round((a.score / a.total) * 100))
+        : null,
       status: a.status || "submitted",
-      submitted: formatDate(a.submittedAt),
+      submitted: formatDate(a.submittedAt || a.startedAt),
       raw: a
     }));
 
@@ -147,7 +183,7 @@ export default async function ResultsPage() {
     const avg = graded.length
       ? Math.round(graded.reduce((s, r) => s + r.percent, 0) / graded.length)
       : null;
-    const pending = rows.filter(r => r.status !== "graded").length;
+    const pending = rows.filter(r => r.status === "submitted").length;
 
     stats.append(
       h("div", { class: "stat" },

@@ -222,17 +222,20 @@ function attemptsBlock(profile) {
     const list = h("div", { class: "list" });
     attempts.slice(0, 8).forEach(a => {
       const graded = a.status === "graded";
+      const inProgress = a.status === "in_progress";
       const percent = graded && a.total ? Math.round((a.score / a.total) * 100) : null;
+      const badge = graded
+        ? h("span", { class: "badge badge-success" }, `${percent}%`)
+        : inProgress
+          ? h("span", { class: "badge badge-warning" }, "Не завершена")
+          : h("span", { class: "badge badge-info" }, "На проверке");
       list.appendChild(h("div", { class: "list-row" },
         h("span", { class: "dot " + (graded ? (percent >= 60 ? "ok" : "warn") : "muted") }),
         h("div", { class: "list-row-main" },
           h("div", { class: "list-row-title" }, a.testTitle || "Тест"),
-          h("div", { class: "list-row-sub" }, formatDate(a.submittedAt))
+          h("div", { class: "list-row-sub" }, formatDate(a.submittedAt || a.startedAt))
         ),
-        h("div", { class: "list-row-end" },
-          h("span", { class: "badge " + (graded ? "badge-success" : "badge-neutral") },
-            graded ? `${percent}%` : "На проверке")
-        )
+        h("div", { class: "list-row-end" }, badge)
       ));
     });
     body.replaceChildren(list);

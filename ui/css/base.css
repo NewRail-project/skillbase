@@ -1,5 +1,8 @@
 *, *::before, *::after { box-sizing: border-box; }
 
+/* Атрибут hidden должен побеждать display у классов вроде .btn-row. */
+[hidden] { display: none !important; }
+
 html { -webkit-text-size-adjust: 100%; }
 
 body {

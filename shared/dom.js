@@ -4,6 +4,19 @@
 
 const ALLOWED_HREF = /^#|^https:|^mailto:/;
 
+// Логические атрибуты нельзя выставлять через setAttribute(false):
+// атрибут "checked=false" всё равно считается присутствующим, и браузер
+// включает чекбокс/кнопку. Поэтому для них используем DOM-свойства.
+const BOOLEAN_PROPS = {
+  checked: "checked",
+  disabled: "disabled",
+  selected: "selected",
+  hidden: "hidden",
+  readonly: "readOnly",
+  required: "required",
+  multiple: "multiple"
+};
+
 export function h(tag, attrs = {}, ...children) {
   const el = document.createElement(tag);
   for (const [key, value] of Object.entries(attrs)) {
@@ -22,6 +35,8 @@ export function h(tag, attrs = {}, ...children) {
       if (typeof value === 'string' && ALLOWED_HREF.test(value)) {
         el.href = value;
       }
+    } else if (Object.prototype.hasOwnProperty.call(BOOLEAN_PROPS, key)) {
+      el[BOOLEAN_PROPS[key]] = Boolean(value);
     } else {
       el.setAttribute(key, value);
     }
