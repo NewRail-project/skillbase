@@ -19,9 +19,6 @@ service cloud.firestore {
     function isAdmin() {
       return hasProfile() && me().role == 'admin';
     }
-    function sameOrg(orgId) {
-      return hasProfile() && me().orgId == orgId;
-    }
     function validUi(v) { return v in ['education', 'operations', 'depot']; }
     function validTheme(v) { return v in ['light', 'dark', 'system']; }
     function validTitle(v) {
@@ -40,12 +37,6 @@ service cloud.firestore {
     }
     function testExists(testId) {
       return exists(/databases/$(database)/documents/tests/$(testId));
-    }
-    function assignmentExists(assignmentId) {
-      return exists(/databases/$(database)/documents/assignments/$(assignmentId));
-    }
-    function assignmentData(assignmentId) {
-      return get(/databases/$(database)/documents/assignments/$(assignmentId)).data;
     }
 
     // ---------- Пользователи ----------
