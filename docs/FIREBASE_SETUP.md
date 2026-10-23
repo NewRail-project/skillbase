@@ -1,8 +1,7 @@
 # Firebase: настройка и развёртывание
 
 Этот документ описывает, что нужно сделать в Firebase Console и какие
-команды выполнить при подключении проекта. В рамках разработки команды
-`firebase deploy` и изменения Console **не выполнялись**.
+команды выполнить при подключении проекта.
 
 ## 1. Authentication
 
@@ -49,8 +48,16 @@
 ```bash
 firebase login
 firebase use --add          # выбрать проект
+npm run test:rules          # проверка правил через Firebase Rules API
 firebase deploy --only firestore:rules,firestore:indexes
 ```
+
+`npm run test:rules` отправляет локальный `firestore.rules` в
+`projects.test` Firebase Rules API с подставными `auth`, документами и
+моками `get`/`exists`. Это проверяет реальные сценарии доступа без Java и
+Firestore Emulator: 44 кейса для тестов, ключей, попыток, назначений,
+пользователей и публичных профилей. Нужен только `firebase login`;
+данные проекта не меняются.
 
 Перед deploy полезно посмотреть предполагаемые изменения:
 
@@ -69,8 +76,8 @@ firebase deploy --only firestore:rules,firestore:indexes --dry-run
 firebase emulators:start --only firestore
 ```
 
-В текущем окружении Java нет, поэтому проверки правил на эмуляторе не
-выполнялись. Синтаксис и согласованность правил проверены статически.
+В текущем окружении Java нет, поэтому используется `npm run test:rules`
+(см. выше).
 
 ## 4. Схема данных
 
