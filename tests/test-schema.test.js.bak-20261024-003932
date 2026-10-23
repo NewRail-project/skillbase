@@ -1,0 +1,57 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { emptyTest, validateTest } from "../core/test-schema.js";
+
+function validTest() {
+  const t = emptyTest();
+  t.title = "Проверка знаний";
+  t.mode = "self";
+  t.settings.passScore = 70;
+  t.questions = [{
+    type: "single",
+    text: "Какой сигнал разрешает движение?",
+    options: [
+      { text: "Красный", correct: false },
+      { text: "Зелёный", correct: true },
+      { text: "Жёлтый", correct: false }
+    ],
+    points: 1
+  }];
+  return t;
+}
+
+test("single допускает несколько вариантов и один правильный", () => {
+  assert.deepEqual(validateTest(validTest()).errors, []);
+});
+
+test("single требует ровно один правильный вариант", () => {
+  const t = validTest();
+  t.questions[0].options[1].correct = false;
+  assert.ok(validateTest(t).errors.some(x => x.includes("ровно один")));
+});
+
+test("multiple требует минимум два правильных варианта", () => {
+  const t = validTest();
+  t.questions[0].type = "multiple";
+  assert.ok(validateTest(t).errors.some(x => x.includes("минимум два правильных")));
+});
+
+test("short требует текст правильного ответа", () => {
+  const t = validTest();
+  t.questions[0] = { type: "short", text: "Назовите сигнал", answer: "", points: 1 };
+  assert.ok(validateTest(t).errors.some(x => x.includes("должен иметь ответ")));
+});
+
+test("passScore 0 и значения вне диапазона отклоняются", () => {
+  const t = validTest();
+  t.settings.passScore = 0;
+  assert.ok(validateTest(t).errors.some(x => x.includes("Проходной балл")));
+  t.settings.passScore = 101;
+  assert.ok(validateTest(t).errors.some(x => x.includes("Проходной балл")));
+});
+
+test("некорректные баллы отклоняются", () => {
+  const t = validTest();
+  t.questions[0].points = 0;
+  assert.ok(validateTest(t).errors.some(x => x.includes("баллы")));
+});
