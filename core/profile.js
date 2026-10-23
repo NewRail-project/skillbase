@@ -47,17 +47,22 @@ export async function processAvatarFile(file) {
 }
 
 export async function saveProfile(uid, patch, publicPatch, profileData) {
-  const batch = writeBatch(db);
-  batch.update(doc(db, "users", uid), patch);
-  batch.set(doc(db, "publicProfiles", uid), { ...publicPatch, updatedAt: serverTimestamp() }, { merge: true });
-  await batch.commit();
-  
-  // Обновляем State.profile
-  const docRef = doc(db, "users", uid);
-  const docSnap = await getDoc(docRef);
-  if (docSnap.exists()) {
-    const updatedProfile = { ...docSnap.data(), ...patch };
-    State.profile = updatedProfile;
+  try {
+    const batch = writeBatch(db);
+    batch.update(doc(db, "users", uid), patch);
+    batch.set(doc(db, "publicProfiles", uid), { ...publicPatch, updatedAt: serverTimestamp() }, { merge: true });
+    await batch.commit();
+
+    // Обновляем State.profile
+    const docRef = doc(db, "users", uid);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      const updatedProfile = { ...docSnap.data(), ...patch };
+      State.profile = updatedProfile;
+    }
+  } catch (error) {
+    console.error("Ошибка сохранения профиля:", error);
+    throw new Error("Не удалось сохранить профиль");
   }
 }
 

@@ -1,9 +1,9 @@
 import { h, esc } from "../../shared/dom.js";
 import { State, logout } from "../../core/auth.js";
-import { displayName, initialsAvatar, validateFullName, processAvatarFile, saveProfile } from "../../core/profile.js";
-import { icons } from "../../shared/icons.js";
+import { displayName, initialsAvatar, processAvatarFile, saveProfile } from "../../core/profile.js";
 import { toast } from "../../ui/components/toast.js";
 import { modal } from "../../ui/components/modal.js";
+import { getThemeMode } from "../../shared/theme.js";
 
 let currentAvatar = null;
 
@@ -23,6 +23,7 @@ export default function ProfilePage() {
     div.append(h("div", { class: "error-state" }, "Профиль недоступен. Пожалуйста, обновите страницу."));
     return div;
   }
+
   const name = displayName(profile, { viewerIsStaff: true, uid: profile.uid });
 
   function render() {
@@ -56,7 +57,7 @@ export default function ProfilePage() {
             h("input", {
               type: "text",
               id: "fullName",
-              value: esc(profile.fullName),
+              value: esc(profile.fullName || ""),
               oninput: (e) => updateField("fullName", e.target.value)
             }),
             state.errors.fullName ? h("div", { id: "fullName-error", class: "form-error" }, state.errors.fullName) : null
@@ -66,18 +67,8 @@ export default function ProfilePage() {
             h("input", {
               type: "text",
               id: "position",
-              value: esc(profile.position),
+              value: esc(profile.position || ""),
               oninput: (e) => updateField("position", e.target.value)
-            }),
-            h("div", { class: "form-hint" }, "Необязательно")
-          ),
-          h("div", { class: "form-field" },
-            h("label", { for: "department" }, "Подразделение"),
-            h("input", {
-              type: "text",
-              id: "department",
-              value: esc(profile.department),
-              oninput: (e) => updateField("department", e.target.value)
             }),
             h("div", { class: "form-hint" }, "Необязательно")
           )
@@ -96,18 +87,6 @@ export default function ProfilePage() {
             h("option", { value: "dark" }, "Тёмная"),
             h("option", { value: "system" }, "Система")
           )
-        ),
-        h("div", { class: "ui-selector" },
-          h("label", { for: "ui" }, "Стиль интерфейса:"),
-          h("select", {
-            id: "ui",
-            value: profile.ui,
-            onchange: (e) => updateField("ui", e.target.value)
-          }, 
-            h("option", { value: "education" }, "Образовательный"),
-            h("option", { value: "operations" }, "Операционный"),
-            h("option", { value: "depot" }, "Депо")
-          )
         )
       ),
       h("div", { class: "profile-section" },
@@ -122,9 +101,8 @@ export default function ProfilePage() {
       h("div", { class: "profile-section" },
         h("h3", {}, "Статистика"),
         h("div", { class: "empty-state" },
-          h("div", { class: "empty-state-icon", innerHTML: icons.trophy }),
-          h("h2", {}, "Статистика не доступна"),
-          h("p", {}, "Здесь появится статистика после первого пройденного теста.")
+          h("div", { class: "empty-state-icon", innerHTML: "⚡" }, "Статистика не доступна"),
+          h("h2", {}, "Здесь появится статистика после пройденных тестов.")
         )
       ),
       h("button", {
@@ -137,7 +115,7 @@ export default function ProfilePage() {
     );
   }
 
-  let state = { fullName: profile.fullName, position: profile.position, department: profile.department, ui: profile.ui };
+  let state = { fullName: profile.fullName || "", position: profile.position || "", department: profile.department || "", ui: profile.ui || "education" };
 
   function updateField(field, value) {
     state[field] = value;
@@ -159,7 +137,6 @@ export default function ProfilePage() {
 
   async function showAvatarModal() {
     const modalDiv = modal();
-    const fileInput = h("input", { type: "file", accept: "image/*", onchange: handleFileChange });
     const preview = h("div", { class: "avatar-preview" });
     const cancelBtn = h("button", { class: "btn secondary", onclick: () => modalDiv.close() }, "Отмена");
     const saveBtn = h("button", { class: "btn primary", onclick: () => saveAvatar() }, "Сохранить");
@@ -171,8 +148,7 @@ export default function ProfilePage() {
           preview,
           h("div", { class: "avatar-error" }, "Некорректный формат или размер")
         ),
-        h("input", { type: "file", accept: "image/*", onchange: handleFileChange }),
-        h("div", { class: "file-hint" }, "Файл должен быть JPEG/PNG/WEBp ≤ 3 МБ")
+        h("input", { type: "file", accept: "image/*", onchange: handleFileChange })
       ),
       cancelBtn,
       saveBtn
