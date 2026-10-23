@@ -82,12 +82,17 @@ export async function saveProfile(uid, patch, publicPatch) {
   }
 
   const docSnap = await getDoc(doc(db, "users", uid));
-  if (docSnap.exists()) {
-    // uid берём из документа-ссылки: в data() его нет.
-    State.profile = { ...docSnap.data(), uid };
-  } else {
-    State.profile = { ...State.profile, ...clean, uid };
-  }
+  const fresh = docSnap.exists()
+    ? { ...docSnap.data(), uid }
+    : { ...State.profile, ...clean, uid };
+  // Публичные поля (avatar/publicDisplayName) живут в publicProfiles, а не в
+  // users. Сохраняем их в State.profile и обновляем тем, что только что записали.
+  State.profile = {
+    ...State.profile,
+    ...fresh,
+    ...(publicPatch?.displayName ? { publicDisplayName: publicPatch.displayName } : {}),
+    ...(publicPatch?.avatar ? { avatar: publicPatch.avatar } : {})
+  };
   return State.profile;
 }
 
