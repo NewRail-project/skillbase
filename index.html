@@ -4,49 +4,28 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Skillbase</title>
-  <link rel="stylesheet" href="ui/css/tokens.css?v=7">
-  <link rel="stylesheet" href="ui/css/themes/operations.css?v=7">
-  <link rel="stylesheet" href="ui/css/themes/depot.css?v=7">
-  <link rel="stylesheet" href="ui/css/themes/education.css?v=7">
-  <link rel="stylesheet" href="ui/css/base.css?v=7">
-  <link rel="stylesheet" href="ui/css/components.css?v=7">
-  <script>
-    // Диагностика: если приложение не запустилось — показываем причину, а не пустой экран
-    window.__bootErrors = [];
-    window.addEventListener('error', function (e) { window.__bootErrors.push(e.message || (e.target && e.target.src) || 'ошибка загрузки'); });
-    window.addEventListener('unhandledrejection', function (e) { window.__bootErrors.push(String(e.reason && e.reason.message || e.reason)); });
-    setTimeout(function () {
-      if (window.__booted) return;
-      var app = document.getElementById('app');
-      if (!app) return;
-      app.innerHTML = '<div class="card"><h2>Приложение не запустилось</h2>' +
-        '<p>Проверьте интернет и обновите страницу. Подробности: откройте <a href="probe.html">probe.html</a>.</p>' +
-        '<p class="error-msg">' + (window.__bootErrors.join('<br>') || 'нет данных (смотрите консоль)') + '</p></div>';
-    }, 7000);
-  </script>
+  <link rel="stylesheet" href="ui/css/style.css?v=6">
+  <link rel="stylesheet" href="ui/css/theme.css?v=6">
   <script type="module" src="shared/main.js?v=6"></script>
 </head>
 <body>
   <div id="app-container" class="app-container">
-    <header class="header">
+    <header>
       <a href="#" class="logo">
-        <svg width="24" height="24" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M16 48L240 48" stroke-linecap="round"/>
-          <path d="M16 96L240 96" stroke-linecap="round"/>
-          <path d="M16 64L20 80" stroke-linecap="round"/>
-          <path d="M48 64L52 80" stroke-linecap="round"/>
-          <path d="M80 64L84 80" stroke-linecap="round"/>
-          <path d="M112 64L116 80" stroke-linecap="round"/>
-          <path d="M144 64L148 80" stroke-linecap="round"/>
-          <path d="M176 64L180 80" stroke-linecap="round"/>
-          <path d="M208 64L212 80" stroke-linecap="round"/>
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="M8 21 11 3M16 21 13 3M7.4 17h9.2M8.6 11.5h6.8M9.8 6.5h4.4"/>
         </svg>
         Skillbase
       </a>
-      <nav id="nav" aria-label="Основная"></nav>
+      <nav id="nav"></nav>
     </header>
-    <div class="bottom-nav" id="bottom-nav" aria-label="Основная"></div>
-    <main id="app" class="main-content"><div class="card"><div class="spinner"></div></div></main>
+    <main id="app"></main>
+  </div>
+  <div id="loading-spinner" class="loading-spinner" style="display: none;">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#E5B94F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10"/>
+      <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M4.22 19.78l1.41-1.42M18.36 4.22l-1.42 1.42M19.78 18.36l-1.42-1.42"/>
+    </svg>
   </div>
 </body>
 </html>

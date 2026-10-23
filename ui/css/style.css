@@ -1,0 +1,232 @@
+/* Skillbase: стиль в духе КТЖ. Глубокий синий, сигнальный жёлтый, белый.
+   Единственный запоминающийся элемент: «рельсы и шпалы» под шапкой. */
+
+:root {
+  --navy: #0b1f5e;        /* ночной синий: фон, текст на белом */
+  --navy-deep: #071a4d;   /* шапка и низ градиента */
+  --yellow: #ffc800;      /* сигнальный жёлтый: акцент, основная кнопка */
+  --yellow-hover: #e6b400;
+  --white: #ffffff;
+  --line: #c9d5f5;        /* границы на белом */
+  --tint: #eef2ff;        /* лёгкая заливка на белом */
+  --muted: #44527a;       /* вторичный текст на белом */
+  --on-blue-muted: #b6c4ef;
+  --error-bg: #fdecea; --error-line: #f1a9a0; --error-text: #8a1f14;
+  --ok-bg: #e6f4ea;    --ok-line: #9fd3ae;    --ok-text: #14532d;
+
+  --radius: 14px;         /* карточки */
+  --radius-ctl: 10px;     /* поля и кнопки */
+  --sleeper-gap: 20px;    /* шаг шпал в шапке */
+  --font: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html { background: var(--navy-deep); }
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--font);
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--white);
+  background: linear-gradient(180deg, var(--navy) 0%, var(--navy-deep) 100%);
+  -webkit-text-size-adjust: 100%;
+}
+
+/* ===== Шапка и рельсы ===== */
+header {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 10px 16px 30px;
+  background: var(--navy-deep);
+}
+header::after {            /* два рельса поверх жёлтых шпал */
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: 8px;
+  height: 14px;
+  background:
+    linear-gradient(var(--white), var(--white)) left 3px / 100% 2px no-repeat,
+    linear-gradient(var(--white), var(--white)) left 9px / 100% 2px no-repeat,
+    repeating-linear-gradient(90deg, var(--yellow) 0 6px, transparent 6px var(--sleeper-gap));
+}
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font-size: 1.375rem;
+  font-weight: 800;
+  letter-spacing: .01em;
+  color: var(--white);
+  text-decoration: none;
+}
+.logo svg { width: 28px; height: 28px; stroke: var(--yellow); flex: none; }
+
+#nav { display: flex; flex-wrap: wrap; gap: 2px; }
+#nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 12px;
+  font-weight: 600;
+  color: var(--white);
+  text-decoration: none;
+  border-bottom: 3px solid transparent;
+}
+#nav a:hover { background: rgba(255, 255, 255, .1); }
+#nav a[aria-current="page"], #nav a.active { border-bottom-color: var(--yellow); }
+
+main, #app { width: 100%; max-width: 640px; margin: 0 auto; padding: 20px 16px 40px; }
+
+/* ===== Поверхности ===== */
+.card, .quiz-container, .results, .teacher-results {
+  position: relative;
+  overflow: hidden;
+  background: var(--white);
+  color: var(--navy);
+  border-radius: var(--radius);
+  padding: 24px 18px 20px;
+  box-shadow: 0 10px 28px rgba(3, 12, 44, .35);
+}
+.card::before, .quiz-container::before, .results::before, .teacher-results::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 4px;
+  background: var(--yellow);
+}
+.card .card { box-shadow: none; border: 1px solid var(--line); margin-top: 14px; }
+
+h1, h2, h3, h4 { margin: 0 0 12px; font-weight: 800; line-height: 1.25; color: var(--navy); }
+h2 { font-size: 1.625rem; }
+h3 { font-size: 1.125rem; }
+h4 { font-size: 1rem; }
+p { margin: 0 0 14px; }
+a { color: var(--navy); }
+.hint { font-size: .875rem; color: var(--muted); }
+.highlight { font-weight: 700; }
+.badge { display: inline-block; padding: 2px 10px; border-radius: 999px; background: var(--yellow); color: var(--navy); font-size: .8125rem; font-weight: 700; }
+
+dl.profile-info { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0 0 18px; }
+dl.profile-info dt { color: var(--muted); }
+dl.profile-info dd { margin: 0; font-weight: 700; overflow-wrap: anywhere; }
+
+/* ===== Формы ===== */
+.form-group { display: grid; gap: 6px; margin-bottom: 16px; }
+label { font-weight: 700; font-size: .9375rem; color: var(--navy); }
+input, select, textarea, .form-control {
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 14px;
+  font: inherit;
+  color: var(--navy);
+  background: var(--white);
+  border: 2px solid var(--line);
+  border-radius: var(--radius-ctl);
+}
+textarea { min-height: 160px; resize: vertical; }
+input:focus, select:focus, textarea:focus {
+  outline: 3px solid var(--yellow);
+  outline-offset: 1px;
+  border-color: var(--navy);
+}
+::placeholder { color: #56648f; }
+
+.error-msg, .success-msg { margin: 0 0 14px; padding: 10px 12px; border-radius: 8px; white-space: pre-line; font-size: .9375rem; }
+.error-msg   { background: var(--error-bg); border: 1px solid var(--error-line); color: var(--error-text); }
+.success-msg { background: var(--ok-bg);    border: 1px solid var(--ok-line);    color: var(--ok-text); }
+.error-msg:empty, .success-msg:empty { display: none; }
+
+/* ===== Кнопки: жёлтая основная, белая второстепенная ===== */
+button, .btn, input[type="submit"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 22px;
+  font: inherit;
+  font-weight: 800;
+  color: var(--navy);
+  background: var(--yellow);
+  border: 2px solid var(--yellow);
+  border-radius: var(--radius-ctl);
+  text-decoration: none;
+  cursor: pointer;
+}
+button:hover, .btn:hover { background: var(--yellow-hover); border-color: var(--yellow-hover); }
+button:active, .btn:active { transform: translateY(1px); }
+button.secondary, .btn.secondary { background: var(--white); border-color: var(--navy); color: var(--navy); }
+button.secondary:hover, .btn.secondary:hover { background: var(--tint); }
+button:focus-visible, .btn:focus-visible, a:focus-visible { outline: 3px solid var(--navy); outline-offset: 3px; }
+header a:focus-visible { outline-color: var(--yellow); }
+button:disabled { opacity: .55; cursor: not-allowed; }
+
+form button { width: 100%; margin-bottom: 10px; }
+.card > button.secondary, .card > .btn { width: 100%; }
+.button-group { display: grid; gap: 10px; margin-top: 8px; }
+.button-group > * { width: 100%; }
+.button-group button, .button-group .btn { margin: 0; }
+@media (min-width: 480px) {
+  .button-group { grid-auto-flow: column; grid-auto-columns: 1fr; }
+}
+
+/* ===== Тест ===== */
+.questions { display: grid; gap: 14px; margin-top: 12px; }
+.question { padding: 14px; background: #f7f9ff; border: 1px solid var(--line); border-radius: 10px; margin-top: 12px; }
+.options { display: grid; gap: 8px; margin-top: 10px; }
+.option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 10px 12px;
+  background: var(--white);
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.option:hover { border-color: var(--navy); }
+.option.selected, .option[aria-checked="true"] { border-color: var(--navy); background: var(--tint); }
+.option.correct { border-color: #2f8a4b; background: var(--ok-bg); color: var(--ok-text); font-weight: 600; }
+.timer { font-size: 1.25rem; font-weight: 800; }
+.quiz-container, .results { display: grid; gap: 12px; }
+.navigation { display: flex; gap: 10px; }
+
+/* ===== Результаты ===== */
+.teacher-results { display: grid; gap: 14px; }
+.tr-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.tr-header h2 { margin: 0; }
+.tr-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+.tr-table, .table { width: 100%; border-collapse: collapse; font-size: .9375rem; }
+.tr-table th, .tr-table td, .table th, .table td { padding: 10px 12px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line); }
+.tr-table th, .table th { background: var(--tint); font-weight: 700; }
+.tr-export, .tr-grade { min-height: 44px; padding: 0 16px; }
+
+/* ===== Загрузка ===== */
+.spinner { width: 28px; height: 28px; margin: 16px auto; border: 3px solid var(--line); border-top-color: var(--navy); border-radius: 50%; animation: spin .8s linear infinite; }
+.loading-spinner { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(7, 26, 77, .75); }
+.loading-spinner svg { width: 40px; height: 40px; stroke: var(--yellow); animation: spin 1.2s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 360px) {
+  header { padding-inline: 12px; }
+  .logo { font-size: 1.2rem; }
+  #nav a { padding: 0 8px; }
+  main, #app { padding-inline: 12px; }
+  .card { padding: 22px 14px 18px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* Отступы между блоками экрана создания теста */
+#preview { margin-top: 18px; }
+#status:not(:empty) { margin-top: 14px; }
+.button-group { margin-top: 16px; }

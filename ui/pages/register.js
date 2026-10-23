@@ -1,30 +1,11 @@
 import { register } from "../../core/auth.js";
 import { authErrorMessage } from "../../shared/errors.js";
-import { empty } from "../../ui/components/empty.js";
-import { error } from "../../ui/components/error.js";
-import { iconHTML } from "../../ui/icons.js";
-import { applyTheme } from "../../core/auth.js";
 
-export default function () {
+export default function() {
   const div = document.createElement("div");
   div.className = "card";
   div.innerHTML = `
-    <div class="header-section">
-      <div class="logo-bar">
-        <svg width="24" height="24" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M16 48L240 48" stroke-linecap="round"/>
-          <path d="M16 96L240 96" stroke-linecap="round"/>
-          <path d="M16 64L20 80" stroke-linecap="round"/>
-          <path d="M48 64L52 80" stroke-linecap="round"/>
-          <path d="M80 64L84 80" stroke-linecap="round"/>
-          <path d="M112 64L116 80" stroke-linecap="round"/>
-          <path d="M144 64L148 80" stroke-linecap="round"/>
-          <path d="M176 64L180 80" stroke-linecap="round"/>
-          <path d="M208 64L212 80" stroke-linecap="round"/>
-        </svg>
-      </div>
-      <h2>Регистрация</h2>
-    </div>
+    <h2>Регистрация</h2>
     <form id="register-form">
       <div class="form-group">
         <label for="email">Email</label>
@@ -37,16 +18,15 @@ export default function () {
       <div class="form-group">
         <label for="ui">Интерфейс (тема)</label>
         <select id="ui" class="form-control">
-          <option value="education">Образование</option>
-          <option value="operations">Операции</option>
-          <option value="depot">Депо</option>
+          <option value="education">Образование (education)</option>
+          <option value="operations">Операции (operations)</option>
+          <option value="depot">Депо (depot)</option>
         </select>
       </div>
-      <div id="error" class="error-msg" role="alert" hidden></div>
+      <div id="error" class="error-msg" role="alert"></div>
       <button type="submit" class="primary">Зарегистрироваться</button>
     </form>
-    <p style="margin-top:16px" class="muted">Новые аккаунты создаются с ролью «студент». Роль преподавателя выдаёт администратор.</p>
-    <a class="btn btn-secondary" href="#login">Вернуться ко входу</a>
+    <a class="btn secondary" href="#login">Вернуться ко входу</a>
   `;
 
   const form = div.querySelector("#register-form");
@@ -55,16 +35,20 @@ export default function () {
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    errorDiv.hidden = true;
+    errorDiv.textContent = "";
     submitBtn.disabled = true;
     submitBtn.textContent = "Подождите...";
+
+    const email = div.querySelector("#email").value;
+    const password = div.querySelector("#password").value;
+    const ui = div.querySelector("#ui").value;
+
     try {
-      await register(div.querySelector("#email").value.trim(), div.querySelector("#password").value, div.querySelector("#ui").value);
-      window.location.hash = "";
+      await register(email, password, "student", "default-org", ui);
+      window.location.hash = "#profile";
     } catch (err) {
-      console.error("Registration error:", err);
       errorDiv.textContent = authErrorMessage(err);
-      errorDiv.hidden = false;
+      console.error("Registration error:", err);
       submitBtn.disabled = false;
       submitBtn.textContent = "Зарегистрироваться";
     }

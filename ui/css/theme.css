@@ -1,0 +1,5 @@
+/* Три оформления отличаются только характером: шагом шпал и скруглением.
+   Палитра у всех одна (синий, жёлтый, белый). */
+html[data-ui="education"]  { --sleeper-gap: 22px; --radius: 16px; --radius-ctl: 12px; }
+html[data-ui="operations"] { --sleeper-gap: 16px; --radius: 8px;  --radius-ctl: 6px; }
+html[data-ui="depot"]      { --sleeper-gap: 12px; --radius: 4px;  --radius-ctl: 4px; }
