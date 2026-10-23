@@ -107,7 +107,7 @@ export default function RegisterPage() {
             h("option", { value: "education" }, "Образовательный"),
             h("option", { value: "operations" }, "Операционный"),
             h("option", { value: "depot" }, "Депо")
-          }),
+          ),
           h("div", { class: "form-hint" }, "Необязательно")
         )
       ),

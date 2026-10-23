@@ -24,3 +24,27 @@ html[data-ui="education"] {
   --radius-m: 14px;
   --shadow: 0 4px 16px rgba(27, 31, 59, 0.06);
 }
+
+/* Тёмный вариант Education (переключатель темы в меню) */
+html[data-ui="education"][data-theme="dark"] {
+  --bg: #12142A;
+  --surface: #1B1E3A;
+  --elevated: #252952;
+  --border: #353A6B;
+  --text: #ECEEFF;
+  --text-2: #A5ABD0;
+  --accent: #8F8AF5;
+  --on-accent: #0E1030;
+  --warn: #F0B35A;
+  --on-warn: #1A1204;
+  --ok: #6FCF97;
+  --danger: #F28B8B;
+  --focus: #8F8AF5;
+  --ok-bg: #12261C;
+  --ok-border: #24523F;
+  --warn-bg: #2A2416;
+  --warn-border: #5C4A1E;
+  --danger-bg: #2A1A1E;
+  --danger-border: #5A2A30;
+  --shadow: none;
+}

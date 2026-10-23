@@ -49,19 +49,19 @@ module.exports.validateTest = function validateTest(test, { publishing } = {}) {
   // Проверка на правильность вопросов
   test.questions.forEach((question, index) => {
     if (!question.text || typeof question.text !== 'string') {
-      errors.push(`Вопрос ${index + 1}: отсутствует текст");
+      errors.push(`Вопрос ${index + 1}: отсутствует текст`);
     }
     if (question.type === 'single' && question.options.length !== 1) {
-      errors.push(`Вопрос ${index + 1}: тип single должен иметь ровно один вариант ответа");
+      errors.push(`Вопрос ${index + 1}: тип single должен иметь ровно один вариант ответа`);
     }
     if (question.type === 'multiple' && question.options.length < 2) {
-      errors.push(`Вопрос ${index + 1}: тип multiple должен иметь хотя бы два варианта ответа");
+      errors.push(`Вопрос ${index + 1}: тип multiple должен иметь хотя бы два варианта ответа`);
     }
     if (question.type === 'short' && !question.answer) {
-      errors.push(`Вопрос ${index + 1}: тип short должен иметь ответ");
+      errors.push(`Вопрос ${index + 1}: тип short должен иметь ответ`);
     }
     if (question.points <= 0) {
-      errors.push(`Вопрос ${index + 1}: баллы должны быть больше 0");
+      errors.push(`Вопрос ${index + 1}: баллы должны быть больше 0`);
     }
   });
 

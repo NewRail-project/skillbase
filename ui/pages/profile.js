@@ -184,7 +184,11 @@ export default function ProfilePage() {
     try {
       const dataUrl = await processAvatarFile(file);
       preview.textContent = "";
-      preview.appendChild(h("div", { class: "avatar-preview-img" }, { innerHTML: `<img src="${dataUrl}" style="width: 128px; height: 128px; border-radius: var(--radius-ctl);" />` }));
+      const img = document.createElement("img");
+      img.src = dataUrl;
+      img.alt = "Предпросмотр аватара";
+      img.className = "avatar-preview-img";
+      preview.appendChild(img);
     } catch (err) {
       preview.textContent = "";
       preview.appendChild(h("div", { class: "avatar-error" }, err.message));
