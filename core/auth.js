@@ -182,8 +182,20 @@ export async function initAuth() {
 export async function refreshProfile() {
   if (!State.user) return null;
   State.initialProfileLoad = true;
-  await loadProfile(State.user);
-  return State.profile;
+  try {
+    await loadProfile(State.user);
+    return State.profile;
+  } catch (e) {
+    console.error("Ошибка при повторной загрузке профиля:", e);
+    State.profileStatus = "error";
+    State.profileError = e && e.code === "permission-denied"
+      ? "Нет доступа к данным профиля."
+      : "Не удалось загрузить профиль. Проверьте подключение к сети.";
+    notify();
+    return null;
+  } finally {
+    State.initialProfileLoad = false;
+  }
 }
 
 export async function login(email, password) {
