@@ -152,7 +152,7 @@ export async function publishTest(testId) {
     }
 
     const id = await saveTest(testId);
-    const { publicTest } = splitForStorage(currentTest);
+    const { publicTest, keys } = splitForStorage(currentTest);
     const version = (Number.isInteger(currentTest.version) && currentTest.version > 0
       ? currentTest.version
       : 1) + 1;
@@ -165,7 +165,8 @@ export async function publishTest(testId) {
       updatedAt: serverTimestamp(),
       publishedAt: serverTimestamp(),
       status: "published",
-      version
+      version,
+      items: keys
     });
     await updateDoc(doc(db, "tests", id), {
       status: "published",
@@ -237,17 +238,29 @@ export async function getTestKeys(testId) {
 
 // Чтение теста и ключей для экрана проверки. Не трогает currentTest,
 // чтобы преподаватель, открывший проверку, не потерял черновик редактора.
-export async function getTestForReview(testId) {
+export async function getTestForReview(testId, version = null) {
   const snap = await getDoc(doc(db, "tests", testId));
   if (!snap.exists()) return null;
 
-  const test = { ...snap.data(), id: testId };
+  const test = sanitizePublicTest({ ...snap.data(), id: testId });
   let keys = null;
-  try {
-    const keysSnap = await getDoc(doc(db, "testKeys", testId));
-    if (keysSnap.exists()) keys = keysSnap.data().items;
-  } catch (_) {
-    keys = null;
+  if (version) {
+    try {
+      const vSnap = await getDoc(doc(db, "tests", testId, "versions", String(version)));
+      if (vSnap.exists() && vSnap.data().items) {
+        keys = vSnap.data().items;
+      }
+    } catch (_) {
+      keys = null;
+    }
+  }
+  if (!keys) {
+    try {
+      const keysSnap = await getDoc(doc(db, "testKeys", testId));
+      if (keysSnap.exists()) keys = keysSnap.data().items;
+    } catch (_) {
+      keys = null;
+    }
   }
 
   return { test, keys };

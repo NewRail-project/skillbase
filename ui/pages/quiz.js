@@ -7,7 +7,7 @@ import {
   submitAttemptById,
   listMyAttemptsForTest
 } from "../../core/attempts.js";
-import { getAssignment, assignTest } from "../../core/assign.js";
+import { getAssignment, assignTest, getStudentAssignments } from "../../core/assign.js";
 import { isDeadlinePassed } from "../../core/timing.js";
 import { icons } from "../../shared/icons.js";
 import { toast } from "../components/toast.js";
@@ -192,7 +192,7 @@ export default async function QuizPage() {
     return page;
   }
 
-  // Задание читаем только при переходе по ссылке из «Заданий».
+  // Задание читаем по ссылке или ищем активное назначение группы из каталога.
   let assignment = null;
   let assignmentError = null;
   if (assignmentId) {
@@ -203,6 +203,22 @@ export default async function QuizPage() {
       assignmentError = err?.code === "permission-denied"
         ? "Задание закрыто или назначено другой группе."
         : errorText(err, "Не удалось прочитать задание.");
+    }
+  } else if (!staff && profile?.groupId && profile?.orgId) {
+    try {
+      const activeList = await getStudentAssignments(profile.groupId, profile.orgId);
+      const matched = activeList.filter(item => item.testId === test.id);
+      if (matched.length > 0) {
+        // Выбираем назначение с наипозже дедлайном
+        matched.sort((a, b) => {
+          const aTime = toDate(a.deadline)?.getTime() || Infinity;
+          const bTime = toDate(b.deadline)?.getTime() || Infinity;
+          return bTime - aTime;
+        });
+        assignment = matched[0];
+      }
+    } catch (_) {
+      // Автоподбор задания необязателен (например, если нет связи)
     }
   }
 

@@ -133,36 +133,54 @@ export default async function UsersPage() {
       }
 
       if (admin && user.id !== State.user.uid) {
+        const isTeacher = user.role === "teacher" || user.role === "admin";
         const groupInput = h("input", {
           type: "text",
-          value: user.groupId || "",
-          maxlength: "100",
-          placeholder: "не назначена",
-          "aria-label": `Группа: ${name}`,
-          style: "max-width:140px"
+          value: isTeacher ? (Array.isArray(user.teacherGroups) ? user.teacherGroups.join(", ") : (user.groupId || "")) : (user.groupId || ""),
+          maxlength: "200",
+          placeholder: isTeacher ? "группы через запятую" : "не назначена",
+          "aria-label": isTeacher ? `Группы преподавателя: ${name}` : `Группа: ${name}`,
+          style: "max-width:180px"
         });
         groupInput.addEventListener("change", async () => {
-          const next = groupInput.value.trim();
+          const raw = groupInput.value.trim();
           groupInput.disabled = true;
           try {
-            await updateDoc(doc(db, "users", user.id), {
-              groupId: next || null,
-              updatedAt: serverTimestamp()
-            });
-            user.groupId = next || null;
-            toast("Группа обновлена", "success");
+            if (isTeacher) {
+              const groups = raw ? raw.split(",").map(g => g.trim()).filter(Boolean).slice(0, 10) : [];
+              await updateDoc(doc(db, "users", user.id), {
+                teacherGroups: groups.length ? groups : null,
+                updatedAt: serverTimestamp()
+              });
+              user.teacherGroups = groups.length ? groups : null;
+              toast("Группы преподавателя обновлены", "success");
+            } else {
+              const next = raw;
+              await updateDoc(doc(db, "users", user.id), {
+                groupId: next || null,
+                updatedAt: serverTimestamp()
+              });
+              user.groupId = next || null;
+              toast("Группа обновлена", "success");
+            }
           } catch (err) {
-            console.error("Смена группы:", err);
+            console.error("Смена групп:", err);
             toast("Не удалось изменить группу: нет прав или связи", "error");
-            groupInput.value = user.groupId || "";
+            groupInput.value = isTeacher
+              ? (Array.isArray(user.teacherGroups) ? user.teacherGroups.join(", ") : (user.groupId || ""))
+              : (user.groupId || "");
           } finally {
             groupInput.disabled = false;
           }
         });
         groupCell.appendChild(groupInput);
       } else {
-        groupCell.appendChild(h("span", { class: user.groupId ? "badge badge-info" : "muted" },
-          user.groupId || "—"));
+        const isTeacher = user.role === "teacher" || user.role === "admin";
+        const groupsText = isTeacher && Array.isArray(user.teacherGroups) && user.teacherGroups.length
+          ? user.teacherGroups.join(", ")
+          : (user.groupId || "—");
+        groupCell.appendChild(h("span", { class: groupsText !== "—" ? "badge badge-info" : "muted" },
+          groupsText));
       }
 
       tbody.appendChild(h("tr", {},

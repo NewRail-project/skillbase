@@ -11,6 +11,7 @@
   "scripts": {
     "test": "node --test tests/*.test.js",
     "test:rules": "node tools/rules-test.mjs",
+    "migrate:keys": "node tools/migrate-test-keys.mjs",
     "check:contrast": "node scripts/check-contrast.mjs",
     "check:imports": "node scripts/check-imports.mjs"
   },
@@ -24,5 +25,8 @@
   "bugs": {
     "url": "https://github.com/NewRail-project/skillbase/issues"
   },
-  "homepage": "https://github.com/NewRail-project/skillbase#readme"
+  "homepage": "https://github.com/NewRail-project/skillbase#readme",
+  "dependencies": {
+    "qrcode": "^1.5.4"
+  }
 }

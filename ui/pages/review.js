@@ -103,7 +103,7 @@ export default async function ReviewPage() {
   let keysRaw = null;
   let testError = null;
   try {
-    const data = await getTestForReview(attempt.testId);
+    const data = await getTestForReview(attempt.testId, attempt.testVersion || null);
     if (data) {
       test = data.test;
       keysRaw = data.keys;

@@ -147,7 +147,9 @@ export default async function ResultsPage() {
   body.appendChild(h("div", { class: "panel-body" }, h("div", { class: "spinner" })));
 
   try {
-    const attempts = await listOrgAttempts(State.profile.orgId);
+    const attempts = await listOrgAttempts(State.profile.orgId, {
+      groupIdFilter: isStaff() && State.profile?.teacherGroups ? State.profile.teacherGroups : null
+    });
     let names = new Map();
     try {
       const profiles = await loadPublicProfiles(

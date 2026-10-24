@@ -75,15 +75,19 @@ export async function getStudentAssignments(groupId, orgId) {
   return snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
 }
 
-// Получение результатов теста для преподавателя.
-export async function getTeacherResults(testId) {
+// Получение результатов теста для преподавателя с учетом ограничения по группам.
+export async function getTeacherResults(testId, teacherGroups = null) {
   const q = query(
     collection(db, "attempts"),
-    where("testId", "==", testId),
-    orderBy("finishedAt", "desc")
+    where("testId", "==", testId)
   );
   const snapshot = await getDocs(q);
-  return snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
+  let attempts = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
+
+  if (teacherGroups && Array.isArray(teacherGroups)) {
+    attempts = attempts.filter(a => teacherGroups.includes(a.groupId));
+  }
+  return attempts.sort((a, b) => (b.finishedAt?.seconds || 0) - (a.finishedAt?.seconds || 0));
 }
 
 export async function closeAssignment(assignmentId) {

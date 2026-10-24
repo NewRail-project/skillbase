@@ -36,8 +36,25 @@ service cloud.firestore {
         || data.groupId == null
         || validGroupId(data.groupId);
     }
+    // Преподаватель закрепляется за группами: массив до 10 идентификаторов.
+    function teacherGroupsOk(v) {
+      return v is list
+        && v.size() <= 10
+        && v.size() > 0
+        && v.hasAll(v.filter(x -> x is string && validGroupId(x)));
+    }
     function testData(testId) {
       return get(/databases/$(database)/documents/tests/$(testId)).data;
+    }
+    // Преподаватель видит попытки по группам, которым он причастен,
+    // а также по тестам, которые он авторизовал (authorId == uid).
+    // Администратор видит всё. Поле teacherGroups необязательное:
+    // старые профили его не хранят — тогда ограничение не применяется.
+    function teacherCanSee(data) {
+      return isAdmin()
+        || data.testAuthorId == request.auth.uid
+        || (!me().keys().hasAny(['teacherGroups'])
+          || data.groupId in me().teacherGroups);
     }
     function testExists(testId) {
       return exists(/databases/$(database)/documents/tests/$(testId));
@@ -111,11 +128,13 @@ service cloud.firestore {
           && request.auth.uid != uid
           && resource.data.orgId == myOrg()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'role', 'groupId', 'fullName', 'position', 'department',
+            'role', 'groupId', 'teacherGroups', 'fullName', 'position', 'department',
             'ui', 'themeMode', 'updatedAt'
           ])
           && request.resource.data.role in ['student', 'teacher', 'admin']
           && optionalGroupIdOk(request.resource.data)
+          && (!request.resource.data.keys().hasAny(['teacherGroups'])
+            || teacherGroupsOk(request.resource.data.teacherGroups))
           && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['fullName'])
             || validFullName(request.resource.data.fullName))
           && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['ui'])
@@ -257,8 +276,11 @@ service cloud.firestore {
           && request.resource.data.keys().hasOnly([
             'id', 'title', 'description', 'instructions', 'category', 'color',
             'authorId', 'orgId', 'status', 'mode', 'settings', 'version',
-            'questions', 'createdAt', 'updatedAt', 'publishedAt'
-          ]);
+            'questions', 'items', 'createdAt', 'updatedAt', 'publishedAt'
+          ])
+          && (!request.resource.data.keys().hasAny(['items'])
+            || (request.resource.data.items is map
+              && request.resource.data.items.keys().size() <= 2000));
 
         // Опубликованная версия неизменяема.
         allow update, delete: if false;
@@ -304,10 +326,12 @@ service cloud.firestore {
 
     // ---------- Попытки ----------
     match /attempts/{attemptId} {
-      // Свои попытки или все попытки организации для сотрудника.
+      // Свои попытки или попытки, доступные по ролям: админ видит всё,
+      // преподаватель — только группы, которым он причастен, и тесты,
+      // которые он авторизовал (authorId == uid).
       allow read: if signedIn() && (
         resource.data.userId == request.auth.uid
-        || (isStaff() && resource.data.orgId == myOrg())
+        || (isStaff() && resource.data.orgId == myOrg() && teacherCanSee(resource.data))
       );
 
       allow create: if signedIn()
@@ -322,6 +346,12 @@ service cloud.firestore {
         && request.resource.data.attemptNo is int
         && request.resource.data.attemptNo >= 1
         && request.resource.data.attemptNo <= 100
+        && (!request.resource.data.keys().hasAny(['testVersion'])
+          || (request.resource.data.testVersion is int
+            && request.resource.data.testVersion >= 1
+            && request.resource.data.testVersion <= 100000))
+        && (!request.resource.data.keys().hasAny(['testAuthorId'])
+          || request.resource.data.testAuthorId is string)
         && request.resource.data.startedAt is timestamp
         && request.resource.data.createdAt is timestamp
         && request.resource.data.updatedAt is timestamp
@@ -351,10 +381,14 @@ service cloud.firestore {
             request.resource.data.deadlineAt
           )
         )
+        && (!request.resource.data.keys().hasAny(['testAuthorId'])
+          || request.resource.data.testAuthorId
+            == testData(request.resource.data.testId).authorId)
         && request.resource.data.keys().hasOnly([
           'userId', 'userEmail', 'userName', 'groupId', 'orgId', 'testId',
           'testTitle', 'assignmentId', 'answers', 'startedAt', 'status',
-          'attemptNo', 'deadlineAt', 'createdAt', 'updatedAt'
+          'attemptNo', 'deadlineAt', 'testVersion', 'testAuthorId',
+          'createdAt', 'updatedAt'
         ]);
 
       // Ученик может менять ответы только в незавершённой попытке и только
@@ -371,6 +405,10 @@ service cloud.firestore {
               ])
               && request.resource.data.answers is map
               && request.resource.data.updatedAt is timestamp
+              // Сохранять ответы можно только до истечения срока попытки.
+              && (!resource.data.keys().hasAny(['deadlineAt'])
+                || resource.data.deadlineAt == null
+                || resource.data.deadlineAt > request.time)
             )
             || (
               request.resource.data.status == 'submitted'

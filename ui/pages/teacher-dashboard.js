@@ -11,7 +11,7 @@ async function TeacherDashboardPage() {
   div.append(h("h2", {}, "Панель преподавателя"), h("div", { id: "results" }));
 
   try {
-    const results = await getTeacherResults('testId');
+    const results = await getTeacherResults('testId', State.profile?.teacherGroups || null);
     const resultsDiv = div.querySelector('#results');
     resultsDiv.textContent = "";
     results.forEach(r => {

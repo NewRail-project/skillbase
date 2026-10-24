@@ -48,7 +48,10 @@ export async function startAttempt({ test, user, profile, assignmentId = "", att
   const groupId = String(profile.groupId || "").trim();
   if (groupId) snapshot.groupId = groupId;
 
-  const ref = await addDoc(collection(db, "attempts"), {
+  const version = Number.isInteger(test.version) && test.version >= 1 ? test.version : 1;
+  const authorId = test.authorId || "";
+
+  const payload = {
     userId: user.uid,
     userEmail: user.email || "",
     orgId: profile.orgId,
@@ -60,10 +63,14 @@ export async function startAttempt({ test, user, profile, assignmentId = "", att
     status: "in_progress",
     attemptNo: Number.isInteger(attemptNo) && attemptNo > 0 ? attemptNo : 1,
     deadlineAt: deadline,
+    testVersion: version,
     ...snapshot,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
-  });
+  };
+  if (authorId) payload.testAuthorId = authorId;
+
+  const ref = await addDoc(collection(db, "attempts"), payload);
 
   return ref.id;
 }
@@ -110,9 +117,20 @@ export async function listMyAttemptsForTest(uid, testId) {
   return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byTimeDesc);
 }
 
-export async function listOrgAttempts(orgId) {
-  const snap = await getDocs(query(collection(db, "attempts"), where("orgId", "==", orgId)));
-  return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byTimeDesc);
+export async function listOrgAttempts(orgId, { groupIdFilter = null } = {}) {
+  const queryRef = query(collection(db, "attempts"), where("orgId", "==", orgId));
+  const snap = await getDocs(queryRef);
+  let attempts = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byTimeDesc);
+
+  if (groupIdFilter) {
+    if (Array.isArray(groupIdFilter)) {
+      attempts = attempts.filter(a => groupIdFilter.includes(a.groupId));
+    } else if (typeof groupIdFilter === "string") {
+      attempts = attempts.filter(a => a.groupId === groupIdFilter);
+    }
+  }
+
+  return attempts;
 }
 
 function hasPoints(key) {
@@ -121,14 +139,30 @@ function hasPoints(key) {
 }
 
 // Ключи теста доступны только преподавателю/администратору (правила Firestore).
-// Баллы берём из ключей; для старых ключей без points — из публичных вопросов.
-async function loadKeys(testId, cache) {
-  if (cache[testId]) return cache[testId];
+// Если попытка сохранила testVersion, пытаемся сначала загрузить снимок из
+// tests/{testId}/versions/{version}. Иначе используем текущие ключи из testKeys.
+async function loadKeys(testId, version = null, cache = {}) {
+  const cacheKey = version ? `${testId}:v${version}` : testId;
+  if (cache[cacheKey]) return cache[cacheKey];
 
-  const snap = await getDoc(doc(db, "testKeys", testId));
-  if (!snap.exists()) throw new Error("Ключи теста не найдены.");
+  let keys = null;
 
-  const keys = normalizeKeys(snap.data().items ?? snap.data().keys);
+  if (version) {
+    try {
+      const vSnap = await getDoc(doc(db, "tests", testId, "versions", String(version)));
+      if (vSnap.exists() && vSnap.data().items) {
+        keys = normalizeKeys(vSnap.data().items);
+      }
+    } catch (_) {
+      // Игнорируем ошибку чтения версии — попробуем загрузить основные ключи.
+    }
+  }
+
+  if (!keys) {
+    const snap = await getDoc(doc(db, "testKeys", testId));
+    if (!snap.exists()) throw new Error("Ключи теста не найдены.");
+    keys = normalizeKeys(snap.data().items ?? snap.data().keys);
+  }
 
   if (keys.some(key => !hasPoints(key))) {
     try {
@@ -141,18 +175,15 @@ async function loadKeys(testId, cache) {
           key.points = questions[index].points;
         }
       });
-    } catch (_) {
-      // Если публичную часть прочитать не удалось, scoreAttempt посчитает
-      // такой вопрос как 1 балл (совместимость со старыми ключами).
-    }
+    } catch (_) {}
   }
 
-  cache[testId] = keys;
+  cache[cacheKey] = keys;
   return keys;
 }
 
 export async function getAttemptKeys(testId) {
-  return loadKeys(testId, {});
+  return loadKeys(testId, null, {});
 }
 
 // Проверка делается на стороне преподавателя: только у него есть доступ к testKeys.
@@ -160,7 +191,7 @@ export async function gradeAttempt(attempt, graderUid, keysCache = {}, decisions
   if (!attempt?.id) throw new Error("Попытка не найдена.");
   if (!graderUid) throw new Error("Не указан проверяющий.");
 
-  const keys = await loadKeys(attempt.testId, keysCache);
+  const keys = await loadKeys(attempt.testId, attempt.testVersion || null, keysCache);
   const review = cleanDecisions(decisions);
   const { score, total, percent } = scoreAttempt(keys, attempt.answers || {}, { decisions: review });
 

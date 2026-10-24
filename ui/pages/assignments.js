@@ -2,6 +2,7 @@ import { h } from "../../shared/dom.js";
 import { State } from "../../core/auth.js";
 import { getStudentAssignments } from "../../core/assign.js";
 import { icons } from "../../shared/icons.js";
+import { generateQRDataUrl } from "../../shared/qr.js";
 
 function formatDate(value) {
   if (!value) return null;
@@ -17,7 +18,39 @@ function daysLeft(value) {
   return Math.ceil((date.getTime() - Date.now()) / 86_400_000);
 }
 
-export default async function AssignmentsPage() {
+function showQRCode(title, url) {
+  const overlay = h("div", { class: "modal-overlay", role: "dialog", "aria-label": "QR-код" });
+  const panel = h("div", { class: "modal-panel panel" },
+    h("div", { class: "modal-head" },
+      h("h2", {}, title || "QR-код"),
+      h("button", { class: "btn secondary", onclick: () => overlay.remove() }, "Закрыть")
+    ),
+    h("div", { class: "modal-body" },
+      h("p", { class: "muted" }, "Отсканируйте QR-код камерой или перейдите по ссылке ниже."),
+      h("div", { class: "qr-box" }),
+      h("p", { class: "muted", style: "margin-top: 8px; word-break: break-all;" }, url)
+    )
+  );
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+
+  const qrBox = panel.querySelector('.qr-box');
+  generateQRDataUrl(url).then(dataUrl => {
+    if (dataUrl) {
+      const img = h("img", { src: dataUrl, alt: "QR-код", width: "220", height: "220", style: "display: block; margin: 0 auto;" });
+      qrBox.appendChild(img);
+    } else {
+      qrBox.textContent = "Не удалось сгенерировать QR-код.";
+    }
+  });
+
+  const close = (e) => { if (e.key === "Escape" || e.target === overlay) overlay.remove(); };
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+  document.addEventListener("keydown", close);
+  overlay._cleanup = () => document.removeEventListener("keydown", close);
+}
+
+
   const page = h("div", { class: "page" });
   const profile = State.profile || {};
 
@@ -83,7 +116,15 @@ export default async function AssignmentsPage() {
                 : "Срок не указан"
             )
           ),
-          h("div", { class: "list-row-end" },
+          h("div", { class: "list-row-end", style: "display:flex;gap:8px;" },
+            h("button", {
+              class: "btn secondary icon-only",
+              title: "Показать QR-код",
+              onclick: () => {
+                const url = window.location.origin + window.location.pathname + `#quiz/${encodeURIComponent(a.testId)}/${encodeURIComponent(a.id)}`;
+                showQRCode(a.title || a.testTitle, url);
+              }
+            }, h("span", { innerHTML: icons.qr || "QR" })),
             h("a", {
               class: "btn " + (overdue ? "secondary" : "primary"),
               href: `#quiz/${encodeURIComponent(a.testId)}/${encodeURIComponent(a.id)}`
