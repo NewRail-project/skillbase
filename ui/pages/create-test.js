@@ -7,6 +7,7 @@ import { State, isAdmin } from "../../core/auth.js";
 import { serializeTest } from "../../core/import/serializer.js";
 import { authErrorMessage } from "../../shared/errors.js";
 import { icons } from "../../shared/icons.js";
+import { formFromSettings, mergeSettings } from "../../core/settings.js";
 
 const EXAMPLE = `1. Какой сигнал разрешает движение?
 A) Красный
@@ -125,6 +126,48 @@ export default async function CreateTestPage() {
   });
   const parseBtn = h("button", { type: "button", class: "btn primary" }, "Разобрать вопросы");
 
+  // ---- Настройки теста ----
+  // Начальные значения берём из загружаемого теста или из черновика.
+  const initialSettings = formFromSettings((editing || getCurrentTest()).settings);
+  const checkbox = (id, label, checked) => {
+    const input = h("input", { type: "checkbox", id, checked });
+    input.checked = checked;
+    return { input, row: h("label", { class: "option", for: id, style: "display:flex;gap:var(--space-2);align-items:center;cursor:pointer" }, input, h("span", {}, label)) };
+  };
+  const numberField = (id, label, value, hint, attrs = {}) => {
+    const input = h("input", { type: "number", id, inputmode: "numeric", step: "1", ...attrs });
+    input.value = value;
+    return { input, field: h("div", { class: "field" }, h("label", { for: id }, label), input, h("span", { class: "form-hint" }, hint)) };
+  };
+  const shuffleQ = checkbox("s-shuffle-q", "Перемешивать вопросы", initialSettings.shuffleQuestions);
+  const shuffleO = checkbox("s-shuffle-o", "Перемешивать варианты ответов", initialSettings.shuffleOptions);
+  const perQuestion = numberField("s-per-question", "Время на вопрос, сек", initialSettings.timePerQuestionSec,
+    "От 5 до 3600. Пусто — без ограничения.", { min: "5", max: "3600", placeholder: "—" });
+  const totalTime = numberField("s-total", "Время на тест, мин", initialSettings.totalTimeMin,
+    "От 1 до 480. Пусто — без ограничения. Если указано, оно главнее времени на вопрос.", { min: "1", max: "480", placeholder: "—" });
+  const passScore = numberField("s-pass", "Проходной балл, %", initialSettings.passScore,
+    "От 1 до 100. Пусто — без проходного балла.", { min: "1", max: "100", placeholder: "—" });
+  const attempts = numberField("s-attempts", "Попыток на ученика", initialSettings.attemptsLimit,
+    "От 1 до 50.", { min: "1", max: "50" });
+
+  const settingsBox = h("fieldset", { class: "field", style: "border:1px solid var(--border);border-radius:var(--radius, 8px);padding:var(--space-3)" },
+    h("legend", {}, "Настройки теста"),
+    h("div", { class: "options" }, shuffleQ.row, shuffleO.row),
+    h("div", { style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:var(--space-3);margin-top:var(--space-3)" },
+      perQuestion.field, totalTime.field, passScore.field, attempts.field)
+  );
+
+  function readSettingsForm() {
+    return {
+      shuffleQuestions: shuffleQ.input.checked,
+      shuffleOptions: shuffleO.input.checked,
+      timePerQuestionSec: perQuestion.input.value,
+      totalTimeMin: totalTime.input.value,
+      passScore: passScore.input.value,
+      attemptsLimit: attempts.input.value
+    };
+  }
+
   const actions = h("div", { class: "btn-row", hidden: "hidden" },
     h("button", { type: "button", class: "btn secondary", id: "save-btn" }, saveLabel),
     h("button", { type: "button", class: "btn primary", id: "publish-btn" }, "Опубликовать")
@@ -145,6 +188,7 @@ export default async function CreateTestPage() {
       h("span", { class: "form-hint" },
         "Правильный ответ отмечайте [+], [правильный] или * в конце строки. Несколько отмеченных вариантов — вопрос с множественным выбором. Короткий ответ: «Ответ: текст».")
     ),
+    settingsBox,
     status,
     warnings,
     h("div", { class: "btn-row" }, parseBtn),
@@ -268,7 +312,8 @@ export default async function CreateTestPage() {
         ...base,
         title,
         description: descriptionInput.value.trim(),
-        questions: parsed.questions
+        questions: parsed.questions,
+        settings: mergeSettings(base.settings, readSettingsForm())
       };
 
       const validation = publish

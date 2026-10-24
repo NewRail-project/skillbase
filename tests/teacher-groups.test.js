@@ -1,64 +1,32 @@
-// tests/teacher-groups.test.js
-// Тесты для teacher-groups.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { teacherCanSeeAttempt } from "../core/access.js";
 
-import { teacherCanSee } from '../firestore.rules';
+const attempt = { groupId: "group1" };
 
-// Тест: проверка ограничения teacher-groups.
-function testTeacherCanSee() {
-  const testData = {
-    groupId: "group1",
-    testAuthorId: "teacher1"
-  };
-  
-  // Администратор видит всё.
-  const adminCanSee = teacherCanSee(testData, { isAdmin: true });
-  if (!adminCanSee) {
-    throw new Error("Администратор не видит попытки.");
-  }
-  
-  // Преподаватель видит попытки только для своих групп.
-  const teacherCanSeeGroup = teacherCanSee(testData, {
-    isStaff: true,
-    me: {
-      teacherGroups: ["group1", "group2"],
-      keys: () => ({ hasAny: (keys) => keys.includes('teacherGroups') })
-    }
-  });
-  if (!teacherCanSeeGroup) {
-    throw new Error("Преподаватель не видит попытку для своей группы.");
-  }
-  
-  // Преподаватель видит попытки только для своих групп.
-  const teacherCanSeeOtherGroup = teacherCanSee(testData, {
-    isStaff: true,
-    me: {
-      teacherGroups: ["group1", "group2"],
-      keys: () => ({ hasAny: (keys) => keys.includes('teacherGroups') })
-    }
-  });
-  if (teacherCanSeeOtherGroup) {
-    throw new Error("Преподаватель видит попытку для другой группы.");
-  }
-  
-  // Преподаватель видит попытки для своих авторских тестов.
-  const teacherCanSeeOwnTest = teacherCanSee({
-    groupId: "group1",
-    testAuthorId: "teacher1"
-  }, {
-    isStaff: true,
-    me: {
-      teacherGroups: ["group1"],
-      keys: () => ({ hasAny: (keys) => keys.includes('teacherGroups') })
-    }
-  });
-  if (!teacherCanSeeOwnTest) {
-    throw new Error("Преподаватель не видит попытку для своего теста.");
-  }
-}
+test("администратор видит попытки любой группы", () => {
+  assert.equal(teacherCanSeeAttempt(attempt, { role: "admin" }), true);
+  assert.equal(teacherCanSeeAttempt({ groupId: "x" }, { role: "admin", teacherGroups: ["y"] }), true);
+});
 
-// Запуск тестов.
-if (typeof describe === "function") {
-  describe("Тесты teacher-groups", () => {
-    test("teacherCanSee", testTeacherCanSee);
-  });
-}
+test("преподаватель без teacherGroups видит все группы", () => {
+  assert.equal(teacherCanSeeAttempt(attempt, { role: "teacher" }), true);
+  assert.equal(teacherCanSeeAttempt(attempt, { role: "teacher", teacherGroups: null }), true);
+});
+
+test("преподаватель с teacherGroups видит только свои группы", () => {
+  const teacher = { role: "teacher", teacherGroups: ["group1", "group2"] };
+  assert.equal(teacherCanSeeAttempt(attempt, teacher), true);
+  assert.equal(teacherCanSeeAttempt({ groupId: "group3" }, teacher), false);
+});
+
+test("студент и пустой профиль не видят чужие попытки", () => {
+  assert.equal(teacherCanSeeAttempt(attempt, { role: "student" }), false);
+  assert.equal(teacherCanSeeAttempt(attempt, null), false);
+});
+
+test("автор теста видит попытки по своему тесту вне своих групп", () => {
+  const teacher = { role: "teacher", teacherGroups: ["group2"] };
+  assert.equal(teacherCanSeeAttempt({ groupId: "group9", testAuthorId: "t1" }, teacher, "t1"), true);
+  assert.equal(teacherCanSeeAttempt({ groupId: "group9", testAuthorId: "t2" }, teacher, "t1"), false);
+});

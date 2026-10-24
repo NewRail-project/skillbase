@@ -1,4 +1,5 @@
 import { h } from "../../shared/dom.js";
+import { buildAttemptOrder } from "../../core/shuffle.js";
 import { State, isStaff } from "../../core/auth.js";
 import { loadTest } from "../../core/editor.js";
 import {
@@ -744,6 +745,9 @@ export default async function QuizPage() {
       startedAt: toDate(attempt.startedAt)?.getTime() || Date.now()
     };
 
+    // Перемешивание только для учеников; ответы хранятся по исходным индексам.
+    const order = buildAttemptOrder(questions, settings, attempt.id, !staff);
+
     const limitMs = attemptDeadlineMs(attempt);
     current.deadlineMs = limitMs;
 
@@ -857,7 +861,7 @@ export default async function QuizPage() {
           "aria-label": `Вопрос ${index + 1}`,
           "aria-current": index === current.index ? "step" : "false"
         }, String(index + 1));
-        if (isAnswered(current.answers[String(index)])) {
+        if (isAnswered(current.answers[String(order.questions[index])])) {
           button.style.borderColor = "var(--primary)";
         }
         button.addEventListener("click", () => {
@@ -869,8 +873,9 @@ export default async function QuizPage() {
     }
 
     function renderQuestion() {
-      const question = questions[current.index];
-      const key = String(current.index);
+      const questionIndex = order.questions[current.index];
+      const question = questions[questionIndex];
+      const key = String(questionIndex);
       const answer = current.answers[key];
       const options = Array.isArray(question.options) ? question.options : [];
 
@@ -907,10 +912,11 @@ export default async function QuizPage() {
           .filter(value => Number.isInteger(value) && value >= 0));
         const optionsBox = h("div", { class: "options" });
 
-        options.forEach((option, optionIndex) => {
+        order.options[questionIndex].forEach((optionIndex) => {
+          const option = options[optionIndex];
           const input = h("input", {
             type: multiple ? "checkbox" : "radio",
-            name: `question-${current.index}`,
+            name: `question-${questionIndex}`,
             value: String(optionIndex),
             checked: selected.has(optionIndex)
           });

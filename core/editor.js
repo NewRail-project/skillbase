@@ -157,7 +157,11 @@ export async function publishTest(testId) {
       ? currentTest.version
       : 1) + 1;
 
-    const versionRef = await addDoc(collection(db, "tests", id, "versions"), {
+    // Документ версии получает id = номер версии: именно по такому пути его
+    // читают attempts.js и getTestForReview (раньше addDoc давал случайный id,
+    // и снимок невозможно было найти по номеру).
+    const versionRef = doc(db, "tests", id, "versions", String(version));
+    await setDoc(versionRef, {
       ...publicTest, id,
       authorId: currentTest.authorId,
       orgId: currentTest.orgId,

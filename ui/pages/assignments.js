@@ -50,7 +50,7 @@ function showQRCode(title, url) {
   overlay._cleanup = () => document.removeEventListener("keydown", close);
 }
 
-
+export default async function Assignments() {
   const page = h("div", { class: "page" });
   const profile = State.profile || {};
 

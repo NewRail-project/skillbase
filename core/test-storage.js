@@ -121,3 +121,26 @@ export function mergeKeys(publicTest, items) {
 
   return { ...publicTest, questions };
 }
+
+
+// Номер версии теста из произвольного значения: целое число >= 1 или null.
+export function normalizeTestVersion(value) {
+  if (typeof value === "number") {
+    return Number.isInteger(value) && value >= 1 ? value : null;
+  }
+  if (typeof value === "string" && /^\d+$/.test(value.trim())) {
+    const n = Number(value.trim());
+    return n >= 1 ? n : null;
+  }
+  return null;
+}
+
+// Выбирает ключи для проверки попытки: снимок версии, если он есть,
+// иначе текущие ключи теста.
+export function selectKeysForAttempt(currentItems, versionedItems, version) {
+  const v = normalizeTestVersion(version);
+  if (v !== null && versionedItems && versionedItems[String(v)]) {
+    return versionedItems[String(v)];
+  }
+  return currentItems;
+}
