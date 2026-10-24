@@ -534,6 +534,81 @@ const cases = [
   }),
 
   // users
+  writeCase("новый пользователь регистрируется с организацией и группой по умолчанию", {
+    expectation: "ALLOW",
+    uid: "newbie",
+    method: "create",
+    path: "users/newbie",
+    after: {
+      email: "newbie@example.com",
+      role: "student",
+      orgId: ORG,
+      groupId: "default-group",
+      fullName: "Новый Пользователь",
+      ui: "education",
+      createdAt: ISO
+    }
+  }),
+  writeCase("при регистрации нельзя назначить себе администратора", {
+    expectation: "DENY",
+    uid: "newbie",
+    method: "create",
+    path: "users/newbie",
+    after: {
+      email: "newbie@example.com",
+      role: "admin",
+      orgId: ORG,
+      groupId: "default-group",
+      fullName: "Новый Пользователь",
+      ui: "education",
+      createdAt: ISO
+    }
+  }),
+  writeCase("при регистрации нельзя выбрать чужую группу", {
+    expectation: "DENY",
+    uid: "newbie",
+    method: "create",
+    path: "users/newbie",
+    after: {
+      email: "newbie@example.com",
+      role: "student",
+      orgId: ORG,
+      groupId: "other-group",
+      fullName: "Новый Пользователь",
+      ui: "education",
+      createdAt: ISO
+    }
+  }),
+  writeCase("при регистрации нельзя выбрать чужую организацию", {
+    expectation: "DENY",
+    uid: "newbie",
+    method: "create",
+    path: "users/newbie",
+    after: {
+      email: "newbie@example.com",
+      role: "student",
+      orgId: "other-org",
+      groupId: "default-group",
+      fullName: "Новый Пользователь",
+      ui: "education",
+      createdAt: ISO
+    }
+  }),
+  writeCase("регистрация без ФИО отклоняется", {
+    expectation: "DENY",
+    uid: "newbie",
+    method: "create",
+    path: "users/newbie",
+    after: {
+      email: "newbie@example.com",
+      role: "student",
+      orgId: ORG,
+      groupId: "default-group",
+      fullName: "   ",
+      ui: "education",
+      createdAt: ISO
+    }
+  }),
   writeCase("пользователь меняет своё ФИО", {
     expectation: "ALLOW",
     uid: "student1",
@@ -550,6 +625,15 @@ const cases = [
     path: "users/student1",
     before: userDoc("student1", "student"),
     after: userDoc("student1", "teacher"),
+    mocks: mockUser("student1", "student")
+  }),
+  writeCase("пользователь не меняет себе группу", {
+    expectation: "DENY",
+    uid: "student1",
+    method: "update",
+    path: "users/student1",
+    before: userDoc("student1", "student"),
+    after: userDoc("student1", "student", ORG, { groupId: "other-group" }),
     mocks: mockUser("student1", "student")
   }),
   writeCase("администратор меняет роль в своей организации", {

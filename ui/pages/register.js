@@ -1,9 +1,9 @@
 import { h } from "../../shared/dom.js";
-import { register } from "../../core/auth.js";
-import { validateFullName } from "../../core/profile.js";
-import { icons } from "../../shared/icons.js";
+import { register, State } from "../../core/auth.js";
+import { validateRegistration } from "../../core/registration.js";
 import { toast } from "../../ui/components/toast.js";
 import { authErrorMessage } from "../../shared/errors.js";
+import { peekReturnTo, safeReturnTo, clearReturnTo, isReturnableHash } from "../../shared/return-to.js";
 
 const initialState = {
   fullName: "",
@@ -31,9 +31,13 @@ export default function RegisterPage() {
 
   function render() {
     div.textContent = "";
+    const pending = peekReturnTo();
     div.append(
       h("h2", {}, "Регистрация"),
       h("p", { class: "muted" }, "Аккаунт для обучения и проверки знаний."),
+      isReturnableHash(pending)
+        ? h("p", { class: "form-hint", role: "status" }, "После регистрации вернём вас к выбранному тесту.")
+        : null,
       state.errors.general ? h("div", { class: "form-error", role: "alert" }, state.errors.general) : null,
       h("form", { id: "register-form" },
         h("div", { class: "form-field" },
@@ -124,44 +128,58 @@ export default function RegisterPage() {
   div.addEventListener("submit", async (e) => {
     e.preventDefault();
     state.errors = {};
-    const { ok, error, value } = validateFullName(state.fullName);
-    if (!ok) {
-      state.errors.fullName = error;
-      render();
-      return;
-    }
 
-    if (!state.email.trim()) {
-      state.errors.email = "Укажите email";
+    const check = validateRegistration({
+      fullName: state.fullName,
+      email: state.email,
+      password: state.password,
+      confirmPassword: state.confirmPassword
+    });
+    if (!check.ok) {
+      state.errors = check.errors;
       render();
-      return;
-    }
-
-    if (state.password.length < 6) {
-      state.errors.password = "Пароль должен быть не короче 6 символов";
-      render();
-      return;
-    }
-
-    if (state.password !== state.confirmPassword) {
-      state.errors.confirmPassword = "Пароли не совпадают";
-      render();
+      const first = ["fullName", "email", "password", "confirmPassword"]
+        .find(field => state.errors[field]);
+      const input = first ? div.querySelector(`#${first}`) : null;
+      if (input) input.focus();
       return;
     }
 
     const submit = div.querySelector("button[type='submit']");
-    if (submit) { submit.disabled = true; submit.textContent = "Создаём аккаунт..."; }
+    if (submit) {
+      submit.disabled = true;
+      submit.setAttribute("aria-busy", "true");
+      submit.textContent = "Создаём аккаунт…";
+    }
 
     try {
-      // fullName передаётся в register: без него правило create для users/{uid}
-      // отклоняет запись, и пользователь остаётся без профиля.
-      await register(state.email.trim(), state.password, value, state.ui);
+      // Ссылку запоминаем до регистрации: notify() после создания профиля
+      // запускает роутер, и тот может забрать сохранённое значение.
+      const pending = peekReturnTo();
+      // ФИО сохраняется в users/{uid} и publicProfiles/{uid}: имя сразу
+      // видно в профиле, списке участников и результатах.
+      await register({
+        email: check.values.email,
+        password: check.values.password,
+        fullName: check.values.fullName,
+        position: state.position,
+        department: state.department,
+        ui: state.ui
+      });
       toast("Аккаунт создан", "success");
+      clearReturnTo();
+      const next = safeReturnTo(pending, "#profile");
       state = { ...initialState };
-      window.location.hash = "#profile";
+      window.location.hash = next;
     } catch (err) {
       console.error("Register error:", err);
-      state.errors.general = authErrorMessage(err);
+      // Если аккаунт создан, но профиль записать не удалось, показываем
+      // сохранённое состояние: оно понятнее кода permission-denied.
+      state.errors.general = State.profileStatus === "error" && State.profileError
+        ? State.profileError
+        : err && err.name === "Error" && !err.code
+          ? err.message
+          : authErrorMessage(err);
       render();
     }
   });

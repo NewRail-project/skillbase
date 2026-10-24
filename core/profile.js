@@ -1,6 +1,11 @@
 import { db } from "../shared/firebase.js";
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from "../shared/firebase.js";
 import { State } from "./auth.js";
+import { validateFullName } from "./registration.js";
+
+// Единый валидатор ФИО живёт в core/registration.js; реэкспорт сохраняет
+// прежний импорт из core/profile.js для страниц и тестов.
+export { validateFullName };
 
 export function displayName(profile, { viewerIsStaff, uid } = {}) {
   if (profile && profile.fullName) return profile.fullName;
@@ -16,13 +21,6 @@ export function initialsAvatar(name, uid) {
   const hash = (uid || "").split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
   const hue = hash % 360;
   return { initials, hue };
-}
-
-export function validateFullName(str) {
-  const trimmed = (str || "").trim();
-  if (trimmed.length < 2) return { ok: false, error: "ФИО слишком короткое" };
-  if (trimmed.length > 120) return { ok: false, error: "ФИО слишком длинное" };
-  return { ok: true, value: trimmed };
 }
 
 export async function processAvatarFile(file) {

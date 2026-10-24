@@ -24,6 +24,10 @@ service cloud.firestore {
     function validTitle(v) {
       return v is string && v.size() > 0 && v.size() <= 120;
     }
+    // ФИО и публичное имя не могут состоять из одних пробелов.
+    function validFullName(v) {
+      return validTitle(v) && v.matches('.*\\S.*');
+    }
     function validGroupId(v) {
       return v is string && v.size() > 0 && v.size() <= 100;
     }
@@ -47,16 +51,25 @@ service cloud.firestore {
         || (isStaff() && resource.data.orgId == myOrg())
       );
 
-      // Самостоятельная регистрация: только студент в default-org.
+      // Самостоятельная регистрация: только студент в default-org и
+      // default-group. Значения должны совпадать с configs/organization.js.
       allow create: if signedIn() && request.auth.uid == uid
         && request.resource.data.keys().hasOnly([
-          'email', 'role', 'orgId', 'fullName', 'ui', 'themeMode', 'createdAt'
+          'email', 'role', 'orgId', 'groupId', 'fullName', 'position',
+          'department', 'ui', 'themeMode', 'createdAt'
         ])
         && request.resource.data.email is string
         && request.resource.data.role == 'student'
         && request.resource.data.orgId == 'default-org'
-        && validTitle(request.resource.data.fullName)
+        && request.resource.data.groupId == 'default-group'
+        && validFullName(request.resource.data.fullName)
         && validUi(request.resource.data.ui)
+        && (!request.resource.data.keys().hasAny(['position'])
+          || (request.resource.data.position is string
+            && request.resource.data.position.size() <= 120))
+        && (!request.resource.data.keys().hasAny(['department'])
+          || (request.resource.data.department is string
+            && request.resource.data.department.size() <= 120))
         && (!request.resource.data.keys().hasAny(['themeMode'])
           || validTheme(request.resource.data.themeMode))
         && request.resource.data.createdAt is timestamp;
@@ -70,7 +83,7 @@ service cloud.firestore {
             'fullName', 'position', 'department', 'ui', 'themeMode'
           ])
           && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['fullName'])
-            || validTitle(request.resource.data.fullName))
+            || validFullName(request.resource.data.fullName))
           && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['ui'])
             || validUi(request.resource.data.ui))
           && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['themeMode'])
@@ -87,7 +100,7 @@ service cloud.firestore {
           && request.resource.data.role in ['student', 'teacher', 'admin']
           && optionalGroupIdOk(request.resource.data)
           && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['fullName'])
-            || validTitle(request.resource.data.fullName))
+            || validFullName(request.resource.data.fullName))
           && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['ui'])
             || validUi(request.resource.data.ui))
           && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['themeMode'])
@@ -110,7 +123,7 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly([
           'displayName', 'avatar', 'orgId', 'updatedAt'
         ])
-        && validTitle(request.resource.data.displayName)
+        && validFullName(request.resource.data.displayName)
         && (!request.resource.data.keys().hasAny(['avatar'])
           || request.resource.data.avatar == null
           || (request.resource.data.avatar is string
@@ -123,7 +136,7 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly([
           'displayName', 'avatar', 'orgId', 'updatedAt'
         ])
-        && validTitle(request.resource.data.displayName)
+        && validFullName(request.resource.data.displayName)
         && (!request.resource.data.keys().hasAny(['avatar'])
           || request.resource.data.avatar == null
           || (request.resource.data.avatar is string

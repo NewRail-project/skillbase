@@ -1,6 +1,7 @@
 import { h } from "../../shared/dom.js";
 import { State, logout, refreshProfile, createOwnProfile, saveOwnProfile } from "../../core/auth.js";
 import { displayName, initialsAvatar, validateFullName, processAvatarFile, saveProfile, computeProfileStats } from "../../core/profile.js";
+import { needsFullName } from "../../core/registration.js";
 import { listMyAttempts } from "../../core/attempts.js";
 import { icons } from "../../shared/icons.js";
 import { getThemeMode, setThemeMode, subscribeTheme } from "../../shared/theme.js";
@@ -151,6 +152,57 @@ function missingProfileState() {
 }
 
 /* ---------- Основной профиль ---------- */
+
+// Старый аккаунт без ФИО: просим заполнить поле, но не создаём новый профиль
+// и не трогаем роль, организацию, группу и историю попыток.
+function missingNameBlock(profile) {
+  const errors = h("div", { class: "form-error", role: "alert" });
+  const input = h("input", {
+    type: "text",
+    id: "required-fullName",
+    autocomplete: "name",
+    placeholder: "Иванов Иван Иванович",
+    "aria-describedby": "required-fullName-hint"
+  });
+  const submit = h("button", { type: "submit", class: "btn primary" }, "Сохранить ФИО");
+
+  const form = h("form", { class: "panel", novalidate: "novalidate" },
+    h("div", { class: "eyebrow" }, "Не хватает данных"),
+    h("h2", { style: "margin:0 0 8px" }, "Укажите ФИО"),
+    h("p", { class: "muted" }, "Аккаунт уже существует, но в профиле нет ФИО. Добавьте его — остальные данные и история попыток сохранятся."),
+    errors,
+    h("div", { class: "field" },
+      h("label", { for: "required-fullName" }, "ФИО"),
+      input,
+      h("div", { class: "form-hint", id: "required-fullName-hint" }, "От 2 до 120 символов")
+    ),
+    h("div", { class: "btn-row" }, submit)
+  );
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errors.textContent = "";
+    const check = validateFullName(input.value);
+    if (!check.ok) {
+      errors.textContent = check.error;
+      input.focus();
+      return;
+    }
+    submit.disabled = true;
+    submit.textContent = "Сохраняем…";
+    try {
+      await saveOwnProfile({ fullName: check.value });
+      toast("ФИО сохранено", "success");
+    } catch (err) {
+      console.error("Не удалось сохранить ФИО:", err);
+      errors.textContent = err && err.message ? err.message : "Не удалось сохранить ФИО.";
+      submit.disabled = false;
+      submit.textContent = "Сохранить ФИО";
+    }
+  });
+
+  return form;
+}
 
 function avatarNode(profile, avatarUrl) {
   const node = h("div", { class: "profile-avatar", "aria-hidden": "true" });
@@ -325,15 +377,7 @@ function editForm(profile) {
         department: departmentInput.value.trim(),
         ui: uiSelect.value
       });
-      // Публичный профиль нужен для отображения имени в результатах.
-      try {
-        await saveProfile(profile.uid, {}, {
-          displayName: check.value,
-          orgId: profile.orgId
-        });
-      } catch (pubErr) {
-        console.warn("Публичный профиль не обновлён:", pubErr);
-      }
+      // saveOwnProfile сам обновляет publicProfiles при смене ФИО.
       toast("Профиль сохранён", "success");
     } catch (err) {
       console.error("Ошибка сохранения профиля:", err);
@@ -459,6 +503,10 @@ function renderReady(profile, avatarUrl) {
         h("span", { class: "value" }, profile.orgId || "—")
       ),
       h("div", { class: "field" },
+        h("span", { class: "muted" }, "Группа"),
+        h("span", { class: "value" }, profile.groupId || "не назначена")
+      ),
+      h("div", { class: "field" },
         h("span", { class: "muted" }, "Идентификатор"),
         h("span", { class: "value", style: "font-family:var(--mono);font-size:.8125rem" }, profile.uid)
       )
@@ -467,6 +515,7 @@ function renderReady(profile, avatarUrl) {
 
   return h("div", { class: "page" },
     header,
+    needsFullName(profile) ? missingNameBlock(profile) : null,
     statsBlock(profile),
     h("div", { class: "split" },
       editForm(profile),

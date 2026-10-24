@@ -1,6 +1,7 @@
 import { h } from "../../shared/dom.js";
 import { login } from "../../core/auth.js";
 import { authErrorMessage } from "../../shared/errors.js";
+import { peekReturnTo, safeReturnTo, clearReturnTo } from "../../shared/return-to.js";
 import { railScene, brandLockup } from "../../ui/components/brand.js";
 
 export default function LoginPage() {
@@ -55,13 +56,12 @@ export default function LoginPage() {
     submit.textContent = "Проверяем…";
 
     try {
+      // Ссылку запоминаем до входа: пока грузится профиль, роутер может
+      // успеть перенаправить с #login и забрать сохранённое значение.
+      const pending = peekReturnTo();
       await login(email.value.trim(), password.value);
-      let next = "#/";
-      try {
-        next = sessionStorage.getItem("sb:returnTo") || "#/";
-        sessionStorage.removeItem("sb:returnTo");
-      } catch (_) {}
-      window.location.hash = next;
+      clearReturnTo();
+      window.location.hash = safeReturnTo(pending, "#/");
     } catch (err) {
       console.error("Login error:", err);
       errorBox.textContent = authErrorMessage(err);

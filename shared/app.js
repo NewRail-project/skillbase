@@ -8,6 +8,7 @@
 // 404: ui/pages/404.js. Очистка страницы при уходе. Один вызов router() при старте.
 
 import { State, applyTheme } from "../core/auth.js";
+import { saveReturnTo, consumeReturnTo } from "./return-to.js";
 
 const STAFF = ["teacher", "admin"];
 
@@ -59,11 +60,16 @@ export async function router() {
 
   if (route && route.auth && !State.user) {
     const next = window.location.hash || "#/";
-    try { sessionStorage.setItem("sb:returnTo", next); } catch (_) {}
+    saveReturnTo(next);
     window.location.hash = "#login";
     return;
   }
-  if (route && route.guestOnly && State.user) { window.location.hash = "#profile"; return; }
+  // Уже вошедшего пользователя не держим на форме входа: если он пришёл по
+  // ссылке на тест, возвращаем его туда.
+  if (route && route.guestOnly && State.user) {
+    window.location.hash = consumeReturnTo("#/");
+    return;
+  }
 
   const target = route || { file: "ui/pages/404.js", title: "Не найдено" };
   document.title = `${target.title} — Skillbase`;
@@ -120,9 +126,4 @@ export function initRouter() {
   window.addEventListener("hashchange", router);
   if (State.profile && State.profile.ui) applyTheme(State.profile.ui);
   router();
-}
-
-export function consumeReturnTo() {
-  try { return sessionStorage.getItem("sb:returnTo") || null; }
-  finally { try { sessionStorage.removeItem("sb:returnTo"); } catch (_) {} }
 }
