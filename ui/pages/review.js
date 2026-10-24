@@ -146,7 +146,8 @@ export default async function ReviewPage() {
     }
   });
 
-  let studentName = attempt.userEmail ? attempt.userEmail.split("@")[0] : `Участник ·${(attempt.userId || "").slice(-4)}`;
+  let studentName = attempt.userName
+    || (attempt.userEmail ? attempt.userEmail.split("@")[0] : `Участник ·${(attempt.userId || "").slice(-4)}`);
   try {
     const profiles = await loadPublicProfiles([attempt.userId], orgId);
     const profile = profiles[0];

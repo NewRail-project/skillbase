@@ -138,6 +138,28 @@ function attemptDoc(overrides = {}) {
   };
 }
 
+function assignmentDoc(overrides = {}) {
+  return {
+    testId: "t1",
+    testTitle: "Тест",
+    teacherId: "teacher1",
+    groupId: "default-group",
+    orgId: ORG,
+    deadline: null,
+    attemptsLimit: 3,
+    status: "active",
+    createdAt: ISO,
+    updatedAt: ISO,
+    ...overrides
+  };
+}
+
+function mockAssignment(id, data) {
+  return [
+    { function: "get", args: [{ exactValue: `${DB}/assignments/${id}` }], result: { value: { data } } }
+  ];
+}
+
 const auth = uid => ({ auth: { uid, token: {} }, method: "get", path: "", time: ISO });
 
 function readCase(name, { uid, path, resource, mocks = [], expectation }) {
@@ -330,6 +352,106 @@ const cases = [
     path: "attempts/a1",
     after: attemptDoc({ userId: "student2" }),
     mocks: [...mockUser("student1", "student"), ...mockTest("t1", testDoc({ status: "published" }))]
+  }),
+  writeCase("ученик сохраняет в попытке своё ФИО и группу", {
+    expectation: "ALLOW",
+    uid: "student1",
+    method: "create",
+    path: "attempts/a1",
+    after: attemptDoc({ userName: "Иван Иванов", groupId: "default-group" }),
+    mocks: [
+      ...mockUser("student1", "student", ORG, {
+        fullName: "Иван Иванов",
+        groupId: "default-group"
+      }),
+      ...mockTest("t1", testDoc({ status: "published" }))
+    ]
+  }),
+  writeCase("нельзя записать в попытку чужое ФИО", {
+    expectation: "DENY",
+    uid: "student1",
+    method: "create",
+    path: "attempts/a1",
+    after: attemptDoc({ userName: "Другой Ученик" }),
+    mocks: [
+      ...mockUser("student1", "student", ORG, { fullName: "Иван Иванов" }),
+      ...mockTest("t1", testDoc({ status: "published" }))
+    ]
+  }),
+  writeCase("ученик начинает попытку по назначению своей группы", {
+    expectation: "ALLOW",
+    uid: "student1",
+    method: "create",
+    path: "attempts/a1",
+    after: attemptDoc({
+      assignmentId: "as1",
+      groupId: "default-group",
+      userName: "Иван Иванов"
+    }),
+    mocks: [
+      ...mockUser("student1", "student", ORG, {
+        fullName: "Иван Иванов",
+        groupId: "default-group"
+      }),
+      ...mockTest("t1", testDoc({ status: "published" })),
+      ...mockAssignment("as1", assignmentDoc())
+    ]
+  }),
+  writeCase("нельзя начать попытку по назначению другой группы", {
+    expectation: "DENY",
+    uid: "student1",
+    method: "create",
+    path: "attempts/a1",
+    after: attemptDoc({ assignmentId: "as1", groupId: "default-group" }),
+    mocks: [
+      ...mockUser("student1", "student", ORG, { groupId: "default-group" }),
+      ...mockTest("t1", testDoc({ status: "published" })),
+      ...mockAssignment("as1", assignmentDoc({ groupId: "other-group" }))
+    ]
+  }),
+  writeCase("нельзя начать попытку по закрытому назначению", {
+    expectation: "DENY",
+    uid: "student1",
+    method: "create",
+    path: "attempts/a1",
+    after: attemptDoc({ assignmentId: "as1", groupId: "default-group" }),
+    mocks: [
+      ...mockUser("student1", "student", ORG, { groupId: "default-group" }),
+      ...mockTest("t1", testDoc({ status: "published" })),
+      ...mockAssignment("as1", assignmentDoc({ status: "closed" }))
+    ]
+  }),
+  writeCase("нельзя начать попытку после срока назначения", {
+    expectation: "DENY",
+    uid: "student1",
+    method: "create",
+    path: "attempts/a1",
+    after: attemptDoc({
+      assignmentId: "as1",
+      groupId: "default-group",
+      deadlineAt: "2025-12-31T23:59:59Z"
+    }),
+    mocks: [
+      ...mockUser("student1", "student", ORG, { groupId: "default-group" }),
+      ...mockTest("t1", testDoc({ status: "published" })),
+      ...mockAssignment("as1", assignmentDoc({ deadline: "2025-12-31T23:59:59Z" }))
+    ]
+  }),
+  writeCase("нельзя продлить срок попытки относительно назначения", {
+    expectation: "DENY",
+    uid: "student1",
+    method: "create",
+    path: "attempts/a1",
+    after: attemptDoc({
+      assignmentId: "as1",
+      groupId: "default-group",
+      deadlineAt: "2026-12-31T23:59:59Z"
+    }),
+    mocks: [
+      ...mockUser("student1", "student", ORG, { groupId: "default-group" }),
+      ...mockTest("t1", testDoc({ status: "published" })),
+      ...mockAssignment("as1", assignmentDoc({ deadline: "2026-06-01T00:00:00Z" }))
+    ]
   }),
 
   // attempts: изменение учеником

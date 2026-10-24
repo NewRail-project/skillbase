@@ -42,6 +42,23 @@ service cloud.firestore {
     function testExists(testId) {
       return exists(/databases/$(database)/documents/tests/$(testId));
     }
+    // Проверка назначения по уже прочитанному документу: так get() вызывается
+    // один раз, а не на каждое поле (у Firestore есть лимит обращений).
+    function assignmentMatches(data, testId, orgId, groupId, deadlineAt) {
+      return data.status == 'active'
+        && data.orgId == orgId
+        && data.testId == testId
+        && data.groupId == groupId
+        && (
+          !data.keys().hasAny(['deadline'])
+          || data.deadline == null
+          || data.deadline > request.time
+        )
+        && (
+          !data.keys().hasAny(['deadline'])
+          || deadlineAt == data.deadline
+        );
+    }
 
     // ---------- Пользователи ----------
     match /users/{uid} {
@@ -313,10 +330,31 @@ service cloud.firestore {
         && testExists(request.resource.data.testId)
         && testData(request.resource.data.testId).status == 'published'
         && testData(request.resource.data.testId).orgId == myOrg()
+        // Снимок ФИО и группы должен совпадать с профилем на момент старта.
+        // Поля необязательные: старые профили могли быть без ФИО/группы.
+        && (!request.resource.data.keys().hasAny(['userName'])
+          || (request.resource.data.userName is string
+            && request.resource.data.userName.size() > 0
+            && request.resource.data.userName.size() <= 120
+            && request.resource.data.userName == me().fullName))
+        && (!request.resource.data.keys().hasAny(['groupId'])
+          || validGroupId(request.resource.data.groupId))
+        // Если указано задание, оно должно быть активным, относиться к тому
+        // же тесту и группе, а срок попытки — совпадать со сроком задания.
+        && (
+          request.resource.data.assignmentId == ''
+          || assignmentMatches(
+            get(/databases/$(database)/documents/assignments/$(request.resource.data.assignmentId)).data,
+            request.resource.data.testId,
+            request.resource.data.orgId,
+            me().groupId,
+            request.resource.data.deadlineAt
+          )
+        )
         && request.resource.data.keys().hasOnly([
-          'userId', 'userEmail', 'orgId', 'testId', 'testTitle',
-          'assignmentId', 'answers', 'startedAt', 'status', 'attemptNo',
-          'deadlineAt', 'createdAt', 'updatedAt'
+          'userId', 'userEmail', 'userName', 'groupId', 'orgId', 'testId',
+          'testTitle', 'assignmentId', 'answers', 'startedAt', 'status',
+          'attemptNo', 'deadlineAt', 'createdAt', 'updatedAt'
         ]);
 
       // Ученик может менять ответы только в незавершённой попытке и только

@@ -8,6 +8,7 @@ import {
   listMyAttemptsForTest
 } from "../../core/attempts.js";
 import { getAssignment, assignTest } from "../../core/assign.js";
+import { isDeadlinePassed } from "../../core/timing.js";
 import { icons } from "../../shared/icons.js";
 import { toast } from "../components/toast.js";
 
@@ -212,6 +213,8 @@ export default async function QuizPage() {
   if (!staff && assignment) {
     if (assignment.status !== "active") {
       assignmentError = "Задание закрыто.";
+    } else if (assignment.orgId && profile.orgId && assignment.orgId !== profile.orgId) {
+      assignmentError = "Задание принадлежит другой организации.";
     } else if (profile.groupId && assignment.groupId !== profile.groupId) {
       assignmentError = "Задание назначено другой группе.";
     } else if (!profile.groupId) {
@@ -220,7 +223,7 @@ export default async function QuizPage() {
   }
 
   const assignmentDeadline = toDate(assignment?.deadline);
-  const deadlinePassed = assignmentDeadline ? assignmentDeadline.getTime() <= Date.now() : false;
+  const deadlinePassed = isDeadlinePassed(assignmentDeadline);
   const timeLimit = totalSeconds(settings, questions.length);
 
   const rawLimit = assignment?.attemptsLimit ?? settings.attemptsLimit;
@@ -242,8 +245,14 @@ export default async function QuizPage() {
     }
   }
 
-  const activeAttempt = () => attempts.find(item => item.status === "in_progress") || null;
-  const completedCount = () => attempts.filter(item => item.status !== "in_progress").length;
+  // Лимит попыток относится к конкретному назначению. Иначе попытки,
+  // сделанные по прямой ссылке или по другому заданию, расходовали бы
+  // лимит нового назначения.
+  const scopedAttempts = () => assignment
+    ? attempts.filter(item => (item.assignmentId || "") === assignment.id)
+    : attempts;
+  const activeAttempt = () => scopedAttempts().find(item => item.status === "in_progress") || null;
+  const completedCount = () => scopedAttempts().filter(item => item.status !== "in_progress").length;
 
   function attemptDeadlineMs(attempt) {
     const started = toDate(attempt?.startedAt)?.getTime();
@@ -531,7 +540,7 @@ export default async function QuizPage() {
         errorText(attemptsError, "Обновите страницу и попробуйте снова.")));
     }
 
-    const latest = attempts[0] || null;
+    const latest = scopedAttempts()[0] || null;
     const result = resultPanel(latest);
     if (result) content.append(result);
     const history = historyPanel();
@@ -631,15 +640,17 @@ export default async function QuizPage() {
   }
 
   function fromDeadline() {
-    return deadlinePassed;
+    // Срок проверяем в момент нажатия: страница могла быть открыта заранее.
+    return isDeadlinePassed(assignmentDeadline);
   }
 
   async function handleStart() {
     if (submitting) return;
     submitting = true;
     try {
-      if (deadlinePassed) {
+      if (fromDeadline()) {
         toast("Срок выполнения истёк", "error");
+        renderStudentIntro();
         return;
       }
       const latest = activeAttempt();
@@ -653,25 +664,29 @@ export default async function QuizPage() {
         return;
       }
 
+      const attemptNo = scopedAttempts().length + 1;
       const id = await startAttempt({
         test,
         user: State.user,
         profile,
         assignmentId: assignment?.id || "",
-        attemptNo: attempts.length + 1,
+        attemptNo,
         deadlineAt: assignment?.deadline || null
       });
 
       const attempt = {
         id,
         userId: State.user.uid,
+        userEmail: State.user.email || "",
+        userName: String(profile.fullName || "").trim(),
+        groupId: profile.groupId || "",
         orgId: profile.orgId,
         testId: test.id,
         testTitle: test.title || "",
         assignmentId: assignment?.id || "",
         answers: {},
         status: "in_progress",
-        attemptNo: attempts.length + 1,
+        attemptNo,
         deadlineAt: assignment?.deadline || null,
         startedAt: new Date()
       };

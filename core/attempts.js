@@ -2,37 +2,15 @@ import {
   db, collection, doc, getDoc, getDocs, addDoc, updateDoc, query, where,
   serverTimestamp, Timestamp
 } from "../shared/firebase.js";
-import { isCorrect, normalizeKeys, scoreAttempt } from "./scoring.js";
+import { isCorrect, normalizeKeys, sanitizeAnswers, scoreAttempt } from "./scoring.js";
 
-export { isCorrect };
+export { isCorrect, sanitizeAnswers };
 
 const byTimeDesc = (a, b) => {
   const left = a.submittedAt?.seconds || a.startedAt?.seconds || 0;
   const right = b.submittedAt?.seconds || b.startedAt?.seconds || 0;
   return right - left;
 };
-
-// Firestore не принимает undefined и вложенные объекты с мусором.
-// Оставляем только те значения, которые понимает scoreAttempt.
-export function sanitizeAnswers(answers) {
-  if (!answers || typeof answers !== "object") return {};
-  const clean = {};
-
-  Object.keys(answers).forEach(index => {
-    if (!/^\d+$/.test(index)) return;
-    const value = answers[index];
-
-    if (Array.isArray(value)) {
-      clean[index] = value.filter(item => Number.isInteger(item) && item >= 0);
-    } else if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
-      clean[index] = value;
-    } else if (typeof value === "string") {
-      clean[index] = value.slice(0, 4000);
-    }
-  });
-
-  return clean;
-}
 
 function cleanDecisions(decisions) {
   if (!decisions || typeof decisions !== "object") return {};
@@ -61,6 +39,15 @@ export async function startAttempt({ test, user, profile, assignmentId = "", att
     ? (deadlineAt instanceof Date ? Timestamp.fromDate(deadlineAt) : deadlineAt)
     : null;
 
+  // Снимок ФИО и группы на момент попытки. Имя в users можно изменить,
+  // поэтому журнал не должен зависеть только от текущего профиля.
+  // Поля необязательные: старые профили могли быть созданы без ФИО/группы.
+  const snapshot = {};
+  const fullName = String(profile.fullName || "").trim();
+  if (fullName) snapshot.userName = fullName;
+  const groupId = String(profile.groupId || "").trim();
+  if (groupId) snapshot.groupId = groupId;
+
   const ref = await addDoc(collection(db, "attempts"), {
     userId: user.uid,
     userEmail: user.email || "",
@@ -73,6 +60,7 @@ export async function startAttempt({ test, user, profile, assignmentId = "", att
     status: "in_progress",
     attemptNo: Number.isInteger(attemptNo) && attemptNo > 0 ? attemptNo : 1,
     deadlineAt: deadline,
+    ...snapshot,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });

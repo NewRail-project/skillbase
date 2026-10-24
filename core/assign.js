@@ -35,13 +35,18 @@ export async function assignTest({ test, teacherId, groupId, deadline = null, at
     throw new Error("Количество попыток должно быть целым числом от 1 до 50.");
   }
 
+  const deadlineValue = toDeadline(deadline);
+  if (deadlineValue && deadlineValue.toMillis() <= Date.now()) {
+    throw new Error("Срок выполнения должен быть в будущем.");
+  }
+
   const ref = await addDoc(collection(db, "assignments"), {
     testId: test.id,
     testTitle: testData.title || "",
     teacherId,
     groupId: group,
     orgId: testData.orgId || "",
-    deadline: toDeadline(deadline),
+    deadline: deadlineValue,
     attemptsLimit: limit,
     status: "active",
     createdAt: serverTimestamp(),

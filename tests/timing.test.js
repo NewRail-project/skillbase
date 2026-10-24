@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { effectiveDeadline } from '../core/timing.js';
+import { effectiveDeadline, isDeadlinePassed } from '../core/timing.js';
 
 // effectiveDeadline(qStartMs, attemptDeadlineMs, timePerQuestionSec)
 // Возвращает ближайший из двух дедлайнов.
@@ -44,4 +44,14 @@ test('таймеров нет — используется значение по
 test('нулевые значения таймеров трактуются как отсутствие ограничения', () => {
   const qStart = 1_000_000;
   assert.equal(effectiveDeadline(qStart, 0, 0), qStart + 5_000);
+});
+
+test('isDeadlinePassed проверяет срок в момент вызова', () => {
+  const now = 1_000_000;
+  assert.equal(isDeadlinePassed(null, now), false);
+  assert.equal(isDeadlinePassed(new Date(now + 1), now), false);
+  assert.equal(isDeadlinePassed(new Date(now), now), true);
+  assert.equal(isDeadlinePassed(new Date(now - 1), now), true);
+  assert.equal(isDeadlinePassed({ seconds: Math.floor(now / 1000) - 1 }, now), true);
+  assert.equal(isDeadlinePassed({ toMillis: () => now + 5_000 }, now), false);
 });

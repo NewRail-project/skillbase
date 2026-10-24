@@ -5,50 +5,93 @@
 
 import { questionPoints } from "./scoring.js";
 
+// Поля публичного документа tests. Всё остальное в публичную часть не попадает:
+// старые документы и импортированные объекты могли содержать ключи ответов.
+const PUBLIC_TEST_FIELDS = [
+  "id", "title", "description", "instructions", "category", "color",
+  "authorId", "orgId", "status", "mode", "settings", "version",
+  "createdAt", "updatedAt", "publishedAt"
+];
+
+function publicQuestion(question) {
+  const type = question?.type || "single";
+
+  // Firestore не принимает undefined: необязательные поля добавляем только при наличии.
+  const result = {
+    type,
+    text: question?.text ?? "",
+    options: type === "short"
+      ? []
+      : (Array.isArray(question?.options) ? question.options : []).map((option) => ({
+          text: option?.text ?? ""
+        })),
+    points: questionPoints(question),
+    required: question?.required === true
+  };
+
+  if (typeof question?.image === "string" && question.image) {
+    result.image = question.image;
+  }
+
+  return result;
+}
+
+// Убирает из прочитанного теста всё, что не должно быть доступно ученику:
+// correct/answer/explanation, служебные поля вопросов и лишние поля документа.
+// Нужен для совместимости со старыми документами, где ключи могли лежать
+// прямо в публичной части.
+export function sanitizePublicTest(test) {
+  const source = test && typeof test === "object" ? test : {};
+  const clean = {};
+
+  PUBLIC_TEST_FIELDS.forEach((field) => {
+    if (source[field] !== undefined) clean[field] = source[field];
+  });
+
+  clean.questions = (Array.isArray(source.questions) ? source.questions : [])
+    .map(publicQuestion);
+
+  return clean;
+}
+
 // Делит тест на публичную часть и ключи.
 export function splitForStorage(test) {
-  const publicQuestions = [];
   const items = {};
   const questions = Array.isArray(test?.questions) ? test.questions : [];
 
   questions.forEach((question, index) => {
     const type = question?.type || "single";
     const points = questionPoints(question);
-
-    // Firestore не принимает undefined: необязательные поля добавляем только при наличии.
-    const publicQuestion = {
-      type,
-      text: question?.text ?? "",
-      options: type === "short"
-        ? []
-        : (Array.isArray(question?.options) ? question.options : []).map((option) => ({
-            text: option?.text ?? ""
-          })),
-      points,
-      required: question?.required === true
-    };
-
-    if (typeof question?.image === "string" && question.image) {
-      publicQuestion.image = question.image;
-    }
-
-    publicQuestions.push(publicQuestion);
+    // Пояснение может раскрывать правильный ответ, поэтому храним его только
+    // в закрытом testKeys и возвращаем сотруднику через mergeKeys.
+    const explanation = typeof question?.explanation === "string" && question.explanation.trim()
+      ? question.explanation
+      : "";
 
     if (type === "short") {
-      items[String(index)] = { type, points, answer: String(question?.answer ?? "") };
+      items[String(index)] = {
+        type, points, answer: String(question?.answer ?? ""),
+        ...(explanation ? { explanation } : {})
+      };
     } else {
       const correct = [];
       (Array.isArray(question?.options) ? question.options : []).forEach((option, optionIndex) => {
         if (option?.correct === true) correct.push(optionIndex);
       });
-      items[String(index)] = { type, points, correct };
+      items[String(index)] = {
+        type, points, correct,
+        ...(explanation ? { explanation } : {})
+      };
     }
   });
 
   const rest = test && typeof test === "object" ? { ...test } : {};
   delete rest.questions;
 
-  return { publicTest: { ...rest, questions: publicQuestions }, keys: items };
+  return {
+    publicTest: sanitizePublicTest({ ...rest, questions }),
+    keys: items
+  };
 }
 
 // Возвращает правильные ответы в вопросы (только для автора теста).
@@ -57,13 +100,18 @@ export function mergeKeys(publicTest, items) {
     const key = items?.[String(index)];
     if (!key) return question;
 
+    const explanation = typeof key.explanation === "string" && key.explanation
+      ? { explanation: key.explanation }
+      : {};
+
     if (question.type === "short") {
-      return { ...question, answer: key.answer ?? "" };
+      return { ...question, ...explanation, answer: key.answer ?? "" };
     }
 
     const correct = new Set(Array.isArray(key.correct) ? key.correct : []);
     return {
       ...question,
+      ...explanation,
       options: (question.options || []).map((option, optionIndex) => ({
         ...option,
         correct: correct.has(optionIndex)

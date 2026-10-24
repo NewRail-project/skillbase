@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isCorrect, normalizeKeys, questionPoints, scoreAttempt } from "../core/scoring.js";
+import {
+  isCorrect,
+  normalizeKeys,
+  questionPoints,
+  sanitizeAnswers,
+  scoreAttempt
+} from "../core/scoring.js";
 
 const single = (correct, points) => ({ type: "single", correct: [correct], points });
 const multiple = (correct, points) => ({ type: "multiple", correct, points });
@@ -137,4 +143,36 @@ test("normalizeKeys принимает объект items и сортирует 
   assert.deepEqual(normalizeKeys(items).map(key => key.points), [2, 3, 1]);
   assert.deepEqual(normalizeKeys(null), []);
   assert.deepEqual(normalizeKeys("items"), []);
+});
+
+test("sanitizeAnswers оставляет только допустимые ответы", () => {
+  const clean = sanitizeAnswers({
+    "0": 2,
+    "1": [2, 0, 2, -1, "1", 1.5],
+    "2": "  ответ  ",
+    "3": true,
+    "4": { nested: "нет" },
+    "5": 1.5,
+    "6": -1,
+    "x": 1
+  });
+
+  assert.deepEqual(clean, {
+    "0": 2,
+    "1": [0, 1, 2],
+    "2": "  ответ  "
+  });
+});
+
+test("sanitizeAnswers ограничивает длину короткого ответа", () => {
+  const long = "я".repeat(5000);
+  const clean = sanitizeAnswers({ 0: long });
+  assert.equal(clean[0].length, 4000);
+  assert.deepEqual(sanitizeAnswers(null), {});
+  assert.deepEqual(sanitizeAnswers("нет"), {});
+});
+
+test("дубликаты в multiple не делают верный набор неверным", () => {
+  assert.equal(isCorrect(multiple([0, 2]), [2, 0, 2]), true);
+  assert.equal(isCorrect({ type: "multiple", correct: [0, 0, 2] }, [0, 2]), true);
 });

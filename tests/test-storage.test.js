@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { splitForStorage, mergeKeys } from "../core/test-storage.js";
+import { splitForStorage, mergeKeys, sanitizePublicTest } from "../core/test-storage.js";
+import { scoreAttempt } from "../core/scoring.js";
 
 function sourceTest() {
   return {
@@ -78,6 +79,83 @@ test("публичная часть не содержит правильных �
   assert.equal(json.includes("Зелёный\",\"correct"), false);
 });
 
+test("публичная часть не копирует лишние поля теста", () => {
+  const source = sourceTest();
+  source.answerKey = { "0": [1] };
+  source.keys = { "0": { answer: "Зелёный" } };
+  source.secret = "не для ученика";
+
+  const { publicTest } = splitForStorage(source);
+  assert.equal("answerKey" in publicTest, false);
+  assert.equal("keys" in publicTest, false);
+  assert.equal("secret" in publicTest, false);
+});
+
+test("sanitizePublicTest очищает старый документ от ключей", () => {
+  const legacy = {
+    id: "old",
+    title: "Старый тест",
+    status: "published",
+    authorId: "teacher-1",
+    orgId: "default-org",
+    secret: "лишнее",
+    questions: [
+      {
+        type: "single",
+        text: "Вопрос",
+        answer: "Зелёный",
+        correct: [1],
+        explanation: "подсказка",
+        lineNumber: 1,
+        options: [
+          { text: "Красный", correct: false, hint: "нет" },
+          { text: "Зелёный", correct: true }
+        ],
+        points: 2,
+        required: true
+      },
+      {
+        type: "short",
+        text: "Короткий",
+        answer: "два",
+        explanation: "секрет",
+        options: [{ text: "лишний", correct: true }],
+        points: 1
+      }
+    ]
+  };
+
+  const clean = sanitizePublicTest(legacy);
+  assert.equal(clean.id, "old");
+  assert.equal(clean.title, "Старый тест");
+  assert.equal("secret" in clean, false);
+  assert.deepEqual(clean.questions[0], {
+    type: "single",
+    text: "Вопрос",
+    options: [{ text: "Красный" }, { text: "Зелёный" }],
+    points: 2,
+    required: true
+  });
+  assert.deepEqual(clean.questions[1], {
+    type: "short",
+    text: "Короткий",
+    options: [],
+    points: 1,
+    required: false
+  });
+
+  const json = JSON.stringify(clean);
+  assert.equal(json.includes("\"correct\""), false);
+  assert.equal(json.includes("\"answer\""), false);
+  assert.equal(json.includes("подсказка"), false);
+  assert.equal(json.includes("секрет"), false);
+});
+
+test("sanitizePublicTest не падает на пустые данные", () => {
+  assert.deepEqual(sanitizePublicTest(null), { questions: [] });
+  assert.deepEqual(sanitizePublicTest({ questions: "нет" }), { questions: [] });
+});
+
 test("ключи хранят индексы, ответы и баллы", () => {
   const { keys } = splitForStorage(sourceTest());
 
@@ -128,4 +206,47 @@ test("mergeKeys без ключей оставляет публичную час
   const merged = mergeKeys(publicTest, null);
   assert.deepEqual(merged, publicTest);
   assert.equal(merged.questions[0].options[1].correct, undefined);
+});
+
+test("пояснение хранится в ключах и не попадает в публичную часть", () => {
+  const source = sourceTest();
+  source.questions[0].explanation = "Зелёный разрешает движение.";
+  source.questions[2].explanation = "Два рельса.";
+
+  const { publicTest, keys } = splitForStorage(source);
+  assert.equal(publicTest.questions[0].explanation, undefined);
+  assert.equal(publicTest.questions[2].explanation, undefined);
+  assert.equal(keys["0"].explanation, "Зелёный разрешает движение.");
+  assert.equal(keys["2"].explanation, "Два рельса.");
+
+  const merged = mergeKeys(publicTest, keys);
+  assert.equal(merged.questions[0].explanation, "Зелёный разрешает движение.");
+  assert.equal(merged.questions[2].explanation, "Два рельса.");
+});
+
+test("полный цикл: публичная часть, ключи и баллы для всех типов", () => {
+  const source = sourceTest();
+  const { publicTest, keys } = splitForStorage(source);
+
+  // Ученик получает вопросы без ответов.
+  assert.equal(JSON.stringify(publicTest).includes("\"correct\""), false);
+  assert.equal(JSON.stringify(publicTest).includes("\"answer\""), false);
+
+  // Автор после загрузки видит те же отметки и ответы.
+  const merged = mergeKeys(publicTest, keys);
+  assert.equal(merged.questions[0].options[1].correct, true);
+  assert.equal(merged.questions[1].options[2].correct, true);
+  assert.equal(merged.questions[2].answer, "два");
+
+  // Подсчёт: single 2 б., multiple 3 б., short 1 б.
+  assert.deepEqual(scoreAttempt(keys, { 0: 1, 1: [2, 0], 2: " Два " }), {
+    score: 6,
+    total: 6,
+    percent: 100
+  });
+  assert.deepEqual(scoreAttempt(keys, { 0: 0, 1: [0], 2: "три" }), {
+    score: 0,
+    total: 6,
+    percent: 0
+  });
 });

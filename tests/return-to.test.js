@@ -21,6 +21,7 @@ test("хэш приводится к виду #route", () => {
 test("ссылка на тест годится для возврата", () => {
   assert.equal(isReturnableHash("#quiz/t1"), true);
   assert.equal(isReturnableHash("quiz/t1"), true);
+  assert.equal(isReturnableHash("#quiz/t1/as1"), true);
   assert.equal(isReturnableHash("#quiz/t1?from=qr"), true);
   assert.equal(isReturnableHash("#/assignments"), true);
   assert.equal(isReturnableHash("#results/t1"), true);

@@ -9,10 +9,10 @@ import {
 import { State, isStaff } from "./auth.js";
 import { parseQuiz } from "./import/parser.js";
 import { emptyTest, validateTest } from "./test-schema.js";
-import { splitForStorage, mergeKeys } from "./test-storage.js";
+import { splitForStorage, mergeKeys, sanitizePublicTest } from "./test-storage.js";
 
 export { effectiveDeadline } from "./timing.js";
-export { splitForStorage, mergeKeys };
+export { splitForStorage, mergeKeys, sanitizePublicTest };
 
 const draftKey = (id) => {
   const uid = auth.currentUser?.uid || State?.user?.uid || "guest";
@@ -188,7 +188,12 @@ export async function loadTest(testId) {
   try {
     if (!navigator.onLine) {
       const local = readDraftLocally(testId);
-      if (local) { currentTest = local; return getCurrentTest(); }
+      if (local) {
+        // Локальный черновик мог быть сохранён сотрудником до смены роли.
+        // Ученику ключи не отдаём даже из localStorage.
+        currentTest = isStaff() ? local : sanitizePublicTest(local);
+        return getCurrentTest();
+      }
       const offline = new Error("Нет подключения к интернету. Данные недоступны.");
       offline.code = "unavailable";
       throw offline;
@@ -196,7 +201,9 @@ export async function loadTest(testId) {
 
     const snap = await getDoc(doc(db, "tests", testId));
     if (!snap.exists()) return null;
-    let test = { ...snap.data(), id: testId };
+    // Публичная часть всегда очищается от возможных старых ключей. Для
+    // сотрудника правильные ответы затем добавляются из testKeys.
+    let test = sanitizePublicTest({ ...snap.data(), id: testId });
 
     // Ключи нужны только автору/администратору при редактировании.
     // Ученику незачем даже пытаться читать testKeys.
@@ -286,7 +293,9 @@ export async function listPublishedTests(orgId) {
     where("orgId", "==", orgId),
     where("status", "==", "published")
   ));
-  return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byUpdatedDesc);
+  return snap.docs
+    .map(d => sanitizePublicTest({ ...d.data(), id: d.id }))
+    .sort(byUpdatedDesc);
 }
 
 export async function setTestStatus(testId, status) {

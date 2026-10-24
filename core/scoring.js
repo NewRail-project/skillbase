@@ -48,6 +48,35 @@ const toIndex = (value) => {
   return NaN;
 };
 
+// Уникальные индексы вариантов. Дубликаты не должны делать верный набор
+// неверным: чекбоксы в интерфейсе дают уникальные значения, но старые
+// документы и прямые записи могли содержать повторы.
+const toUniqueIndices = (values) => [...new Set(
+  values.map(toIndex).filter(value => Number.isInteger(value) && value >= 0)
+)].sort((a, b) => a - b);
+
+// Приводит ответы к виду, который понимает scoreAttempt и принимает Firestore.
+// Модуль чистый: используется core/attempts.js и проверяется в Node.
+export function sanitizeAnswers(answers) {
+  if (!answers || typeof answers !== "object") return {};
+  const clean = {};
+
+  Object.keys(answers).forEach(index => {
+    if (!/^\d+$/.test(index)) return;
+    const value = answers[index];
+
+    if (Array.isArray(value)) {
+      clean[index] = toUniqueIndices(value);
+    } else if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
+      clean[index] = value;
+    } else if (typeof value === "string") {
+      clean[index] = value.slice(0, 4000);
+    }
+  });
+
+  return clean;
+}
+
 // Совместимость: в опубликованных тестах индексы вариантов хранятся в correct,
 // в старых ключах мог использоваться answer.
 export function isCorrect(key, answer) {
@@ -60,17 +89,11 @@ export function isCorrect(key, answer) {
   }
 
   if (Array.isArray(key.correct)) {
-    const correct = key.correct
-      .map(toIndex)
-      .filter(Number.isInteger)
-      .sort((a, b) => a - b);
+    const correct = toUniqueIndices(key.correct);
 
     if (!correct.length) return false;
 
-    const selected = (Array.isArray(answer) ? answer : [answer])
-      .map(toIndex)
-      .filter(Number.isInteger)
-      .sort((a, b) => a - b);
+    const selected = toUniqueIndices(Array.isArray(answer) ? answer : [answer]);
 
     if (key.type === "multiple") {
       return selected.length === correct.length &&
