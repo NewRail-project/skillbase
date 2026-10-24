@@ -272,8 +272,9 @@ export default async function QuizPage() {
   const completedCount = () => scopedAttempts().filter(item => item.status !== "in_progress").length;
 
   function attemptDeadlineMs(attempt) {
-    const started = toDate(attempt?.startedAt)?.getTime();
-    const byTime = started && timeLimit ? started + timeLimit * 1000 : null;
+    const started = toDate(attempt?.startedAt)?.getTime() || Date.now();
+    const timeLimitMs = totalSeconds(settings, questions.length) * 1000;
+    const byTime = started + timeLimitMs;
     const stored = toDate(attempt?.deadlineAt)?.getTime() || null;
     const assigned = assignmentDeadline?.getTime() || null;
     const limits = [byTime, stored, assigned].filter(value => Number.isFinite(value));
@@ -994,14 +995,25 @@ export default async function QuizPage() {
       if (timerId) clearInterval(timerId);
       timerId = null;
 
-      if (!current.deadlineMs) {
-        timerEl.textContent = "Без ограничения";
-        timerEl.className = "badge badge-neutral";
+      // Проверяем, есть ли общая длительность теста
+      const totalTimeMs = totalSeconds(settings, questions.length);
+      const currentTimeMs = Date.now();
+      const remainingTimeMs = current.deadlineMs ? current.deadlineMs - currentTimeMs : totalTimeMs;
+
+      if (!remainingTimeMs || remainingTimeMs <= 0) {
+        timerEl.textContent = "00:00";
+        timerEl.className = "badge badge-danger";
+        if (timerId) clearInterval(timerId);
+        timerId = null;
+        if (!submitting && !autoSubmitTriggered) {
+          autoSubmitTriggered = true;
+          doSubmit({ auto: true });
+        }
         return;
       }
 
       const tick = () => {
-        const left = current.deadlineMs - Date.now();
+        const left = remainingTimeMs - Date.now();
         if (left <= 0) {
           timerEl.textContent = "00:00";
           timerEl.className = "badge badge-danger";

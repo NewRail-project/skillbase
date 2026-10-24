@@ -3,30 +3,7 @@
   "version": "1.0.0",
   "description": "Skillbase — корпоративная платформа обучения и проверки знаний",
   "type": "module",
-  "main": "run-tests.cjs",
-  "directories": {
-    "doc": "docs",
-    "test": "tests"
-  },
   "scripts": {
-    "test": "node --test tests/*.test.js",
-    "test:rules": "node tools/rules-test.mjs",
-    "migrate:keys": "node tools/migrate-test-keys.mjs",
-    "check:contrast": "node scripts/check-contrast.mjs",
-    "check:imports": "node scripts/check-imports.mjs"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/NewRail-project/skillbase.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/NewRail-project/skillbase/issues"
-  },
-  "homepage": "https://github.com/NewRail-project/skillbase#readme",
-  "dependencies": {
-    "qrcode": "^1.5.4"
+    "test:rules": "node tools/rules-test.mjs"
   }
 }
