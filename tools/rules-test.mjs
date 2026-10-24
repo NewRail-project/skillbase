@@ -645,6 +645,42 @@ const cases = [
     after: userDoc("student1", "teacher", ORG, { updatedAt: ISO }),
     mocks: mockUser("admin1", "admin")
   }),
+  writeCase("администратор назначает администратора в своей организации", {
+    expectation: "ALLOW",
+    uid: "admin1",
+    method: "update",
+    path: "users/student1",
+    before: userDoc("student1", "student"),
+    after: userDoc("student1", "admin", ORG, { updatedAt: ISO }),
+    mocks: mockUser("admin1", "admin")
+  }),
+  writeCase("администратор снимает роль администратора с коллеги", {
+    expectation: "ALLOW",
+    uid: "admin1",
+    method: "update",
+    path: "users/admin2",
+    before: userDoc("admin2", "admin"),
+    after: userDoc("admin2", "teacher", ORG, { updatedAt: ISO }),
+    mocks: mockUser("admin1", "admin")
+  }),
+  writeCase("преподаватель не назначает администратора", {
+    expectation: "DENY",
+    uid: "teacher1",
+    method: "update",
+    path: "users/student1",
+    before: userDoc("student1", "student"),
+    after: userDoc("student1", "admin", ORG, { updatedAt: ISO }),
+    mocks: mockUser("teacher1", "teacher")
+  }),
+  writeCase("администратор не назначает администратора в чужой организации", {
+    expectation: "DENY",
+    uid: "admin1",
+    method: "update",
+    path: "users/student2",
+    before: userDoc("student2", "student", "other-org"),
+    after: userDoc("student2", "admin", "other-org", { updatedAt: ISO }),
+    mocks: mockUser("admin1", "admin")
+  }),
   writeCase("администратор другой организации не меняет роль", {
     expectation: "DENY",
     uid: "admin2",

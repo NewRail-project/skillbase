@@ -11,6 +11,7 @@ import { State, applyTheme } from "../core/auth.js";
 import { saveReturnTo, consumeReturnTo } from "./return-to.js";
 
 const STAFF = ["teacher", "admin"];
+const ADMIN = ["admin"];
 
 const routes = {
   "":             { file: "ui/pages/home.js",              title: "Главная" },
@@ -26,6 +27,7 @@ const routes = {
   "student":      { file: "ui/pages/student-dashboard.js", title: "Панель студента",      auth: true },
   "teacher":      { file: "ui/pages/teacher-dashboard.js", title: "Панель преподавателя", auth: true, roles: STAFF },
   "users":        { file: "ui/pages/users.js",             title: "Пользователи",         auth: true, roles: STAFF },
+  "admins":       { file: "ui/pages/admins.js",            title: "Администраторы",       auth: true, roles: ADMIN },
   "settings":     { file: "ui/pages/settings.js",          title: "Настройки",            auth: true },
   "admin":        { file: "ui/pages/admin-panel.js",       title: "Админ-панель",         auth: true, roles: STAFF }
 };
@@ -80,7 +82,10 @@ export async function router() {
   updateHeaderNav();
 
   if (target.roles && !target.roles.includes(State.profile?.role)) {
-    message(container, "Этот раздел доступен преподавателям.", true);
+    const onlyAdmins = target.roles.length === 1 && target.roles[0] === "admin";
+    message(container, onlyAdmins
+      ? "Этот раздел доступен только администраторам."
+      : "Этот раздел доступен преподавателям.", true);
     return;
   }
 
@@ -116,6 +121,9 @@ export function updateHeaderNav() {
   }
   if (STAFF.includes(State.profile?.role)) {
     nav.append(link("#create-test", "Тесты"), link("#results", "Результаты"));
+  }
+  if (State.profile?.role === "admin") {
+    nav.append(link("#admins", "Администраторы"));
   }
   nav.append(link("#assignments", "Задания"), link("#profile", "Профиль"));
 }

@@ -106,6 +106,13 @@ export default async function AdminPanelPage() {
         href: "#results",
         action: "Открыть"
       }),
+      profile.role === "admin" ? tile({
+        icon: icons.check,
+        title: "Администраторы",
+        text: "Назначение и снятие административной роли в организации.",
+        href: "#admins",
+        action: "Управлять"
+      }) : null,
       tile({
         icon: icons.settings,
         title: "Профиль",

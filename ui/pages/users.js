@@ -3,6 +3,7 @@ import { State, isAdmin } from "../../core/auth.js";
 import { displayName } from "../../core/profile.js";
 import { icons } from "../../shared/icons.js";
 import { toast } from "../../ui/components/toast.js";
+import { confirmAction } from "../../ui/components/confirm.js";
 import { db, collection, doc, getDocs, query, where, updateDoc, serverTimestamp } from "../../shared/firebase.js";
 
 const ROLE_LABEL = { student: "Студент", teacher: "Преподаватель", admin: "Администратор" };
@@ -20,7 +21,11 @@ export default async function UsersPage() {
       h("p", { class: "page-sub" }, admin
         ? "Роли и подразделения сотрудников вашей организации."
         : "Список сотрудников организации. Изменять роли может администратор.")
-    )
+    ),
+    admin
+      ? h("div", { class: "page-head-actions" },
+        h("a", { class: "btn secondary", href: "#admins" }, "Управление администраторами"))
+      : null
   ));
 
   const search = h("input", { type: "search", placeholder: "Поиск по ФИО или почте", "aria-label": "Поиск сотрудников" });
@@ -84,6 +89,21 @@ export default async function UsersPage() {
           "aria-label": `Роль: ${name}`,
           onchange: async (e) => {
             const next = e.target.value;
+            if (next === user.role) return;
+            // Назначение администратора подтверждаем отдельно: это расширение
+            // прав, а не рядовая правка роли.
+            if (next === "admin") {
+              const confirmed = await confirmAction({
+                title: "Назначить администратором?",
+                text: `${name} (${user.email || "без email"}) получит права администратора организации ${user.orgId || "—"}.`,
+                confirmLabel: "Назначить",
+                tone: "primary"
+              });
+              if (!confirmed) {
+                select.value = user.role || "student";
+                return;
+              }
+            }
             select.disabled = true;
             try {
               await updateDoc(doc(db, "users", user.id), {

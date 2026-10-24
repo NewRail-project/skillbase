@@ -23,6 +23,7 @@ const GROUPS = [
       { id: "profile", label: "Профиль", icon: icons.users, route: "#profile", auth: true },
       { id: "settings", label: "Настройки", icon: icons.settings, route: "#settings", auth: true },
       { id: "users", label: "Пользователи", icon: icons.users, route: "#users", auth: true, roles: ["teacher", "admin"] },
+      { id: "admins", label: "Администраторы", icon: icons.check, route: "#admins", auth: true, roles: ["admin"] },
       { id: "admin", label: "Админ-панель", icon: icons.settings, route: "#admin", auth: true, roles: ["admin"] }
     ]
   }
