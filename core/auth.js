@@ -31,7 +31,9 @@ export const State = {
   profileStatus: "idle",
   profileError: null,
   registering: false,
-  listeners: []
+  listeners: [],
+  // Флаг для отслеживания начальной загрузки профиля
+  initialProfileLoad: false
 };
 
 export const DEFAULT_ORG = DEFAULT_ORG_ID;
@@ -79,6 +81,7 @@ async function loadProfile(user) {
   State.profileStatus = "loading";
   State.profileError = null;
   State.user = user;
+  State.initialProfileLoad = true;
 
   try {
     const docSnap = await getDoc(doc(db, "users", user.uid));
@@ -102,7 +105,9 @@ async function loadProfile(user) {
           }
         }
       } catch (pubErr) {
-        console.warn("Публичный профиль недоступен:", pubErr);
+        if (pubErr.code !== "permission-denied") {
+          console.warn("Публичный профиль недоступен:", pubErr);
+        }
       }
 
       // Старые аккаунты могли не иметь publicProfiles или отставать от
@@ -129,10 +134,12 @@ async function loadProfile(user) {
   }
 
   applyTheme(State.profile.ui);
+  State.initialProfileLoad = false;
   notify();
 }
 
 export async function initAuth() {
+  State.initialProfileLoad = true;
   return new Promise((resolve) => {
     let resolved = false;
     const finish = (value) => {
@@ -151,6 +158,7 @@ export async function initAuth() {
         State.profileStatus = "signed-out";
         State.profileError = null;
         applyTheme(DEFAULT_UI);
+        State.initialProfileLoad = false;
         if (!first) notify();
         finish(null);
         return;
@@ -162,7 +170,9 @@ export async function initAuth() {
         await loadProfile(user);
         finish(user);
       } else {
-        loadProfile(user);
+        // При повторной авторизации ждем загрузки профиля,
+        // чтобы роутер не сработал преждевременно
+        await loadProfile(user);
       }
     });
   });
@@ -171,6 +181,7 @@ export async function initAuth() {
 // Повторная загрузка профиля (кнопка «Повторить» при сетевой ошибке).
 export async function refreshProfile() {
   if (!State.user) return null;
+  State.initialProfileLoad = true;
   await loadProfile(State.user);
   return State.profile;
 }
@@ -193,7 +204,9 @@ async function writePublicProfile(uid, { fullName, orgId }) {
     }, { merge: true });
     return true;
   } catch (e) {
-    console.warn("Публичный профиль не сохранён:", e);
+    if (e.code !== "permission-denied") {
+      console.warn("Публичный профиль не сохранён:", e);
+    }
     return false;
   }
 }

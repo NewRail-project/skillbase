@@ -66,10 +66,22 @@ export async function router() {
     window.location.hash = "#login";
     return;
   }
+  
+  // Если пользователь авторизован, но профиль еще загружается,
+  // не перенаправляем на логин - ждем загрузки профиля
+  if (route && route.auth && State.user && !State.profile && !State.initialProfileLoad) {
+    return;
+  }
   // Уже вошедшего пользователя не держим на форме входа: если он пришёл по
   // ссылке на тест, возвращаем его туда.
   if (route && route.guestOnly && State.user) {
     window.location.hash = consumeReturnTo("#/");
+    return;
+  }
+  
+  // Если пользователь авторизован, но профиль еще загружается,
+  // не показываем гостевые страницы - ждем загрузки профиля
+  if (route && route.guestOnly && State.user && !State.profile && !State.initialProfileLoad) {
     return;
   }
 
@@ -132,6 +144,6 @@ export function initRouter() {
   if (initRouter._started) return;
   initRouter._started = true;
   window.addEventListener("hashchange", router);
-  if (State.profile && State.profile.ui) applyTheme(State.profile.ui);
+  if (State.profile?.ui) applyTheme(State.profile.ui);
   router();
 }
