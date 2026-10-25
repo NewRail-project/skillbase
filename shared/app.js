@@ -1,87 +1,161 @@
+// shared/app.js — роутер.
+//
+// Контракт страницы (R8):
+//   export default function PageName() { ... }  // может быть async, возвращает HTMLElement
+//   export function cleanup() { ... }         // (опционально) очистка: onSnapshot, таймеры, слушатели window
+//
+// Маршруты: хэш-роутинг. Параметры после слэша: #quiz/<assignmentId>, #test/<id>, #join/<code>, #results/<testId>.
+// 404: ui/pages/404.js. Очистка страницы при уходе. Один вызов router() при старте.
+
 import { State, applyTheme } from "../core/auth.js";
+import { saveReturnTo, consumeReturnTo } from "./return-to.js";
 
 const STAFF = ["teacher", "admin"];
+const ADMIN = ["admin"];
 
-// auth: нужен вход, guest: только для гостей, roles: допустимые роли
 const routes = {
-  "":            { file: "home.js",         title: "Главная" },
-  "login":       { file: "login.js",        title: "Вход", guest: true },
-  "register":    { file: "register.js",     title: "Регистрация", guest: true },
-  "profile":     { file: "profile.js",      title: "Профиль", auth: true },
-  "tests":       { file: "tests.js",        title: "Тесты", auth: true },
-  "create-test": { file: "create-test.js",  title: "Создать тест", auth: true, roles: STAFF },
-  "quiz":        { file: "quiz.js",         title: "Тест", auth: true },
-  "results":     { file: "results.js",      title: "Результаты", auth: true },
-  "users":       { file: "users.js",        title: "Пользователи", auth: true, roles: ["admin"] }
+  "":             { file: "ui/pages/home.js",              title: "Главная" },
+  "login":        { file: "ui/pages/login.js",             title: "Вход",                 guestOnly: true },
+  "register":     { file: "ui/pages/register.js",          title: "Регистрация",          guestOnly: true },
+  "profile":      { file: "ui/pages/profile.js",           title: "Профиль",              auth: true },
+  "tests":        { file: "ui/pages/tests.js",             title: "Каталог тестов",       auth: true },
+  "create-test":  { file: "ui/pages/create-test.js",       title: "Создать тест",         auth: true, roles: STAFF },
+  "quiz":         { file: "ui/pages/quiz.js",              title: "Тест",                 auth: true },
+  "results":      { file: "ui/pages/results.js",           title: "Результаты",           auth: true, roles: STAFF },
+  "review":       { file: "ui/pages/review.js",            title: "Проверка попытки",     auth: true, roles: STAFF },
+  "assignments":  { file: "ui/pages/assignments.js",       title: "Задания",              auth: true },
+  "student":      { file: "ui/pages/student-dashboard.js", title: "Панель студента",      auth: true },
+  "teacher":      { file: "ui/pages/teacher-dashboard.js", title: "Панель преподавателя", auth: true, roles: STAFF },
+  "users":        { file: "ui/pages/users.js",             title: "Пользователи",         auth: true, roles: STAFF },
+  "admins":       { file: "ui/pages/admins.js",            title: "Администраторы",       auth: true, roles: ADMIN },
+  "settings":     { file: "ui/pages/settings.js",          title: "Настройки",            auth: true },
+  "admin":        { file: "ui/pages/admin-panel.js",       title: "Админ-панель",         auth: true, roles: STAFF }
 };
 
-let renderToken = 0;
-let cleanup = null;
+let renderId = 0;
+let currentCleanup = null;
 
-function parseHash() {
-  const [name, ...params] = (window.location.hash.slice(1) || "").replace(/^\//, "").split("/");
-  return { name, params: params.map(decodeURIComponent) };
-}
-
-function message(text) {
+function message(container, text, isError) {
+  container.textContent = "";
   const card = document.createElement("div");
   card.className = "card";
-  card.innerHTML = `<p class="error-msg"></p><a class="btn" href="#">На главную</a>`;
-  card.querySelector("p").textContent = text;
-  return card;
+  const p = document.createElement("p");
+  p.className = isError ? "error-msg" : "";
+  p.textContent = text;
+  card.appendChild(p);
+  container.appendChild(card);
 }
 
 export async function router() {
-  const { name, params } = parseHash();
+  const id = ++renderId;
+  const raw = (window.location.hash.slice(1) || "").replace(/^\//, "");
+  const [name, ...rest] = raw.split("/");
+  State.routeParam = rest.join("/");
   const route = routes[name];
-  const app = document.getElementById("app");
-  if (!app) return;
 
-  if (typeof cleanup === "function") { try { cleanup(); } catch (e) { /* ignore */ } }
-  cleanup = null;
-  const token = ++renderToken;
+  // Уходим со старой страницы сразу, ещё до редиректов и проверки ролей:
+  // иначе таймеры и автосохранение прохождения остались бы работать.
+  if (currentCleanup) {
+    try { currentCleanup(); } catch (e) { console.error("cleanup error:", e); }
+    currentCleanup = null;
+  }
 
-  updateNav();
-
-  if (!route) { app.replaceChildren(message("Страница не найдена")); return; }
-  if (route.auth && !State.user) { window.location.hash = "#login"; return; }
-  if (route.guest && State.user) { window.location.hash = ""; return; }
-  if (route.roles && !route.roles.includes(State.profile?.role)) {
-    app.replaceChildren(message("Нет доступа к этой странице"));
+  if (route && route.auth && !State.user) {
+    const next = window.location.hash || "#/";
+    saveReturnTo(next);
+    window.location.hash = "#login";
+    return;
+  }
+  
+  // Если пользователь авторизован, но профиль еще загружается,
+  // не перенаправляем на логин - ждем загрузки профиля
+  if (route && route.auth && State.user && !State.profile && !State.initialProfileLoad) {
+    return;
+  }
+  
+  // Если пользователь авторизован, но профиль еще загружается,
+  // не перенаправляем на логин - ждем загрузки профиля
+  if (route && route.auth && State.user && !State.profile && !State.initialProfileLoad) {
+    return;
+  }
+  // Уже вошедшего пользователя не держим на форме входа: если он пришёл по
+  // ссылке на тест, возвращаем его туда.
+  if (route && route.guestOnly && State.user) {
+    window.location.hash = consumeReturnTo("#/");
+    return;
+  }
+  
+  // Если пользователь авторизован, но профиль еще загружается,
+  // не показываем гостевые страницы - ждем загрузки профиля
+  if (route && route.guestOnly && State.user && !State.profile && !State.initialProfileLoad) {
+    return;
+  }
+  
+  // Если пользователь авторизован, но профиль еще загружается,
+  // не показываем гостевые страницы - ждем загрузки профиля
+  if (route && route.guestOnly && State.user && !State.profile && !State.initialProfileLoad) {
     return;
   }
 
-  document.title = `${route.title} — Skillbase`;
-  app.innerHTML = `<div class="card"><div class="spinner"></div></div>`;
+  const target = route || { file: "ui/pages/404.js", title: "Не найдено" };
+  document.title = `${target.title} — Skillbase`;
+
+  const container = document.getElementById("app");
+  if (!container) return;
+
+  updateHeaderNav();
+
+  if (target.roles && !target.roles.includes(State.profile?.role)) {
+    const onlyAdmins = target.roles.length === 1 && target.roles[0] === "admin";
+    message(container, onlyAdmins
+      ? "Этот раздел доступен только администраторам."
+      : "Этот раздел доступен преподавателям.", true);
+    return;
+  }
 
   try {
-    const module = await import(`../ui/pages/${route.file}`);
-    const el = await module.default({ params });
-    if (token !== renderToken) return; // пользователь уже ушёл на другую страницу
-    cleanup = el._cleanup || null;
-    app.replaceChildren(el);
+    message(container, "Загрузка...", false);
+    const module = await import(`../${target.file}`);
+    const node = await module.default();
+    if (id !== renderId) return;
+    if (typeof module.cleanup === "function") currentCleanup = module.cleanup;
+    container.textContent = "";
+    container.appendChild(node);
   } catch (err) {
     console.error("Router error:", err);
-    if (token === renderToken) app.replaceChildren(message("Ошибка загрузки страницы: " + (err.message || err)));
+    if (id === renderId) message(container, "Не удалось открыть страницу. Обновите её и попробуйте снова.", true);
   }
 }
 
-export function updateNav() {
+function link(href, label) {
+  const a = document.createElement("a");
+  a.href = href;
+  a.textContent = label;
+  if (window.location.hash === href) a.setAttribute("aria-current", "page");
+  return a;
+}
+
+export function updateHeaderNav() {
   const nav = document.getElementById("nav");
   if (!nav) return;
-  const hash = (window.location.hash.slice(1) || "").split("/")[0];
-  const role = State.profile?.role;
-  const links = State.user
-    ? [["", "Главная"], ["tests", "Тесты"], ["results", "Результаты"],
-       ...(STAFF.includes(role) ? [["create-test", "Создать"]] : []),
-       ...(role === "admin" ? [["users", "Люди"]] : []),
-       ["profile", "Профиль"]]
-    : [["login", "Вход"], ["register", "Регистрация"]];
-  nav.innerHTML = links.map(([h, t]) => `<a href="#${h}" class="${hash === h ? "active" : ""}">${t}</a>`).join("");
+  nav.textContent = "";
+  if (!State.user) {
+    nav.append(link("#login", "Вход"), link("#register", "Регистрация"));
+    return;
+  }
+  if (STAFF.includes(State.profile?.role)) {
+    nav.append(link("#create-test", "Тесты"), link("#results", "Результаты"));
+  }
+  if (State.profile?.role === "admin") {
+    nav.append(link("#admins", "Администраторы"));
+  }
+  nav.append(link("#assignments", "Задания"), link("#profile", "Профиль"));
 }
 
 export function initRouter() {
+  if (initRouter._started) return;
+  initRouter._started = true;
   window.addEventListener("hashchange", router);
-  applyTheme(State.profile?.ui);
+  if (State.profile?.ui) applyTheme(State.profile.ui);
   router();
 }

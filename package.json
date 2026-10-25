@@ -1,0 +1,9 @@
+{
+  "name": "skillbase",
+  "version": "1.0.0",
+  "description": "Skillbase — корпоративная платформа обучения и проверки знаний",
+  "type": "module",
+  "scripts": {
+    "test:rules": "node tools/rules-test.mjs"
+  }
+}
