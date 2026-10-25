@@ -1,0 +1,68 @@
+name: OpenCode Telegram Bot
+
+on:
+  schedule:
+    # Запуск каждые 5 минут
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: |
+        npm install -g @artickc/opencode-telegram-bot@2.0.0
+        npm install -g tsx
+        
+    - name: Setup environment
+      run: |
+        mkdir -p ~/.opencode/tg
+        mkdir -p ~/.opencode/tg/logs
+        echo "TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" > ~/.opencode/tg/.env
+        echo "OPENCODE_WORKSPACE=/tmp/skillbase" >> ~/.opencode/tg/.env
+        echo "ALLOWED_USERS=7554503862" >> ~/.opencode/tg/.env
+        echo "OPENCODE_TRUST_ALL_TOOLS=false" >> ~/.opencode/tg/.env
+        echo "AUTO_UPDATE=false" >> ~/.opencode/tg/.env
+        echo "OPENCODE_TG_SINGLE_INSTANCE=true" >> ~/.opencode/tg/.env
+        chmod 600 ~/.opencode/tg/.env
+        
+    - name: Clone FreeLLMAPI
+      run: |
+        git clone https://github.com/your-username/FreeCodeStudio.git /tmp/FreeCodeStudio || echo "Repo already exists"
+        cd /tmp/FreeCodeStudio
+        npm install
+        npm run dev &
+        
+    - name: Wait for FreeLLMAPI
+      run: |
+        sleep 10
+        curl -f http://localhost:3001 || exit 1
+        
+    - name: Start OpenCode
+      run: |
+        opencode serve --service &
+        sleep 5
+        
+    - name: Run bot
+      run: |
+        cd /tmp
+        mkdir -p skillbase
+        cd skillbase
+        timeout 300 opencode acp &
+        sleep 3
+        cd ~/.opencode/tg
+        timeout 300 node --import tsx /usr/lib/node_modules/@artickc/opencode-telegram-bot/src/index.ts --instance ~/.opencode/tg

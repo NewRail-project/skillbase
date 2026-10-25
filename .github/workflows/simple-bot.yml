@@ -1,0 +1,44 @@
+name: OpenCode Telegram Bot (Simple)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        
+    - name: Install bot
+      run: |
+        npm install -g @artickc/opencode-telegram-bot@2.0.0
+        npm install -g tsx
+        
+    - name: Setup config
+      run: |
+        mkdir -p ~/.opencode/tg
+        cat > ~/.opencode/tg/.env << EOF
+TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+OPENCODE_WORKSPACE=/tmp/workspace
+ALLOWED_USERS=7554503862
+OPENCODE_TRUST_ALL_TOOLS=false
+AUTO_UPDATE=false
+OPENCODE_TG_SINGLE_INSTANCE=true
+EOF
+        chmod 600 ~/.opencode/tg/.env
+        
+    - name: Run bot
+      run: |
+        echo "🤖 Запуск бота..."
+        timeout 300 node --import tsx /usr/lib/node_modules/@artickc/opencode-telegram-bot/src/index.ts --instance ~/.opencode/tg
+        echo "✅ Бот завершил работу"
