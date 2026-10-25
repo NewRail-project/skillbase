@@ -359,3 +359,7 @@ export async function saveOwnProfile(patch = {}) {
   notify();
   return State.profile;
 }
+
+export function isAdmin() {
+  return State.profile?.role === "admin";
+}
