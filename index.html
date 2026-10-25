@@ -4,81 +4,38 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Skillbase</title>
-  <meta name="description" content="Skillbase — корпоративная платформа обучения и проверки знаний для железнодорожной отрасли.">
-  <meta name="theme-color" content="#F5F3EF">
-  <link rel="icon" type="image/svg+xml" href="ui/brand/favicon.svg">
-  <link rel="stylesheet" href="ui/css/tokens.css?v=9">
-  <link rel="stylesheet" href="ui/css/themes/education.css?v=9">
-  <link rel="stylesheet" href="ui/css/themes/operations.css?v=9">
-  <link rel="stylesheet" href="ui/css/themes/depot.css?v=9">
-  <link rel="stylesheet" href="ui/css/base.css?v=9">
-  <link rel="stylesheet" href="ui/css/components.css?v=9">
-  <link rel="stylesheet" href="ui/css/brand.css?v=9">
-  <script type="module" src="shared/main.js?v=9"></script>
+  <link rel="stylesheet" href="ui/css/style.css?v=6">
+  <link rel="stylesheet" href="ui/css/theme.css?v=6">
+  <link rel="stylesheet" href="ui/css/app.css?v=6">
   <script>
-    // Тема применяется до первой отрисовки, чтобы не было вспышки светлого фона.
-    (function () {
-      var mode = "system";
-      try { mode = localStorage.getItem("sb-theme") || "system"; } catch (_) {}
-      var theme = mode;
-      if (mode !== "light" && mode !== "dark") {
-        theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-      }
-      var root = document.documentElement;
-      root.setAttribute("data-theme", theme);
-      root.style.colorScheme = theme;
-      var meta = document.querySelector('meta[name="theme-color"]');
-      if (meta) meta.setAttribute("content", theme === "dark" ? "#0D1218" : "#F5F3EF");
-    })();
+    // Диагностика: если приложение не запустилось — показываем причину, а не пустой экран
+    window.__bootErrors = [];
+    window.addEventListener('error', function (e) { window.__bootErrors.push(e.message || (e.target && e.target.src) || 'ошибка загрузки'); });
+    window.addEventListener('unhandledrejection', function (e) { window.__bootErrors.push(String(e.reason && e.reason.message || e.reason)); });
+    setTimeout(function () {
+      if (window.__booted) return;
+      var app = document.getElementById('app');
+      if (!app) return;
+      app.innerHTML = '<div class="card"><h2>Приложение не запустилось</h2>' +
+        '<p>Проверьте интернет и обновите страницу. Подробности: откройте <a href="probe.html">probe.html</a>.</p>' +
+        '<p class="error-msg">' + (window.__bootErrors.join('<br>') || 'нет данных (смотрите консоль)') + '</p></div>';
+    }, 7000);
   </script>
+  <script type="module" src="shared/main.js?v=6"></script>
 </head>
 <body>
-  <a href="#app" class="skip-link">К содержимому</a>
-  <div id="sidebar-container"></div>
-  <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
-  <div class="shell">
-    <header class="topbar">
-      <button id="sidebar-toggle" type="button" aria-label="Меню" aria-expanded="false" aria-controls="sidebar">
-        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
-      </button>
-
-      <a class="brand" href="#/" aria-label="Skillbase — на главную">
-        <svg class="brand-mark" viewBox="0 0 32 32" width="28" height="28" fill="none"
-          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-          <path d="M7.5 27 L16 4.5 L24.5 27"/>
-          <path d="M6.86 25 H25.14"/>
-          <path d="M8.74 20 H23.26"/>
-          <path d="M10.63 15 H21.37"/>
-          <path d="M12.52 10 H19.48"/>
+  <div id="app-container" class="app-container">
+    <header>
+      <a href="#" class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#E5B94F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 8h16M4 16h16M8 3v18M16 3v18M4 3h16v18H4z"/>
+          <path d="M12 3v18"/>
         </svg>
-        <span class="brand-text">
-          <span class="brand-name">Skillbase</span>
-          <span class="brand-tagline">обучение на пути</span>
-        </span>
+        Skillbase
       </a>
-
-      <nav id="nav" aria-label="Разделы"></nav>
-
-      <button id="theme-toggle" type="button" class="theme-toggle" aria-label="Переключить тему">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-        </svg>
-      </button>
+      <nav id="nav"></nav>
     </header>
-    <main id="app" tabindex="-1"></main>
-    <footer class="site-footer">
-      <span>Skillbase · корпоративное обучение железнодорожной отрасли</span>
-      <span class="site-footer-links">
-        <a href="#/">Главная</a>
-        <a href="#login">Вход</a>
-      </span>
-    </footer>
-  </div>
-  <div id="loading-spinner" class="loading-spinner" style="display: none;">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="12" cy="12" r="10"/>
-      <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M4.22 19.78l1.41-1.42M18.36 4.22l-1.42 1.42M19.78 18.36l-1.42-1.42"/>
-    </svg>
+    <main id="app"><div class="card"><div class="spinner"></div></div></main>
   </div>
 </body>
 </html>

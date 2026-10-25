@@ -1,18 +1,12 @@
-# .gitignore
+# Firebase web-config НЕ секрет (защита — в firestore.rules), он должен лежать в репозитории,
+# иначе GitHub Pages не найдёт configs/firebase.js и приложение не запустится.
 .env
 node_modules/
-
-# Cache
 .cache/
 dist/
-
-# IDE
 .vscode/
 .idea/
-
-# OS
 .DS_Store
 Thumbs.db
-
-# Logs
 *.log
+*.bak

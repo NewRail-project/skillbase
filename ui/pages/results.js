@@ -1,226 +1,90 @@
-import { h } from "../../shared/dom.js";
-import { State } from "../../core/auth.js";
-import { listOrgAttempts } from "../../core/attempts.js";
-import { loadPublicProfiles, displayName } from "../../core/profile.js";
-import { toCsv } from "../../shared/csv.js";
-import { icons } from "../../shared/icons.js";
+import { State, isStaff } from "../../core/auth.js";
+import { listMyAttempts, listOrgAttempts, gradeAttempt } from "../../core/attempts.js";
+import { renderTeacherResults, toCsv } from "./teacher-results.js";
+import { escapeHtml, formatDate } from "../../shared/utils.js";
 
-function formatDate(value) {
-  if (!value) return "—";
-  const date = value.toDate ? value.toDate() : value.seconds ? new Date(value.seconds * 1000) : new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString("ru-RU", {
-    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"
-  });
+export default async function () {
+  return isStaff() ? staffView() : studentView();
 }
 
-function explainError(err) {
-  if (err?.code === "permission-denied") {
-    return "Правила Firestore не разрешают чтение попыток организации.";
+async function studentView() {
+  const div = document.createElement("div");
+  div.className = "card";
+  div.innerHTML = `<h2>Мои результаты</h2><div id="list" class="stack"><div class="spinner"></div></div>`;
+  const list = div.querySelector("#list");
+  try {
+    const items = await listMyAttempts(State.user.uid);
+    list.innerHTML = items.length ? items.map(a => `
+      <div class="item">
+        <h3>${escapeHtml(a.testTitle || a.testId)}</h3>
+        <p class="muted">${formatDate(a.submittedAt)}</p>
+        <p>${a.status === "graded"
+          ? `<span class="tag ok">Результат: ${a.score} из ${a.total}</span>`
+          : `<span class="tag wait">ожидает проверки</span>`}</p>
+      </div>`).join("") : `<p class="muted">Вы ещё не проходили тесты.</p><a class="btn" href="#tests">К тестам</a>`;
+  } catch (e) {
+    console.error(e);
+    list.innerHTML = `<p class="error-msg">Не удалось загрузить: ${escapeHtml(e.code || e.message)}</p>`;
   }
-  if (err?.code === "failed-precondition") {
-    return "Firestore отклонил запрос. Проверьте права доступа и настройки индексов.";
-  }
-  return "Не удалось загрузить результаты. Проверьте подключение к сети.";
+  return div;
 }
 
-function downloadCsv(rows) {
-  const data = rows.map(r => ({
-    "Участник": r.student,
-    "Почта": r.email,
-    "Тест": r.test,
-    "Балл": r.score,
-    "Всего": r.total,
-    "Процент": r.percent === null ? "" : r.percent,
-    "Статус": r.status === "graded"
-      ? "Проверено"
-      : r.status === "in_progress" ? "Не завершена" : "Ожидает",
-    "Отправлено": r.submitted
+async function staffView() {
+  const div = document.createElement("div");
+  div.innerHTML = `<div class="card"><h2>Результаты учеников</h2>
+    <button type="button" id="grade-all">Проверить все ожидающие</button>
+    <p id="msg" class="muted" style="margin-top:8px"></p></div><div id="table"></div>`;
+  const tableBox = div.querySelector("#table");
+  const msg = div.querySelector("#msg");
+  const keysCache = {};
+  let attempts = [];
+
+  const toRows = () => attempts.map(a => ({
+    student: a.userEmail, test: a.testTitle,
+    score: a.status === "graded" ? `${a.score}/${a.total}` : "—",
+    verified: a.status === "graded", attempt: a
   }));
-  const blob = new Blob([toCsv(data)], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = h("a", { href: url, download: `skillbase-results-${new Date().toISOString().slice(0, 10)}.csv` });
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 
-export default async function ResultsPage() {
-  const page = h("div", { class: "page" });
-
-  const head = h("div", { class: "page-head" },
-    h("div", {},
-      h("div", { class: "eyebrow" }, "Аналитика"),
-      h("h1", {}, "Результаты"),
-      h("p", { class: "page-sub" }, "Попытки сотрудников вашей организации. Выгрузка — в CSV для Excel.")
-    ),
-    h("div", { class: "page-head-actions" })
-  );
-  page.appendChild(head);
-
-  const exportBtn = h("button", { type: "button", class: "btn secondary", disabled: "disabled" }, "Экспорт CSV");
-  head.querySelector(".page-head-actions").appendChild(exportBtn);
-
-  const stats = h("section", { class: "stat-grid" });
-  page.appendChild(stats);
-
-  const search = h("input", { type: "search", placeholder: "Поиск по участнику или тесту", "aria-label": "Поиск по результатам" });
-  const filters = h("div", { class: "filter-bar" }, search);
-  page.appendChild(filters);
-
-  const panel = h("section", { class: "panel panel-flush" });
-  const body = h("div", { class: "list" });
-  panel.appendChild(body);
-  page.appendChild(panel);
-
-  let rows = [];
-
-  function draw() {
-    const query = search.value.trim().toLowerCase();
-    const visible = rows.filter(r =>
-      !query ||
-      r.student.toLowerCase().includes(query) ||
-      r.email.toLowerCase().includes(query) ||
-      r.test.toLowerCase().includes(query)
-    );
-
-    body.textContent = "";
-    if (!visible.length) {
-      body.appendChild(h("div", { class: "empty-state" },
-        h("div", { class: "empty-state-icon", innerHTML: icons.chart }),
-        h("h2", {}, rows.length ? "Ничего не найдено" : "Попыток пока нет"),
-        h("p", { class: "muted" }, rows.length
-          ? "Измените поисковый запрос."
-          : "Результаты появятся, когда участники пройдут опубликованные тесты.")
-      ));
+  async function load() {
+    try {
+      attempts = await listOrgAttempts(State.profile.orgId);
+    } catch (e) {
+      console.error(e);
+      tableBox.innerHTML = `<div class="card"><p class="error-msg">Не удалось загрузить: ${escapeHtml(e.code || e.message)}</p></div>`;
       return;
     }
-
-    const table = h("div", { class: "table-wrap" });
-    const el = h("table", { class: "table" },
-      h("thead", {}, h("tr", {},
-        h("th", {}, "Участник"),
-        h("th", {}, "Тест"),
-        h("th", {}, "Результат"),
-        h("th", {}, "Статус"),
-        h("th", {}, "Отправлено"),
-        h("th", {}, "Проверка")
-      ))
-    );
-    const tbody = h("tbody");
-    visible.forEach(r => {
-      const statusLabel = r.status === "graded"
-        ? "Проверено"
-        : r.status === "in_progress"
-          ? "Не завершена"
-          : "Ожидает";
-      const badge = r.status === "graded"
-        ? "badge-success"
-        : r.status === "in_progress"
-          ? "badge-warning"
-          : "badge-info";
-      tbody.appendChild(h("tr", {},
-        h("td", {},
-          h("div", { class: "list-row-title" }, r.student),
-          h("div", { class: "list-row-sub" }, r.email || "—")
-        ),
-        h("td", {}, r.test || "—"),
-        h("td", {}, r.percent === null ? "—" : `${r.score} / ${r.total} · ${r.percent}%`),
-        h("td", {}, h("span", { class: "badge " + badge }, statusLabel)),
-        h("td", { class: "muted" }, r.submitted),
-        h("td", {},
-          h("a", {
-            class: "btn secondary",
-            href: `#review/${encodeURIComponent(r.id)}`
-          }, r.status === "graded" ? "Открыть" : "Проверить")
-        )
-      ));
+    const box = document.createElement("div");
+    box.className = "card";
+    renderTeacherResults(box, {
+      rows: toRows(),
+      onGrade: async (row) => { await grade([row.attempt]); },
+      onExport: (rows) => {
+        const url = URL.createObjectURL(new Blob(["\ufeff" + toCsv(rows)], { type: "text/csv;charset=utf-8" }));
+        const a = document.createElement("a");
+        a.href = url; a.download = "results.csv"; a.click();
+        URL.revokeObjectURL(url);
+      }
     });
-    el.appendChild(tbody);
-    table.appendChild(el);
-    body.appendChild(table);
+    tableBox.replaceChildren(box);
   }
 
-  search.addEventListener("input", draw);
-
-  body.appendChild(h("div", { class: "panel-body" }, h("div", { class: "spinner" })));
-
-  try {
-    const attempts = await listOrgAttempts(State.profile.orgId, {
-      groupIdFilter: isStaff() && State.profile?.teacherGroups ? State.profile.teacherGroups : null
-    });
-    let names = new Map();
-    try {
-      const profiles = await loadPublicProfiles(
-        attempts.map(a => a.userId),
-        State.profile.orgId
-      );
-      names = new Map(profiles.map(profile => [
-        profile.id,
-        displayName(profile, { viewerIsStaff: true, uid: profile.id })
-      ]));
-    } catch (nameErr) {
-      console.warn("Не удалось загрузить имена участников:", nameErr);
+  async function grade(list) {
+    msg.textContent = "Проверяем...";
+    let ok = 0;
+    for (const a of list) {
+      try { await gradeAttempt(a, State.user.uid, keysCache); ok++; }
+      catch (e) { console.error(e); msg.textContent = "Ошибка проверки: " + (e.code || e.message); return; }
     }
-
-    rows = attempts.map(a => ({
-      id: a.id,
-      student: names.get(a.userId)
-        || a.userName
-        || (a.userEmail ? a.userEmail.split("@")[0] : "Участник"),
-      email: a.userEmail || "",
-      test: a.testTitle || a.testId || "—",
-      score: a.score ?? 0,
-      total: a.total ?? 0,
-      percent: a.status === "graded" && a.total
-        ? (Number.isFinite(a.percent) ? a.percent : Math.round((a.score / a.total) * 100))
-        : null,
-      status: a.status || "submitted",
-      submitted: formatDate(a.submittedAt || a.startedAt),
-      raw: a
-    }));
-
-    const graded = rows.filter(r => r.percent !== null);
-    const avg = graded.length
-      ? Math.round(graded.reduce((s, r) => s + r.percent, 0) / graded.length)
-      : null;
-    const pending = rows.filter(r => r.status === "submitted").length;
-
-    stats.append(
-      h("div", { class: "stat" },
-        h("div", { class: "stat-value" }, String(rows.length)),
-        h("div", { class: "stat-label" }, "всего попыток")
-      ),
-      h("div", { class: "stat" },
-        h("div", { class: "stat-value" }, String(graded.length)),
-        h("div", { class: "stat-label" }, "проверено")
-      ),
-      h("div", { class: "stat" },
-        h("div", { class: "stat-value" }, avg === null ? "—" : avg + "%"),
-        h("div", { class: "stat-label" }, "средний результат")
-      ),
-      h("div", { class: "stat" },
-        h("div", { class: "stat-value" }, String(pending)),
-        h("div", { class: "stat-label" }, "ожидают проверки")
-      )
-    );
-
-    if (rows.length) {
-      exportBtn.disabled = false;
-      exportBtn.addEventListener("click", () => downloadCsv(rows));
-    }
-    draw();
-  } catch (err) {
-    console.error("Результаты:", err);
-    body.textContent = "";
-    body.appendChild(h("div", { class: "empty-state" },
-      h("div", { class: "empty-state-icon", innerHTML: icons.chart }),
-      h("h2", {}, "Результаты недоступны"),
-      h("p", { class: "muted" }, explainError(err)),
-      h("button", { type: "button", class: "btn secondary", onclick: () => window.location.reload() }, "Повторить")
-    ));
+    msg.textContent = `Проверено: ${ok}`;
+    await load();
   }
 
-  return page;
+  div.querySelector("#grade-all").addEventListener("click", () => {
+    const pending = attempts.filter(a => a.status !== "graded");
+    if (!pending.length) { msg.textContent = "Нет ожидающих проверки."; return; }
+    grade(pending);
+  });
+
+  await load();
+  return div;
 }
