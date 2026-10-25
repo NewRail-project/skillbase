@@ -8,8 +8,8 @@ service cloud.firestore {
   }
   
   match /databases/{database}/documents/publicProfiles/{id} {
-    allow read: if request.auth != null && request.auth.token.orgId == resource.data.orgId;
-    allow create, update: if request.auth != null && request.auth.uid == id && request.resource.data.orgId == request.auth.token.orgId;
+    allow read: if request.auth != null && (request.auth.token.orgId == resource.data.orgId || request.auth.uid == id);
+    allow create, update: if request.auth != null && request.auth.uid == id;
   }
   
   match /databases/{database}/documents/tests/{id} {

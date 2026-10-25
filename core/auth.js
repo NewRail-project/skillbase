@@ -86,6 +86,7 @@ async function loadProfile(user) {
   try {
     const docSnap = await getDoc(doc(db, "users", user.uid));
     if (token !== loadToken) return;
+    
     if (docSnap.exists()) {
       State.profile = normalizeProfile(docSnap.data(), user);
       State.profileStatus = "ready";
@@ -133,7 +134,10 @@ async function loadProfile(user) {
       : "Не удалось загрузить профиль. Проверьте подключение к сети.";
   }
 
-  applyTheme(State.profile.ui);
+  // Apply theme if profile exists, otherwise use default
+  if (State.profile?.ui) {
+    applyTheme(State.profile.ui);
+  }
   State.initialProfileLoad = false;
   notify();
 }

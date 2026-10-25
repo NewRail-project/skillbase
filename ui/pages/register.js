@@ -175,7 +175,7 @@ export default function RegisterPage() {
       console.error("Register error:", err);
       // Если аккаунт создан, но профиль записать не удалось, показываем
       // сохранённое состояние: оно понятнее кода permission-denied.
-      state.errors.general = State.profileStatus === "error" && State.profileError
+      state.errors.general = (State.profileStatus === "error" && State.profileError)
         ? State.profileError
         : err && err.name === "Error" && !err.code
           ? err.message

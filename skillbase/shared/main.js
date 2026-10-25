@@ -1,4 +1,4 @@
-import { initAuth, subscribe, State } from "../core/auth.js";
+import { initAuth, subscribe, State } from "../../core/auth.js";
 import { initRouter, router } from "./app.js";
 import { renderSidebar, initSidebar, setSidebarOpen } from "../ui/components/sidebar.js";
 

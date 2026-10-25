@@ -142,7 +142,7 @@ export function initRouter() {
   if (initRouter._started) return;
   initRouter._started = true;
   window.addEventListener("hashchange", router);
-  if (State.profile?.ui) applyTheme(State.profile.ui);
+  if (State.profile && State.profile.ui) applyTheme(State.profile.ui);
   router();
 }
 
