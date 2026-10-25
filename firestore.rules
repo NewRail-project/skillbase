@@ -1,37 +1,200 @@
 rules_version = '2';
 
 service cloud.firestore {
-  match /databases/{database}/documents/users/{id} {
-    allow create: if request.auth != null && request.auth.uid == id && request.resource.data.fullName != null && request.resource.data.fullName.trim().length > 0 && request.resource.data.role == "student";
-    allow read: if request.auth != null && request.auth.uid == id;
-    allow update: if request.auth != null && request.auth.uid == id;
-  }
-  
-  match /databases/{database}/documents/publicProfiles/{id} {
-    allow read: if request.auth != null && (request.auth.token.orgId == resource.data.orgId || request.auth.uid == id);
-    allow create, update: if request.auth != null && request.auth.uid == id;
-  }
-  
-  match /databases/{database}/documents/tests/{id} {
-    allow read: if request.auth != null && (resource.data.status == 'published' || resource.data.authorId == request.auth.uid || request.auth.token.role == 'admin');
-    allow create: if request.auth != null && request.auth.token.role == 'teacher' && request.resource.data.authorId == request.auth.uid && request.resource.data.status == 'draft';
-    allow update: if request.auth != null && (resource.data.authorId == request.auth.uid || request.auth.token.role == 'admin') && request.resource.data.status == 'published';
-  }
-  
-  match /databases/{database}/documents/testKeys/{id} {
-    allow read: if request.auth != null && (resource.data.authorId == request.auth.uid || request.auth.token.role == 'admin');
-    allow create, update: if request.auth != null && request.auth.token.role == 'teacher' && request.resource.data.authorId == request.auth.uid;
-  }
-  
-  match /databases/{database}/documents/attempts/{id} {
-    allow read: if request.auth != null && (resource.data.userId == request.auth.uid || request.auth.token.role == 'teacher' || request.auth.token.role == 'admin');
-    allow create: if request.auth != null && request.auth.token.role == 'student' && request.resource.data.userId == request.auth.uid;
-    allow update: if request.auth != null && (resource.data.userId == request.auth.uid || request.auth.token.role == 'teacher');
-  }
-  
-  match /databases/{database}/documents/assignments/{id} {
-    allow read: if request.auth != null && (resource.data.groupId == request.auth.token.groupId || request.auth.token.role == 'teacher' || request.auth.token.role == 'admin');
-    allow create: if request.auth != null && request.auth.token.role == 'teacher' && request.resource.data.teacherId == request.auth.uid;
-    allow update: if request.auth != null && (resource.data.teacherId == request.auth.uid || request.auth.token.role == 'admin');
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function profile() {
+      return get(
+        /databases/$(database)/documents/users/$(request.auth.uid)
+      ).data;
+    }
+
+    function hasProfile() {
+      return signedIn()
+        && exists(
+          /databases/$(database)/documents/users/$(request.auth.uid)
+        );
+    }
+
+    function isOrgAdmin(orgId) {
+      return hasProfile()
+        && profile().role == "admin"
+        && profile().orgId == orgId;
+    }
+
+    match /users/{id} {
+      allow create: if signedIn()
+        && request.auth.uid == id
+        && request.resource.data.fullName is string
+        && request.resource.data.fullName.matches('.*\\S.*')
+        && request.resource.data.role == "student";
+
+      allow read: if signedIn()
+        && (request.auth.uid == id
+          || isOrgAdmin(resource.data.orgId));
+
+      allow update: if signedIn()
+        && request.auth.uid == id
+        && !request.resource.data.diff(resource.data)
+          .affectedKeys().hasAny(["role", "orgId", "groupId"]);
+    }
+
+    match /publicProfiles/{id} {
+      allow read: if signedIn()
+        && (request.auth.uid == id
+          || (hasProfile()
+            && profile().orgId == resource.data.orgId));
+
+      allow create, update: if signedIn()
+        && request.auth.uid == id;
+    }
+
+    match /tests/{id} {
+      allow read: if signedIn()
+        && (resource.data.status == "published"
+          || resource.data.authorId == request.auth.uid
+          || isOrgAdmin(resource.data.orgId));
+
+      allow create: if hasProfile()
+        && profile().role == "teacher"
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.status == "draft";
+
+      allow update: if signedIn()
+        && (resource.data.authorId == request.auth.uid
+          || isOrgAdmin(resource.data.orgId))
+        && request.resource.data.authorId == resource.data.authorId
+        && request.resource.data.orgId == resource.data.orgId;
+    }
+
+    match /testKeys/{id} {
+      allow read: if signedIn()
+        && (resource.data.authorId == request.auth.uid
+          || isOrgAdmin(resource.data.orgId));
+
+      allow create, update: if hasProfile()
+        && profile().role == "teacher"
+        && request.resource.data.authorId == request.auth.uid;
+    }
+
+    match /attempts/{id} {
+      allow read: if signedIn()
+        && (
+          resource.data.userId == request.auth.uid
+          || (
+            hasProfile()
+            && profile().role == "teacher"
+            && resource.data.orgId == profile().orgId
+          )
+          || isOrgAdmin(resource.data.orgId)
+        );
+
+      allow create: if hasProfile()
+        && profile().role == "student"
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.orgId == profile().orgId
+        && request.resource.data.status == "in_progress"
+        && request.resource.data.answers is map
+        && !request.resource.data.keys().hasAny([
+          "score", "total", "percent", "review", "gradedBy", "gradedAt"
+        ]);
+
+      // Студент может сохранять ответы, пока попытка не отправлена.
+      allow update: if signedIn()
+        && resource.data.userId == request.auth.uid
+        && resource.data.status == "in_progress"
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.orgId == resource.data.orgId
+        && request.resource.data.diff(resource.data)
+          .affectedKeys().hasOnly([
+            "answers", "updatedAt", "status",
+            "submittedAt", "finishedAt"
+          ])
+        && request.resource.data.answers is map
+        && (
+          (
+            request.resource.data.status == "in_progress"
+            && !request.resource.data.diff(resource.data)
+              .affectedKeys().hasAny(["submittedAt", "finishedAt"])
+          )
+          || (
+            request.resource.data.status == "submitted"
+            && request.resource.data.submittedAt == request.time
+            && request.resource.data.finishedAt == request.time
+          )
+        );
+
+      // Оценивать может сотрудник своей организации.
+      allow update: if hasProfile()
+        && (
+          profile().role == "teacher"
+          || profile().role == "admin"
+        )
+        && resource.data.orgId == profile().orgId
+        && resource.data.status in ["submitted", "graded"]
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.orgId == resource.data.orgId
+        && request.resource.data.diff(resource.data)
+          .affectedKeys().hasOnly([
+            "status", "score", "total", "percent", "review",
+            "finishedAt", "gradedAt", "gradedBy", "updatedAt"
+          ])
+        && request.resource.data.status == "graded"
+        && request.resource.data.gradedBy == request.auth.uid;
+    }
+
+    match /assignments/{id} {
+      allow read: if hasProfile()
+        && (
+          (
+            profile().role == "student"
+            && resource.data.status == "active"
+            && resource.data.groupId == profile().groupId
+            && resource.data.orgId == profile().orgId
+          )
+          || (
+            profile().role == "teacher"
+            && resource.data.teacherId == request.auth.uid
+            && resource.data.orgId == profile().orgId
+          )
+          || isOrgAdmin(resource.data.orgId)
+        );
+
+      allow create: if hasProfile()
+        && profile().role == "teacher"
+        && request.resource.data.teacherId == request.auth.uid
+        && request.resource.data.orgId == profile().orgId
+        && request.resource.data.groupId is string
+        && request.resource.data.testId is string
+        && request.resource.data.status == "active";
+
+      allow update: if hasProfile()
+        && (
+          (
+            profile().role == "teacher"
+            && resource.data.teacherId == request.auth.uid
+            && resource.data.orgId == profile().orgId
+          )
+          || isOrgAdmin(resource.data.orgId)
+        )
+        && request.resource.data.teacherId == resource.data.teacherId
+        && request.resource.data.orgId == resource.data.orgId
+        && request.resource.data.groupId == resource.data.groupId
+        && request.resource.data.testId == resource.data.testId;
+
+      allow delete: if hasProfile()
+        && (
+          (
+            profile().role == "teacher"
+            && resource.data.teacherId == request.auth.uid
+            && resource.data.orgId == profile().orgId
+          )
+          || isOrgAdmin(resource.data.orgId)
+        );
+    }
   }
 }
