@@ -15,6 +15,6 @@ dist/
 Thumbs.db
 
 # Logs
-*.log/firestore.rules.backup-*
-/firestore.rules.before-name-fix-*
-/tools/rules-test.mjs.backup-*
+*.log
+
+.ref/

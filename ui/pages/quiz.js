@@ -9,7 +9,7 @@ import {
   listMyAttemptsForTest
 } from "../../core/attempts.js";
 import { getAssignment, assignTest, getStudentAssignments } from "../../core/assign.js";
-import { isDeadlinePassed } from "../../core/timing.js";
+import { isDeadlinePassed, attemptDeadlineMs as calcAttemptDeadlineMs } from "../../core/timing.js";
 import { icons } from "../../shared/icons.js";
 import { toast } from "../components/toast.js";
 
@@ -271,23 +271,18 @@ export default async function QuizPage() {
   const activeAttempt = () => scopedAttempts().find(item => item.status === "in_progress") || null;
   const completedCount = () => scopedAttempts().filter(item => item.status !== "in_progress").length;
 
-  function attemptDeadlineMs(attempt) {
-    const started = toDate(attempt?.startedAt)?.getTime() || Date.now();
-    const timeLimitMs = totalSeconds(settings, questions.length) * 1000;
-    const byTime = started + timeLimitMs;
-    const stored = toDate(attempt?.deadlineAt)?.getTime() || null;
-    const assigned = assignmentDeadline?.getTime() || null;
-    const limits = [byTime, stored, assigned].filter(value => Number.isFinite(value));
-    return limits.length ? Math.min(...limits) : null;
-  }
-
   // Если ученик закрыл вкладку, а время истекло — отправляем сохранённые
   // ответы. Это не оценка: проверку всё равно делает преподаватель.
   if (!staff) {
     const active = activeAttempt();
     if (active) {
-      const deadline = attemptDeadlineMs(active);
-      if (deadline && Date.now() >= deadline) {
+      const deadlineMs = calcAttemptDeadlineMs({
+        startedMs: toDate(active?.startedAt)?.getTime() || Date.now(),
+        limitSeconds: totalSeconds(settings, questions.length),
+        storedMs: toDate(active?.deadlineAt)?.getTime() || null,
+        assignedMs: assignmentDeadline?.getTime() || null
+      });
+      if (deadlineMs && Date.now() >= deadlineMs) {
         try {
           const local = readLocal(active.id);
           const answers = { ...(active.answers || {}), ...(local?.answers || {}) };
@@ -749,7 +744,12 @@ export default async function QuizPage() {
     // Перемешивание только для учеников; ответы хранятся по исходным индексам.
     const order = buildAttemptOrder(questions, settings, attempt.id, !staff);
 
-    const limitMs = attemptDeadlineMs(attempt);
+    const limitMs = calcAttemptDeadlineMs({
+      startedMs: toDate(attempt.startedAt)?.getTime() || Date.now(),
+      limitSeconds: totalSeconds(settings, questions.length),
+      storedMs: toDate(attempt.deadlineAt)?.getTime() || null,
+      assignedMs: assignmentDeadline?.getTime() || null
+    });
     current.deadlineMs = limitMs;
 
     if (!staff) writeLocal(attempt.id, current.answers);
@@ -995,25 +995,16 @@ export default async function QuizPage() {
       if (timerId) clearInterval(timerId);
       timerId = null;
 
-      // Проверяем, есть ли общая длительность теста
-      const totalTimeMs = totalSeconds(settings, questions.length);
-      const currentTimeMs = Date.now();
-      const remainingTimeMs = current.deadlineMs ? current.deadlineMs - currentTimeMs : totalTimeMs;
+      const deadlineMs = current.deadlineMs;
 
-      if (!remainingTimeMs || remainingTimeMs <= 0) {
-        timerEl.textContent = "00:00";
-        timerEl.className = "badge badge-danger";
-        if (timerId) clearInterval(timerId);
-        timerId = null;
-        if (!submitting && !autoSubmitTriggered) {
-          autoSubmitTriggered = true;
-          doSubmit({ auto: true });
-        }
+      if (deadlineMs == null) {
+        timerEl.textContent = "Без ограничения";
+        timerEl.className = "badge badge-neutral";
         return;
       }
 
       const tick = () => {
-        const left = remainingTimeMs - Date.now();
+        const left = deadlineMs - Date.now();
         if (left <= 0) {
           timerEl.textContent = "00:00";
           timerEl.className = "badge badge-danger";
@@ -1030,7 +1021,9 @@ export default async function QuizPage() {
       };
 
       tick();
-      timerId = setInterval(tick, 1000);
+      if (deadlineMs > Date.now()) {
+        timerId = setInterval(tick, 1000);
+      }
     }
 
     async function doSubmit({ auto }) {

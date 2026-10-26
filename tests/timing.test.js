@@ -1,6 +1,55 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { effectiveDeadline, isDeadlinePassed } from '../core/timing.js';
+import { attemptDeadlineMs, effectiveDeadline, isDeadlinePassed } from '../core/timing.js';
+
+test('attemptDeadlineMs: нет лимита', () => {
+  assert.equal(
+    attemptDeadlineMs({ startedMs: 1_000_000, limitSeconds: null, storedMs: null, assignedMs: null }),
+    null
+  );
+  assert.equal(
+    attemptDeadlineMs({ startedMs: 1_000_000, limitSeconds: 0 }),
+    null
+  );
+});
+
+test('attemptDeadlineMs: лимит на тест', () => {
+  const started = 1_000_000;
+  assert.equal(
+    attemptDeadlineMs({ startedMs: started, limitSeconds: 60 }),
+    started + 60_000
+  );
+});
+
+test('attemptDeadlineMs: лимит на вопрос', () => {
+  const started = 1_000_000;
+  // Например, 10 вопросов по 15 секунд = 150 секунд всего
+  const questionLimitSec = 10 * 15;
+  assert.equal(
+    attemptDeadlineMs({ startedMs: started, limitSeconds: questionLimitSec }),
+    started + 150_000
+  );
+});
+
+test('attemptDeadlineMs: срок задания раньше лимита', () => {
+  const started = 1_000_000;
+  const assigned = started + 30_000; // срок задания через 30 с
+  const testLimit = 120; // лимит на тест 120 с (120_000 мс)
+  assert.equal(
+    attemptDeadlineMs({ startedMs: started, limitSeconds: testLimit, assignedMs: assigned }),
+    assigned,
+    'должен быть выбран ранний срок задания'
+  );
+});
+
+test('attemptDeadlineMs: срок в прошлом', () => {
+  const started = 1_000_000;
+  const pastAssigned = 500_000; // срок уже истёк до начала
+  assert.equal(
+    attemptDeadlineMs({ startedMs: started, limitSeconds: 60, assignedMs: pastAssigned }),
+    pastAssigned
+  );
+});
 
 // effectiveDeadline(qStartMs, attemptDeadlineMs, timePerQuestionSec)
 // Возвращает ближайший из двух дедлайнов.

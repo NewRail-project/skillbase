@@ -1,12 +1,30 @@
 // core/timing.js — чистый расчёт дедлайна вопроса.
 // Без DOM и Firebase, чтобы проверяться юнит-тестами в Node.
 
-export function effectiveDeadline(qStartMs, attemptDeadlineMs, timePerQuestionSec) {
-  if (!attemptDeadlineMs) return qStartMs + (timePerQuestionSec || 5) * 1000;
-  if (!timePerQuestionSec) return attemptDeadlineMs;
+export function attemptDeadlineMs({ startedMs, limitSeconds, storedMs, assignedMs }) {
+  const limits = [];
+  const start = Number.isFinite(startedMs) ? startedMs : Date.now();
+  const limit = Number(limitSeconds);
+  if (Number.isFinite(limit) && limit > 0) {
+    limits.push(start + limit * 1000);
+  }
+  const stored = Number(storedMs);
+  if (Number.isFinite(stored) && stored > 0) {
+    limits.push(stored);
+  }
+  const assigned = Number(assignedMs);
+  if (Number.isFinite(assigned) && assigned > 0) {
+    limits.push(assigned);
+  }
+  return limits.length ? Math.min(...limits) : null;
+}
+
+export function effectiveDeadline(qStartMs, attemptDeadlineMsParam, timePerQuestionSec) {
+  if (!attemptDeadlineMsParam) return qStartMs + (timePerQuestionSec || 5) * 1000;
+  if (!timePerQuestionSec) return attemptDeadlineMsParam;
 
   const qDeadline = qStartMs + timePerQuestionSec * 1000;
-  return Math.min(qDeadline, attemptDeadlineMs);
+  return Math.min(qDeadline, attemptDeadlineMsParam);
 }
 
 // Проверяет срок в момент вызова, а не только при отрисовке страницы.

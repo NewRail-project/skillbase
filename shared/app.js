@@ -72,25 +72,14 @@ export async function router() {
   if (route && route.auth && State.user && !State.profile && !State.initialProfileLoad) {
     return;
   }
-  
-  // Если пользователь авторизован, но профиль еще загружается,
-  // не перенаправляем на логин - ждем загрузки профиля
-  if (route && route.auth && State.user && !State.profile && !State.initialProfileLoad) {
-    return;
-  }
+
   // Уже вошедшего пользователя не держим на форме входа: если он пришёл по
   // ссылке на тест, возвращаем его туда.
   if (route && route.guestOnly && State.user) {
     window.location.hash = consumeReturnTo("#/");
     return;
   }
-  
-  // Если пользователь авторизован, но профиль еще загружается,
-  // не показываем гостевые страницы - ждем загрузки профиля
-  if (route && route.guestOnly && State.user && !State.profile && !State.initialProfileLoad) {
-    return;
-  }
-  
+
   // Если пользователь авторизован, но профиль еще загружается,
   // не показываем гостевые страницы - ждем загрузки профиля
   if (route && route.guestOnly && State.user && !State.profile && !State.initialProfileLoad) {
