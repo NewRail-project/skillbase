@@ -254,13 +254,8 @@ service cloud.firestore {
     // Его назначение: во время попытки закрывать учебный материал
     // (materials/**), чтобы ответы не подсматривали.
     match /activeAttempts/{ownerId} {
-      function markerDoc() {
-        return get(
-          /databases/$(database)/documents/activeAttempts/$(ownerId)
-        ).data;
-      }
-
-      // Читает (и удаляет по условиям ниже) правило сам владелец:
+      // MarkerDoc удален: проверка наличия маркера осуществляется через exists()
+      // в правилах чтения материалов и правилах создания попытки.
       // маркер нужен только ему и правилам materials.
       allow read: if signedIn() && request.auth.uid == ownerId;
 
