@@ -1,109 +1,310 @@
 rules_version = '2';
 
+// Skillbase — правила Cloud Firestore.
+// Роли и организация читаются из users/{uid}; custom claims не используются.
+// Всё, что не описано ниже, запрещено (Firestore запрещает по умолчанию).
+
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // ---------- Базовые функции ----------
 
     function signedIn() {
       return request.auth != null;
     }
 
-    function profile() {
+    function uid() {
+      return request.auth.uid;
+    }
+
+    function userDoc() {
       return get(
-        /databases/$(database)/documents/users/$(request.auth.uid)
+        /databases/$(database)/documents/users/$(uid())
       ).data;
     }
 
     function hasProfile() {
       return signedIn()
         && exists(
-          /databases/$(database)/documents/users/$(request.auth.uid)
+          /databases/$(database)/documents/users/$(uid())
         );
     }
 
-    function isOrgAdmin(orgId) {
-      return hasProfile()
-        && profile().role == "admin"
-        && profile().orgId == orgId;
+    function role() {
+      return userDoc().role;
     }
+
+    function myOrg() {
+      return userDoc().orgId;
+    }
+
+    function myGroup() {
+      return userDoc().groupId;
+    }
+
+    // Сотрудник = teacher | admin.
+    function isStaff() {
+      return hasProfile()
+        && (role() == "teacher" || role() == "admin");
+    }
+
+    function isStaffOf(orgId) {
+      return isStaff() && myOrg() == orgId;
+    }
+
+    function isAdminOf(orgId) {
+      return hasProfile()
+        && role() == "admin"
+        && myOrg() == orgId;
+    }
+
+    // teacherGroups учитывается, только если поле задано непустым списком:
+    // absent или null означают «все группы организации».
+    function teacherCanSeeGroup(groupId) {
+      return !("teacherGroups" in userDoc().keys())
+        || userDoc().teacherGroups == null
+        || (userDoc().teacherGroups is list
+          && userDoc().teacherGroups.size() == 0)
+        || (userDoc().teacherGroups is list
+          && groupId != null
+          && groupId in userDoc().teacherGroups);
+    }
+
+    // ---------- users ----------
 
     match /users/{id} {
+      // Регистрация: студент, организация и группа строго дефолтные,
+      // ФИО непустое, набор ключей зафиксирован.
       allow create: if signedIn()
         && request.auth.uid == id
+        && request.resource.data.keys().hasOnly([
+          "uid", "email", "role", "orgId", "groupId", "fullName", "ui",
+          "createdAt", "position", "department"
+        ])
+        && request.resource.data.role == "student"
+        && request.resource.data.orgId == "default-org"
+        && request.resource.data.groupId == "default-group"
+        && request.resource.data.groupId is string
         && request.resource.data.fullName is string
-        && request.resource.data.fullName.matches('.*\\S.*')
-        && request.resource.data.role == "student";
+        && request.resource.data.fullName.size() > 0
+        && request.resource.data.fullName.trim().size() > 0
+        && (
+          !("position" in request.resource.data)
+          || request.resource.data.position is string
+        )
+        && (
+          !("department" in request.resource.data)
+          || request.resource.data.department is string
+        );
 
+      // Читают: сам пользователь и сотрудники его организации
+      // (иначе у преподавателя падает страница «Пользователи»).
       allow read: if signedIn()
-        && (request.auth.uid == id
-          || isOrgAdmin(resource.data.orgId));
+        && (request.auth.uid == id || isStaffOf(resource.data.orgId));
 
+      // Пользователь меняет только личные поля: role, orgId, groupId,
+      // teacherGroups ему недоступны.
       allow update: if signedIn()
         && request.auth.uid == id
-        && !request.resource.data.diff(resource.data)
-          .affectedKeys().hasAny(["role", "orgId", "groupId"]);
+        && request.resource.data.diff(resource.data)
+          .affectedKeys().hasOnly([
+            "fullName", "position", "department", "ui",
+            "themeMode", "updatedAt"
+          ]);
+
+      // Администратор меняет role, groupId и teacherGroups другим
+      // пользователям только своей организации и не себе.
+      allow update: if hasProfile()
+        && role() == "admin"
+        && request.auth.uid != id
+        && resource.data.orgId == myOrg()
+        && request.resource.data.diff(resource.data)
+          .affectedKeys().hasOnly(["role", "groupId", "teacherGroups", "updatedAt"])
+        && request.resource.data.role in ["student", "teacher", "admin"]
+        && (
+          !("groupId" in request.resource.data)
+          || request.resource.data.groupId == null
+          || request.resource.data.groupId is string
+        )
+        && (
+          !("teacherGroups" in request.resource.data)
+          || request.resource.data.teacherGroups == null
+          || (
+            request.resource.data.teacherGroups is list
+            && request.resource.data.teacherGroups.size() <= 10
+          )
+        );
     }
+
+    // ---------- publicProfiles ----------
 
     match /publicProfiles/{id} {
       allow read: if signedIn()
         && (request.auth.uid == id
           || (hasProfile()
-            && profile().orgId == resource.data.orgId));
+            && userDoc().orgId == resource.data.orgId));
 
       allow create, update: if signedIn()
-        && request.auth.uid == id;
+        && request.auth.uid == id
+        && request.resource.data.keys().hasOnly(["displayName", "orgId"]);
     }
 
-    match /tests/{id} {
-      allow read: if signedIn()
-        && (resource.data.status == "published"
-          || resource.data.authorId == request.auth.uid
-          || isOrgAdmin(resource.data.orgId));
+    // ---------- tests ----------
 
-      allow create: if hasProfile()
-        && profile().role == "teacher"
+    match /tests/{id} {
+      // Тесты видны только внутри организации: опубликованные — любому
+      // её участнику, черновики — автору, черновики и всё остальное —
+      // администратору организации. Больше «любой вошедший» не читает.
+      allow read: if hasProfile()
+        && myOrg() == resource.data.orgId
+        && (
+          resource.data.status == "published"
+          || resource.data.authorId == request.auth.uid
+          || role() == "admin"
+        );
+
+      // Создание: teacher или admin, свой authorId, черновик,
+      // вопросы — непустой список.
+      allow create: if isStaff()
         && request.resource.data.authorId == request.auth.uid
-        && request.resource.data.status == "draft";
+        && request.resource.data.status == "draft"
+        && request.resource.data.orgId == myOrg()
+        && request.resource.data.questions is list
+        && request.resource.data.questions.size() > 0;
 
       allow update: if signedIn()
         && (resource.data.authorId == request.auth.uid
-          || isOrgAdmin(resource.data.orgId))
+          || isAdminOf(resource.data.orgId))
         && request.resource.data.authorId == resource.data.authorId
         && request.resource.data.orgId == resource.data.orgId;
+
+      allow delete: if false;
     }
+
+    // Снимки опубликованных версий. Создаёт публикатор, читают сотрудники
+    // организации. Правила раньше отсутствовали — публикация падала.
+    match /tests/{testId}/versions/{version} {
+      function versionTest() {
+        return get(
+          /databases/$(database)/documents/tests/$(testId)
+        ).data;
+      }
+
+      function isVersionStaff() {
+        return hasProfile()
+          && myOrg() == versionTest().orgId
+          && (versionTest().authorId == request.auth.uid || role() == "admin");
+      }
+
+      allow read: if isVersionStaff();
+
+      allow create: if isVersionStaff()
+        && request.resource.data.authorId == versionTest().authorId
+        && request.resource.data.orgId == versionTest().orgId
+        && request.resource.data.status == "published";
+
+      allow update, delete: if false;
+    }
+
+    // ---------- testKeys ----------
 
     match /testKeys/{id} {
-      allow read: if signedIn()
-        && (resource.data.authorId == request.auth.uid
-          || isOrgAdmin(resource.data.orgId));
+      // Ключи теста — только сотрудники той же организации.
+      allow read: if isStaffOf(resource.data.orgId);
 
-      allow create, update: if hasProfile()
-        && profile().role == "teacher"
+      allow create: if isStaff()
+        && request.resource.data.orgId == myOrg()
         && request.resource.data.authorId == request.auth.uid;
+
+      allow update: if isStaffOf(resource.data.orgId);
+
+      allow delete: if false;
     }
 
+    // ---------- attempts ----------
+
     match /attempts/{id} {
+      // Попытка: снимок полей профиля должен совпадать с самим профилем.
+      function attemptProfileMatches(d) {
+        return (!("userName" in d.keys()) || d.userName == userDoc().fullName)
+          && (!("groupId" in d.keys()) || d.groupId == userDoc().groupId);
+      }
+
+      // Тест должен существовать, быть опубликованным и из организации
+      // студента. get() на несуществующий документ даёт отказ.
+      function attemptTestOk(d) {
+        return exists(/databases/$(database)/documents/tests/$(d.testId))
+          && get(
+            /databases/$(database)/documents/tests/$(d.testId)
+          ).data.status == "published"
+          && get(
+            /databases/$(database)/documents/tests/$(d.testId)
+          ).data.orgId == myOrg();
+      }
+
+      // Задание, если указано: active, та же группа и организация,
+      // срок не прошёл, дедлайн попытки не позже срока задания.
+      function attemptAssignmentOk(d) {
+        return d.assignmentId == ""
+          || (
+            exists(/databases/$(database)/documents/assignments/$(d.assignmentId))
+            && get(
+              /databases/$(database)/documents/assignments/$(d.assignmentId)
+            ).data.status == "active"
+            && get(
+              /databases/$(database)/documents/assignments/$(d.assignmentId)
+            ).data.groupId == myGroup()
+            && get(
+              /databases/$(database)/documents/assignments/$(d.assignmentId)
+            ).data.orgId == myOrg()
+            && (
+              get(
+                /databases/$(database)/documents/assignments/$(d.assignmentId)
+              ).data.deadline == null
+              || request.time < get(
+                /databases/$(database)/documents/assignments/$(d.assignmentId)
+              ).data.deadline
+            )
+            && (
+              d.deadlineAt == null
+              || get(
+                /databases/$(database)/documents/assignments/$(d.assignmentId)
+              ).data.deadline == null
+              || d.deadlineAt <= get(
+                /databases/$(database)/documents/assignments/$(d.assignmentId)
+              ).data.deadline
+            )
+          );
+      }
+
       allow read: if signedIn()
         && (
           resource.data.userId == request.auth.uid
           || (
-            hasProfile()
-            && profile().role == "teacher"
-            && resource.data.orgId == profile().orgId
+            isStaffOf(resource.data.orgId)
+            && (role() == "admin"
+              || teacherCanSeeGroup(
+                "groupId" in resource.data.keys()
+                  ? resource.data.groupId
+                  : null
+              ))
           )
-          || isOrgAdmin(resource.data.orgId)
         );
 
       allow create: if hasProfile()
-        && profile().role == "student"
+        && role() == "student"
         && request.resource.data.userId == request.auth.uid
-        && request.resource.data.orgId == profile().orgId
+        && request.resource.data.orgId == myOrg()
         && request.resource.data.status == "in_progress"
         && request.resource.data.answers is map
         && !request.resource.data.keys().hasAny([
           "score", "total", "percent", "review", "gradedBy", "gradedAt"
-        ]);
+        ])
+        && attemptProfileMatches(request.resource.data)
+        && attemptTestOk(request.resource.data)
+        && attemptAssignmentOk(request.resource.data);
 
-      // Студент может сохранять ответы, пока попытка не отправлена.
+      // Студент сохраняет ответы и отправляет попытку, пока она не завершена.
       allow update: if signedIn()
         && resource.data.userId == request.auth.uid
         && resource.data.status == "in_progress"
@@ -128,73 +329,190 @@ service cloud.firestore {
           )
         );
 
-      // Оценивать может сотрудник своей организации.
-      allow update: if hasProfile()
-        && (
-          profile().role == "teacher"
-          || profile().role == "admin"
-        )
-        && resource.data.orgId == profile().orgId
+      // Оценка сотрудником своей организации: score не больше total.
+      allow update: if isStaffOf(resource.data.orgId)
         && resource.data.status in ["submitted", "graded"]
         && request.resource.data.userId == resource.data.userId
         && request.resource.data.orgId == resource.data.orgId
+        && request.resource.data.status == "graded"
+        && request.resource.data.gradedBy == request.auth.uid
+        && request.resource.data.score <= request.resource.data.total
         && request.resource.data.diff(resource.data)
           .affectedKeys().hasOnly([
             "status", "score", "total", "percent", "review",
             "finishedAt", "gradedAt", "gradedBy", "updatedAt"
-          ])
-        && request.resource.data.status == "graded"
-        && request.resource.data.gradedBy == request.auth.uid;
+          ]);
+
+      allow delete: if false;
     }
 
+    // ---------- assignments ----------
+
     match /assignments/{id} {
+      // Строительные проверки длины и подписи полей задания.
+      function assignmentFieldsOk(d) {
+        return (!("note" in d.keys()) || d.note.size() <= 200)
+          && (!("materialText" in d.keys()) || d.materialText.size() <= 6000)
+          && (!("materialUrl" in d.keys())
+            || (d.materialUrl.size() <= 500
+              && d.materialUrl.matches("^https://.+$")));
+      }
+
       allow read: if hasProfile()
+        && resource.data.orgId == myOrg()
         && (
           (
-            profile().role == "student"
-            && resource.data.status == "active"
-            && resource.data.groupId == profile().groupId
-            && resource.data.orgId == profile().orgId
+            role() == "student"
+            && resource.data.groupId == myGroup()
+            && (!("startAt" in resource.data.keys())
+              || resource.data.startAt == null
+              || request.time >= resource.data.startAt)
           )
-          || (
-            profile().role == "teacher"
-            && resource.data.teacherId == request.auth.uid
-            && resource.data.orgId == profile().orgId
-          )
-          || isOrgAdmin(resource.data.orgId)
+          || (role() == "teacher" && resource.data.teacherId == request.auth.uid)
+          || role() == "admin"
         );
 
-      allow create: if hasProfile()
-        && profile().role == "teacher"
+      // Создание: teacher или admin; kind строго exam|training;
+      // для training срок обязателен; ограничены note и материалы.
+      allow create: if isStaff()
         && request.resource.data.teacherId == request.auth.uid
-        && request.resource.data.orgId == profile().orgId
+        && request.resource.data.orgId == myOrg()
+        && request.resource.data.status == "active"
+        && request.resource.data.kind in ["exam", "training"]
+        && (
+          request.resource.data.kind != "training"
+          || request.resource.data.deadline != null
+        )
         && request.resource.data.groupId is string
+        && request.resource.data.groupId.size() > 0
         && request.resource.data.testId is string
-        && request.resource.data.status == "active";
+        && assignmentFieldsOk(request.resource.data);
 
       allow update: if hasProfile()
         && (
           (
-            profile().role == "teacher"
+            role() == "teacher"
             && resource.data.teacherId == request.auth.uid
-            && resource.data.orgId == profile().orgId
+            && resource.data.orgId == myOrg()
           )
-          || isOrgAdmin(resource.data.orgId)
+          || isAdminOf(resource.data.orgId)
         )
+        && request.resource.data.kind == resource.data.kind
         && request.resource.data.teacherId == resource.data.teacherId
         && request.resource.data.orgId == resource.data.orgId
         && request.resource.data.groupId == resource.data.groupId
-        && request.resource.data.testId == resource.data.testId;
+        && request.resource.data.testId == resource.data.testId
+        && request.resource.data.status in ["active", "closed"]
+        && (!("startAt" in request.resource.data.keys())
+          || request.resource.data.startAt == null
+          || request.time >= request.resource.data.startAt
+          || request.resource.data.startAt == resource.data.startAt);
 
       allow delete: if hasProfile()
         && (
           (
-            profile().role == "teacher"
+            role() == "teacher"
             && resource.data.teacherId == request.auth.uid
-            && resource.data.orgId == profile().orgId
+            && resource.data.orgId == myOrg()
           )
-          || isOrgAdmin(resource.data.orgId)
+          || isAdminOf(resource.data.orgId)
         );
+    }
+
+    // ---------- rooms, players, scores, reveals, observers ----------
+    // ВНИМАНИЕ: файл .ref/fixed/firestore.rules, из которого следовало
+    // перенести этот блок «как есть», в репозитории отсутствует, поэтому
+    // правила написаны заново по заявленной логике: участник пишет только
+    // свой ответ на текущий вопрос и только один раз; наблюдатель ответ не
+    // пишет; чужие players не читаются. Не считаются «проверенными».
+
+    match /rooms/{roomId} {
+      function roomDoc() {
+        return get(
+          /databases/$(database)/documents/rooms/$(roomId)
+        ).data;
+      }
+
+      function isRoomHost() {
+        return hasProfile() && roomDoc().hostId == request.auth.uid;
+      }
+
+      function inRoomAsPlayer() {
+        return exists(
+          /databases/$(database)/documents/rooms/$(roomId)/players/$(uid())
+        );
+      }
+
+      allow read: if isStaffOf(resource.data.orgId) || isRoomHost();
+
+      allow create: if isStaff()
+        && request.resource.data.orgId == myOrg()
+        && request.resource.data.hostId == request.auth.uid
+        && request.resource.data.status == "active";
+
+      allow update, delete: if isRoomHost();
+
+      match /players/{playerId} {
+        allow read: if (hasProfile() && request.auth.uid == playerId)
+          || isRoomHost();
+
+        // Войти в комнату может только сам участник.
+        allow create, update: if hasProfile()
+          && request.auth.uid == playerId
+          && request.resource.data.keys().hasOnly(
+            ["playerId", "observer", "joinedAt", "updatedAt", "displayName"]
+          )
+          && request.resource.data.playerId == request.auth.uid
+          && roomDoc().status == "active";
+
+        allow delete: if isRoomHost();
+      }
+
+      match /scores/{scoreId} {
+        function myPlayerDoc() {
+          return get(
+            /databases/$(database)/documents/rooms/$(roomId)/players/$(uid())
+          ).data;
+        }
+
+        // Идентификатор ответа фиксирует пару «участник+вопрос», поэтому
+        // повторная запись на тот же вопрос невозможна.
+        allow read: if (hasProfile()
+            && resource.data.playerId == request.auth.uid)
+          || isRoomHost();
+
+        allow create: if hasProfile()
+          && inRoomAsPlayer()
+          && myPlayerDoc().observer != true
+          && request.resource.data.playerId == request.auth.uid
+          && request.resource.data.keys().hasOnly(
+            ["playerId", "questionId", "answer", "createdAt"]
+          )
+          && scoreId == request.resource.data.playerId + "_"
+            + request.resource.data.questionId
+          && roomDoc().status == "active"
+          && request.resource.data.questionId == roomDoc().currentQuestionId;
+
+        allow update, delete: if false;
+      }
+
+      match /reveals/{id} {
+        allow read: if isRoomHost() || (hasProfile() && inRoomAsPlayer());
+
+        allow create, update: if isRoomHost();
+
+        allow delete: if isRoomHost();
+      }
+
+      match /observers/{observerId} {
+        // Наблюдатель — сотрудник; смотрит комнату, но ответ не пишет.
+        allow read: if isStaffOf(resource.data.orgId)
+          || request.auth.uid == observerId;
+
+        allow create, update, delete: if isStaff()
+          && request.resource.data.orgId == myOrg()
+          && observerId == request.auth.uid;
+      }
     }
   }
 }

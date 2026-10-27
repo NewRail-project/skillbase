@@ -201,7 +201,21 @@ function testCases() {
             },
             resource: {
                 data: testDoc()
-            }
+            },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Студент не читает тест чужой организации",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/tests/t2`,
+                method: "get"
+            },
+            resource: {
+                data: testDoc({ orgId: "other-org" })
+            },
+            functionMocks: profileMocks("student1", "student")
         },
         {
             name: "Преподаватель читает свой ключ теста",
@@ -217,7 +231,408 @@ function testCases() {
                     orgId: ORG,
                     answers: { q1: "A" }
                 }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Публикация теста создаёт снимок версии",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/tests/t1/versions/2`,
+                method: "create",
+                resource: {
+                    data: {
+                        id: "t1",
+                        authorId: "teacher1",
+                        orgId: ORG,
+                        status: "published",
+                        version: 2,
+                        questions: [{ id: "q1" }]
+                    }
+                }
+            },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: {
+                        value: {
+                            data: { authorId: "teacher1", orgId: ORG }
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            name: "Регистрация с чужим orgId запрещена",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student-out" },
+                path: `${DB}/users/student-out`,
+                method: "create",
+                resource: {
+                    data: userDoc("student-out", "student", "other-org")
+                }
             }
+        },
+        {
+            name: "Преподаватель читает пользователя своей организации",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/users/student2`,
+                method: "get"
+            },
+            resource: {
+                data: userDoc("student2", "student")
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Преподаватель не читает пользователя чужой организации",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/users/outsider`,
+                method: "get"
+            },
+            resource: {
+                data: userDoc("outsider", "student", "other-org")
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Админ меняет роль пользователю своей организации",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "admin1" },
+                path: `${DB}/users/student2`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: userDoc("student2", "student"),
+            newDoc: userDoc("student2", "teacher"),
+            functionMocks: profileMocks("admin1", "admin")
+        },
+        {
+            name: "Админ не меняет роль себе",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "admin1" },
+                path: `${DB}/users/admin1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: userDoc("admin1", "admin"),
+            newDoc: userDoc("admin1", "student"),
+            functionMocks: profileMocks("admin1", "admin")
+        },
+        {
+            name: "Студент не читает ключи теста",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/testKeys/t1`,
+                method: "get"
+            },
+            resource: {
+                data: {
+                    authorId: "teacher1",
+                    orgId: ORG,
+                    answers: { q1: "A" }
+                }
+            },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Студент не читает версии теста",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/tests/t1/versions/2`,
+                method: "get"
+            },
+            resource: {
+                data: { authorId: "teacher1", orgId: ORG, status: "published" }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: {
+                        value: {
+                            data: { authorId: "teacher1", orgId: ORG }
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            name: "Студент создаёт попытку на опубликованный тест",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/attempts/a-ok`,
+                method: "create",
+                resource: {
+                    data: {
+                        userId: "student1",
+                        userEmail: "student1@example.com",
+                        orgId: ORG,
+                        testId: "t1",
+                        testTitle: "Тест",
+                        assignmentId: "",
+                        answers: {},
+                        status: "in_progress",
+                        attemptNo: 1,
+                        deadlineAt: null,
+                        userName: "Test User",
+                        groupId: "default-group"
+                    }
+                }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: {
+                        value: {
+                            data: { status: "published", orgId: ORG }
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            name: "Студент не создаёт попытку на неопубликованный тест",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/attempts/a-draft`,
+                method: "create",
+                resource: {
+                    data: {
+                        userId: "student1",
+                        orgId: ORG,
+                        testId: "t1",
+                        assignmentId: "",
+                        answers: {},
+                        status: "in_progress",
+                        userName: "Test User",
+                        groupId: "default-group"
+                    }
+                }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: {
+                        value: {
+                            data: { status: "draft", orgId: ORG }
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            name: "Студент не создаёт попытку на просроченное задание",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/attempts/a-past`,
+                method: "create",
+                time: "2026-01-01T00:00:00Z",
+                resource: {
+                    data: {
+                        userId: "student1",
+                        orgId: ORG,
+                        testId: "t1",
+                        assignmentId: "past-assign",
+                        answers: {},
+                        status: "in_progress",
+                        deadlineAt: null,
+                        userName: "Test User",
+                        groupId: "default-group"
+                    }
+                }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: {
+                        value: {
+                            data: { status: "published", orgId: ORG }
+                        }
+                    }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/assignments/past-assign` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/assignments/past-assign` }],
+                    result: {
+                        value: {
+                            data: {
+                                status: "active",
+                                groupId: "default-group",
+                                orgId: ORG,
+                                deadline: "2025-01-01T00:00:00.000000001Z"
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            name: "Комнаты: участник пишет свой ответ на текущий вопрос",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/scores/student1_q1`,
+                method: "create",
+                resource: {
+                    data: {
+                        playerId: "student1",
+                        questionId: "q1",
+                        answer: "A",
+                        createdAt: ISO
+                    }
+                }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/rooms/r1` }],
+                    result: {
+                        value: {
+                            data: {
+                                hostId: "teacher1",
+                                orgId: ORG,
+                                status: "active",
+                                currentQuestionId: "q1"
+                            }
+                        }
+                    }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/rooms/r1/players/student1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/rooms/r1/players/student1` }],
+                    result: {
+                        value: {
+                            data: { playerId: "student1", observer: false }
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            name: "Комнаты: наблюдатель не пишет ответ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student2" },
+                path: `${DB}/rooms/r1/scores/student2_q1`,
+                method: "create",
+                resource: {
+                    data: {
+                        playerId: "student2",
+                        questionId: "q1",
+                        answer: "A",
+                        createdAt: ISO
+                    }
+                }
+            },
+            functionMocks: [
+                ...profileMocks("student2", "student"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/rooms/r1` }],
+                    result: {
+                        value: {
+                            data: {
+                                hostId: "teacher1",
+                                orgId: ORG,
+                                status: "active",
+                                currentQuestionId: "q1"
+                            }
+                        }
+                    }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/rooms/r1/players/student2` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/rooms/r1/players/student2` }],
+                    result: {
+                        value: {
+                            data: { playerId: "student2", observer: true }
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            name: "Комнаты: чужие players не читаются",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/players/student2`,
+                method: "get"
+            },
+            resource: {
+                data: { playerId: "student2", observer: false }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/rooms/r1` }],
+                    result: {
+                        value: {
+                            data: {
+                                hostId: "teacher1",
+                                orgId: ORG,
+                                status: "active",
+                                currentQuestionId: "q1"
+                            }
+                        }
+                    }
+                }
+            ]
         },
         {
             name: "Студент читает активное задание своей группы",
@@ -278,10 +693,20 @@ async function main() {
     const cases = testCases();
 
     const testSuite = cases.map((item) => {
+        const request = { ...item.request };
+        delete request.requestResource;
         const result = {
             expectation: item.expectation,
-            request: item.request
+            request
         };
+
+        if (item.request.requestResource && item.newDoc) {
+            result.request.resource = { data: item.newDoc };
+        }
+
+        if (item.existingDoc) {
+            result.resource = { data: item.existingDoc };
+        }
 
         if (item.resource) {
             result.resource = item.resource;
@@ -373,7 +798,8 @@ async function main() {
             `${passed ? "✓" : "✖"} ${item.name}: ` +
             `ожидалось ${item.expectation}, ` +
             `состояние API: ${result.state ?? "не указано"}` +
-            (debug ? ` — ${debug}` : "")
+            (debug ? ` — ${debug}` : "") +
+            (result.error ? ` — error: ${result.error}` : "")
         );
 
         if (!passed) failed++;

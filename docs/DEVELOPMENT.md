@@ -48,12 +48,38 @@
 ## Тестирование
 
 ```bash
-# Запуск тестов
+# Все unit-тесты (node test runner)
+npm test
+
+# Один файл
 node --test tests/parser.test.js
 
 # Проверка синтаксиса
 node --check core/editor.js
 ```
+
+### Тесты правил Firestore
+
+`node tools/rules-test.mjs` отправляет `firestore.rules` и список кейсов
+в Firebase Rules API (projects.test) — тот же движок, что и эмулятор
+Firestore, поэтому учётная запись эмулятора не нужна, но нужен вход
+Firebase CLI. Если CLI не авторизован, скрипт пишет, что доступ к Rules API
+не получен, и завершается ошибкой — тесты правил в таком случае НЕ выполнены.
+
+```bash
+# 1. Разово войти в Firebase CLI
+firebase login
+
+# 2. Запуск тестов правил внутри окружения эмулятора (рекомендуется)
+firebase emulators:exec --only firestore "node tools/rules-test.mjs"
+
+# 3. Без эмулятора (только Rules API)
+node tools/rules-test.mjs
+```
+
+Команда пункта 2 поднимает Firestore-эмулятор, выполняет suite и гасит
+эмулятор. `FIREBASE_ACCESS_TOKEN` можно использовать вместо
+`firebase login` в CI.
 
 ## Firebase
 
