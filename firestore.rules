@@ -649,6 +649,7 @@ service cloud.firestore {
             roomDoc().hostId == request.auth.uid
             || !isStaff()
             || request.resource.data.observer == true
+            || roomDoc().allowObservers == true
           );
 
         // Ответ на текущий вопрос — отдельным документом

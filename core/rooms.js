@@ -38,7 +38,7 @@ function roomRef(code) {
 
 // Ведущий создаёт комнату. Правила разрешают только сотрудникам
 // организации и только для опубликованного теста.
-export async function createRoom({ test, profile }) {
+export async function createRoom({ test, profile, allowObservers = false }) {
   requireOnline("Нет подключения к интернету. Комната не создана.");
   if (!test?.id) throw new Error("Тест не выбран.");
   if (!profile?.orgId) throw new Error("Профиль организации не загружен.");

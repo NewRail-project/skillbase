@@ -95,7 +95,7 @@ export default async function JoinPage() {
     }
   });
 
-  page.appendChild(hero);
+  page.appendChild(hero());
 
   page.append(
     h("div", { class: "panel panel-narrow" },
