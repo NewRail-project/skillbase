@@ -139,22 +139,80 @@ export default async function CreateTestPage() {
     input.value = value;
     return { input, field: h("div", { class: "field" }, h("label", { for: id }, label), input, h("span", { class: "form-hint" }, hint)) };
   };
+  const selectField = (id, label, value, options, hint) => {
+    const input = h("select", { id }, options.map(([val, text]) => h("option", { value: val }, text)));
+    input.value = value;
+    if (input.value !== value) input.value = options[0][0];
+    return { input, field: h("div", { class: "field" }, h("label", { for: id }, label), input, h("span", { class: "form-hint" }, hint)) };
+  };
   const shuffleQ = checkbox("s-shuffle-q", "Перемешивать вопросы", initialSettings.shuffleQuestions);
   const shuffleO = checkbox("s-shuffle-o", "Перемешивать варианты ответов", initialSettings.shuffleOptions);
   const perQuestion = numberField("s-per-question", "Время на вопрос, сек", initialSettings.timePerQuestionSec,
-    "От 5 до 3600. Пусто — без ограничения.", { min: "5", max: "3600", placeholder: "—" });
+    "От 5 до 3600. Пусто — без ограничения. В live задаёт таймер вопроса у ведущего.", { min: "5", max: "3600", placeholder: "—" });
   const totalTime = numberField("s-total", "Время на тест, мин", initialSettings.totalTimeMin,
     "От 1 до 480. Пусто — без ограничения. Если указано, оно главнее времени на вопрос.", { min: "1", max: "480", placeholder: "—" });
   const passScore = numberField("s-pass", "Проходной балл, %", initialSettings.passScore,
     "От 1 до 100. Пусто — без проходного балла.", { min: "1", max: "100", placeholder: "—" });
   const attempts = numberField("s-attempts", "Попыток на ученика", initialSettings.attemptsLimit,
-    "От 1 до 50.", { min: "1", max: "50" });
+    "От 1 до 50. При выключенных повторных попытках принудительно 1.", { min: "1", max: "50" });
+
+  const onQuestionTimeout = selectField("s-q-timeout", "Истекло время вопроса",
+    initialSettings.onQuestionTimeout,
+    [["lock", "Блокировать, идти дальше самому"], ["next", "Автопереход к следующему"]],
+    "Работает только при заданном времени на вопрос. «Блокировать»: вопрос нельзя заполнить после истечения, ученик переходит сам. «Автопереход»: вопрос без ответа, экран сам идёт далее. В live то же самое, но решает ведущий/сервер.");
+  const onTotalTimeout = selectField("s-t-timeout", "Истекло общее время",
+    initialSettings.onTotalTimeout,
+    [["submit", "Автоотправка сохранённых ответов"], ["expire", "Попытка просрочена, не оценивается"]],
+    "«Автоотправка» в ученическом тесте отправит то, что успели; «Просрочена» пометит попытку как просроченную без оценки. В live не применяется: ведущий закрывает вопрос сам.");
+  const answerPolicyField = selectField("s-policy", "Политика ответов",
+    initialSettings.answerPolicy,
+    [["final", "Ответ фиксируется кнопкой"], ["changeable", "Можно менять и возвращаться"]],
+    "«Фиксируется»: после нажатия «Ответить» вернуться нельзя. «Можно менять»: свободное редактирование до отправки. В live совпадает с ученическим режимом.");
+  const showCorrectField = checkbox("s-show-correct", "Показать верный ответ после вопроса", initialSettings.showCorrectAfterQuestion);
+  const allowRetakeField = checkbox("s-allow-retake", "Разрешить повторные попытки", initialSettings.allowRetake);
+  const showLeaderboardField = checkbox("s-leaderboard", "Таблица результатов участникам (live)", initialSettings.showLeaderboard);
+
+  const policyDependent = () => { showCorrectField.input.disabled = answerPolicyField.input.value !== "final"; };
+  const retakeDependent = () => {
+    const disabled = !allowRetakeField.input.checked;
+    attempts.input.disabled = disabled;
+    attempts.input.value = disabled ? "1" : attempts.input.value || "3";
+  };
+  answerPolicyField.input.addEventListener("change", policyDependent);
+  allowRetakeField.input.addEventListener("change", retakeDependent);
+  policyDependent();
+  retakeDependent();
+
+  // Поля теста, влияющие на каталог и старт (не settings, но в этой же форме).
+  const categoryInput = h("input", { type: "text", id: "t-category", maxlength: "40",
+    placeholder: "Например, Охрана труда" });
+  const colorSelect = h("select", { id: "t-color" },
+    [["", "Без цвета (по умолчанию)"], ["1", "Акцент"], ["2", "Дополнительный"], ["3", "Сигнальный"], ["4", "Спокойный"]]
+      .map(([v, t]) => h("option", { value: v }, t)));
+  colorSelect.value = String((editing || getCurrentTest()).color ?? "");
+  const instructionsInput = h("textarea", { id: "t-instructions", rows: "3", maxlength: "2000",
+    placeholder: "Что ученик должен знать перед стартом" });
+  instructionsInput.value = (editing || getCurrentTest()).instructions || "";
 
   const settingsBox = h("fieldset", { class: "field", style: "border:1px solid var(--border);border-radius:var(--radius, 8px);padding:var(--space-3)" },
     h("legend", {}, "Настройки теста"),
-    h("div", { class: "options" }, shuffleQ.row, shuffleO.row),
+    h("div", { class: "options" }, shuffleQ.row, shuffleO.row, allowRetakeField.row, showLeaderboardField.row),
     h("div", { style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:var(--space-3);margin-top:var(--space-3)" },
-      perQuestion.field, totalTime.field, passScore.field, attempts.field)
+      perQuestion.field, totalTime.field, passScore.field, attempts.field),
+    h("div", { style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:var(--space-3);margin-top:var(--space-3)" },
+      onQuestionTimeout.field, onTotalTimeout.field, answerPolicyField.field),
+    h("div", { class: "options", style: "margin-top:var(--space-3)" },
+      showCorrectField.row)
+  );
+
+  const catalogBox = h("fieldset", { class: "field", style: "border:1px solid var(--border);border-radius:var(--radius, 8px);padding:var(--space-3)" },
+    h("legend", {}, "Каталог и старт"),
+    h("div", { class: "field" }, h("label", { for: "t-category" }, "Категория"),
+      categoryInput, h("span", { class: "form-hint" }, "Фильтр в каталоге тестов.")),
+    h("div", { class: "field" }, h("label", { for: "t-color" }, "Цвет карточки"),
+      colorSelect, h("span", { class: "form-hint" }, "Цвет обложки в каталоге (live — у бейджа комнаты).")),
+    h("div", { class: "field" }, h("label", { for: "t-instructions" }, "Инструкция перед стартом"),
+      instructionsInput, h("span", { class: "form-hint" }, "Показывается на странице теста до начала попытки."))
   );
 
   function readSettingsForm() {
@@ -163,8 +221,22 @@ export default async function CreateTestPage() {
       shuffleOptions: shuffleO.input.checked,
       timePerQuestionSec: perQuestion.input.value,
       totalTimeMin: totalTime.input.value,
+      onQuestionTimeout: onQuestionTimeout.input.value,
+      onTotalTimeout: onTotalTimeout.input.value,
       passScore: passScore.input.value,
-      attemptsLimit: attempts.input.value
+      attemptsLimit: attempts.input.value,
+      allowRetake: allowRetakeField.input.checked,
+      answerPolicy: answerPolicyField.input.value,
+      showLeaderboard: showLeaderboardField.input.checked,
+      showCorrectAfterQuestion: showCorrectField.input.checked && answerPolicyField.input.value === "final"
+    };
+  }
+
+  function readCatalogForm() {
+    return {
+      category: categoryInput.value.trim(),
+      color: colorSelect.value,
+      instructions: instructionsInput.value
     };
   }
 
@@ -189,6 +261,7 @@ export default async function CreateTestPage() {
         "Правильный ответ отмечайте [+], [правильный] или * в конце строки. Несколько отмеченных вариантов — вопрос с множественным выбором. Короткий ответ: «Ответ: текст».")
     ),
     settingsBox,
+    catalogBox,
     status,
     warnings,
     h("div", { class: "btn-row" }, parseBtn),
@@ -312,6 +385,7 @@ export default async function CreateTestPage() {
         ...base,
         title,
         description: descriptionInput.value.trim(),
+        ...readCatalogForm(),
         questions: parsed.questions,
         settings: mergeSettings(base.settings, readSettingsForm())
       };

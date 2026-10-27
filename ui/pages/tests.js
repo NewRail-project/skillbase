@@ -24,8 +24,12 @@ function explainError(err) {
   return "Не удалось загрузить каталог тестов. Попробуйте ещё раз.";
 }
 
-function testCard(test, index, staff) {
-  const tone = `cover-${(index % 4) + 1}`;
+function testCard(test, staff) {
+  // Цвет карточки из настроек теста: 1..4 — палитры cover-1..cover-4.
+  const colorIndex = Number(test.color);
+  const tone = colorIndex >= 1 && colorIndex <= 4
+    ? `cover-${colorIndex}`
+    : `cover-${(test.title?.length ?? 0) % 4 + 1}`;
   const questions = (test.questions || []).length;
   const time = test.settings?.timePerQuestion
     ? `${test.settings.timePerQuestion} сек/вопрос`
@@ -95,7 +99,8 @@ export default async function TestsPage() {
 
   const search = h("input", { type: "search", placeholder: "Поиск по названию", "aria-label": "Поиск по названию" });
   const filters = h("div", { class: "filter-bar" }, search);
-  let activeFilter = "all";
+  let activeFilter = staff ? "all" : "published";
+  let activeCategory = "";
   if (staff) {
     for (const [value, label] of [["all", "Все"], ["published", "Опубликованные"], ["draft", "Черновики"]]) {
       const chip = h("button", {
@@ -113,6 +118,10 @@ export default async function TestsPage() {
   }
   page.appendChild(filters);
 
+  // Фильтр по категории строится из того, что реально встречается в тестах.
+  const categorySelect = h("select", { "aria-label": "Фильтр по категории", class: "chip", style: "width:auto" });
+  filters.appendChild(categorySelect);
+
   const grid = h("div", { class: "course-grid" });
   page.appendChild(grid);
 
@@ -123,7 +132,8 @@ export default async function TestsPage() {
     const visible = tests.filter(t => {
       const matchesText = !query || (t.title || "").toLowerCase().includes(query);
       const matchesStatus = activeFilter === "all" || t.status === activeFilter;
-      return matchesText && matchesStatus;
+      const matchesCategory = !activeCategory || (t.category || "") === activeCategory;
+      return matchesText && matchesStatus && matchesCategory;
     });
 
     grid.textContent = "";
@@ -142,10 +152,22 @@ export default async function TestsPage() {
       ));
       return;
     }
-    visible.forEach((t, i) => grid.appendChild(testCard(t, i, staff)));
+    visible.forEach(t => grid.appendChild(testCard(t, staff)));
   }
 
   search.addEventListener("input", draw);
+  categorySelect.addEventListener("change", () => {
+    activeCategory = categorySelect.value;
+    draw();
+  });
+
+  function refreshCategoryFilter() {
+    const categories = [...new Set(tests.map(t => (t.category || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ru"));
+    categorySelect.textContent = "";
+    categorySelect.appendChild(h("option", { value: "" }, "Все категории"));
+    categories.forEach(cat => categorySelect.appendChild(h("option", { value: cat }, cat)));
+    categorySelect.hidden = categories.length === 0;
+  }
 
   grid.appendChild(h("div", { class: "panel", style: "grid-column:1/-1" },
     h("div", { class: "spinner" })));
@@ -154,6 +176,7 @@ export default async function TestsPage() {
     tests = staff
       ? await listMyTests(State.user.uid)
       : await listPublishedTests(State.profile.orgId);
+    refreshCategoryFilter();
     draw();
   } catch (err) {
     console.error("Каталог тестов:", err);

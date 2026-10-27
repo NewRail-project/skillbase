@@ -286,6 +286,10 @@ function questionPanel(question, { showAnswer = false } = {}) {
 
 function scoresTable() {
   if (!local.scores.length) return null;
+  // Ведущему и наблюдателям таблица нужна всегда; участникам — по
+  // настройке теста showLeaderboard.
+  const roleHere = role();
+  if (roleHere === "player" && local.room?.showLeaderboard !== true) return null;
   const rows = [...local.scores]
     .sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || String(a.name).localeCompare(String(b.name), "ru"));
   return h("div", { class: "panel" },

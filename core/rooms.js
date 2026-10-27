@@ -53,6 +53,7 @@ export async function createRoom({ test, profile }) {
         phase: "idle",
         qStartedAt: null,
         questionCount: questions.length,
+        showLeaderboard: Boolean(test?.settings?.showLeaderboard),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });

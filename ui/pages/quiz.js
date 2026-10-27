@@ -9,7 +9,9 @@ import {
   listMyAttemptsForTest
 } from "../../core/attempts.js";
 import { getAssignment, getStudentAssignments } from "../../core/assign.js";
+import { effectiveSettings } from "../../core/settings.js";
 import { isDeadlinePassed, attemptDeadlineMs as calcAttemptDeadlineMs } from "../../core/timing.js";
+import { db, doc, getDoc } from "../../shared/firebase.js";
 import { icons } from "../../shared/icons.js";
 import { toast } from "../components/toast.js";
 
@@ -22,19 +24,22 @@ const TYPE_LABEL = {
 const STATUS_LABEL = {
   in_progress: "Не завершена",
   submitted: "Ожидает проверки",
-  graded: "Проверена"
+  graded: "Проверена",
+  expired: "Просрочена"
 };
 
 const STATUS_BADGE = {
   in_progress: "badge-warning",
   submitted: "badge-info",
-  graded: "badge-success"
+  graded: "badge-success",
+  expired: "badge-danger"
 };
 
 // Таймеры и отложенное сохранение живут на уровне модуля: роутер вызывает
 // cleanup() при уходе со страницы, даже если DOM уже заменён.
 let timerId = null;
 let saveTimer = null;
+let questionTimerId = null; // таймер отдельного вопроса
 let unloadHandler = null;
 let flushSave = null;
 
@@ -42,9 +47,11 @@ export function cleanup() {
   try { flushSave?.(); } catch (_) {}
   if (timerId) clearInterval(timerId);
   if (saveTimer) clearTimeout(saveTimer);
+  if (questionTimerId) clearInterval(questionTimerId);
   if (unloadHandler) window.removeEventListener("beforeunload", unloadHandler);
   timerId = null;
   saveTimer = null;
+  questionTimerId = null;
   unloadHandler = null;
   flushSave = null;
 }
@@ -174,7 +181,7 @@ export default async function QuizPage() {
   }
 
   const questions = Array.isArray(test.questions) ? test.questions : [];
-  const settings = test.settings || {};
+  const settings = effectiveSettings(test);
   const staff = isStaff();
   const profile = State.profile || {};
 
@@ -286,11 +293,17 @@ export default async function QuizPage() {
         try {
           const local = readLocal(active.id);
           const answers = { ...(active.answers || {}), ...(local?.answers || {}) };
-          await submitAttemptById(active.id, answers);
+          const expireMode = effectiveSettings(test).onTotalTimeout === "expire";
+          await submitAttemptById(active.id, answers, { expire: expireMode });
           clearLocal(active.id);
           autoSubmitted = true;
           attempts = attempts.map(item => item.id === active.id
-            ? { ...item, status: "submitted", submittedAt: new Date(), finishedAt: new Date() }
+            ? {
+              ...item,
+              status: expireMode ? "expired" : "submitted",
+              submittedAt: new Date(),
+              finishedAt: new Date()
+            }
             : item);
           try {
             attempts = await listMyAttemptsForTest(State.user.uid, test.id);
@@ -678,6 +691,10 @@ export default async function QuizPage() {
       clearInterval(timerId);
       timerId = null;
     }
+    if (questionTimerId) {
+      clearInterval(questionTimerId);
+      questionTimerId = null;
+    }
     const storedAnswers = attempt.answers && typeof attempt.answers === "object"
       ? attempt.answers
       : {};
@@ -746,6 +763,23 @@ export default async function QuizPage() {
     submitting = false;
     let autoSubmitTriggered = false;
     let savePromise = Promise.resolve();
+
+    // Политика ответов и таймеры (эффективные настройки уже нормализованы).
+    const finalPolicy = settings.answerPolicy === "final";
+    const questionTimeout = settings.onQuestionTimeout; // "next" | "lock"
+    const onTotalTimeout = settings.onTotalTimeout;     // "submit" | "expire"
+    const perQuestionSec = Number(settings.timePerQuestion) > 0
+      ? Number(settings.timePerQuestion)
+      : null;
+    // Зафиксированные вопросы (answerPolicy=final): номер исходного вопроса.
+    const locked = new Set();
+    if (finalPolicy) {
+      Object.keys(current.answers).forEach(key => {
+        if (isAnswered(current.answers[key])) locked.add(key);
+      });
+    }
+    let questionDeadline = null; // мс, привязано к моменту показа вопроса
+    let questionTimerId = null;
 
     function setSaveState(text, isError) {
       saveState.textContent = text;
@@ -822,45 +856,173 @@ export default async function QuizPage() {
       });
     }
 
+    // Черновик ответов для политики final: до нажатия «Ответить» ответ
+    // нигде не сохраняется.
+    const draftAnswers = {};
+    let correctKeysCache = null;
+    const correctKeysPromise = () => getDoc(doc(db, "testKeys", test.id));
+
+    function isLockedQuestion(key) {
+      return locked.has(key);
+    }
+
+    // Полный ответ: бейдж-таймер текущего вопроса при включённом
+    // timePerQuestion. По истечении срабатывает onQuestionTimeout.
+    function questionClock(key) {
+      if (questionTimerId) { clearInterval(questionTimerId); questionTimerId = null; }
+      if (perQuestionSec == null || isLockedQuestion(key)) return null;
+      questionDeadline = Date.now() + perQuestionSec * 1000;
+      const el = h("span", { class: "badge badge-neutral", "aria-label": "Осталось времени на вопрос" });
+      const update = () => {
+        const left = questionDeadline - Date.now();
+        if (left <= 0) {
+          el.textContent = "00:00";
+          el.className = "badge badge-danger";
+          if (questionTimerId) { clearInterval(questionTimerId); questionTimerId = null; }
+          handleQuestionTimeout(key);
+          return;
+        }
+        el.textContent = formatDuration(left);
+        el.className = left < 15000 ? "badge badge-danger" : "badge badge-neutral";
+      };
+      questionTimerId = setInterval(update, 1000);
+      update();
+      return el;
+    }
+
+    // «next»: автопереход, вопрос остаётся без ответа; «lock»: вопрос
+    // блокируется, ученик идёт дальше сам.
+    function handleQuestionTimeout(key) {
+      if (submitting || isLockedQuestion(key)) return;
+      if (questionTimeout === "next") {
+        delete current.answers[key];
+        delete draftAnswers[key];
+        queueSave();
+        if (current.index < questions.length - 1) {
+          current.index += 1;
+        }
+        renderQuestion();
+      } else {
+        locked.add(String(order.questions[current.index]));
+        renderQuestion();
+      }
+      if (questionTimeout === "next") {
+        setSaveState("Время вопроса истекло: переход к следующему без ответа.");
+      }
+    }
+
+    // Расшифровка правильного ответа для showCorrectAfterQuestion.
+    // Правильные ответы читаются из закрытого testKeys: правила разрешают
+    // чтение только пока идёт активная попытка, и только если настройка
+    // включена (постановка Части 1).
+    async function correctOutlook(key, question) {
+      if (!settings.showCorrectAfterQuestion) return null;
+      if (!correctKeysCache) {
+        try {
+          const snap = await correctKeysPromise();
+          correctKeysCache = snap.exists() ? (snap.data().items || {}) : {};
+        } catch (err) {
+          console.error("Показ верного ответа:", err);
+          return null;
+        }
+      }
+      const item = correctKeysCache[key];
+      if (!item) return null;
+      const parts = [];
+      if (Array.isArray(item.correct) && Array.isArray(question.options)) {
+        parts.push("Верный: " + item.correct
+          .map(i => question.options[i]?.text || "?")
+          .join(", "));
+      } else if (item.type === "short") {
+        parts.push(`Верный ответ: ${item.answer ?? ""}`);
+      }
+      if (item.explanation) parts.push(item.explanation);
+      return h("div", { class: "option correct", role: "status" }, parts.join(". "));
+    }
+
     function renderQuestion() {
       const questionIndex = order.questions[current.index];
       const question = questions[questionIndex];
       const key = String(questionIndex);
+      const isLocked = isLockedQuestion(key);
       const answer = current.answers[key];
+      const draft = draftAnswers[key];
       const options = Array.isArray(question.options) ? question.options : [];
 
       questionBox.textContent = "";
+      const headLine = h("div", { class: "eyebrow", style: "margin-top:var(--space-4)" },
+        `Вопрос ${current.index + 1} · ${TYPE_LABEL[question.type] || "Вопрос"} · ${question.points || 1} б.`
+      );
+      const clockEl = questionClock(key);
+      if (clockEl) {
+        clockEl.style.marginLeft = "8px";
+        headLine.append(clockEl);
+      }
       questionBox.append(
-        h("div", { class: "eyebrow", style: "margin-top:var(--space-4)" },
-          `Вопрос ${current.index + 1} · ${TYPE_LABEL[question.type] || "Вопрос"} · ${question.points || 1} б.`),
+        headLine,
         h("h2", { style: "margin-top:var(--space-2)" }, question.text || "Вопрос без текста"),
         question.explanation && staff
           ? h("p", { class: "muted" }, question.explanation)
           : null
       );
 
-      if (question.type === "short") {
+      const lockedView = (viewAnswer) => {
+        // Read-only: политика final после фиксации или блокировки по
+        // вопросному таймеру (policy lock). Ответ менять нельзя.
+        const resolved = viewAnswer;
+        if (question.type === "short") {
+          questionBox.append(h("div", { class: "field", style: "margin-top:var(--space-3)" },
+            h("label", {}, "Ваш ответ"),
+            h("div", { class: "option", style: "padding:var(--space-2)" }, typeof resolved === "string" ? resolved : "—")));
+        } else {
+          const selected = new Set((Array.isArray(resolved) ? resolved
+            : (resolved === undefined || resolved === null ? [] : [resolved]))
+            .map(Number)
+            .filter(Number.isInteger));
+          const opts = h("div", { class: "options" });
+          (order.options[questionIndex] || []).forEach(optionIndex => {
+            const option = options[optionIndex];
+            opts.appendChild(h("label", {
+              class: "option" + (selected.has(optionIndex) ? " correct" : ""),
+              style: "display:flex;gap:var(--space-2);align-items:center"
+            }, option?.text || "—"));
+          });
+          questionBox.append(opts);
+        }
+      };
+
+      if (isLocked) {
+        lockedView(answer);
+        correctOutlook(key, question).then(outlook => {
+          if (outlook) questionBox.append(h("div", { style: "margin-top:var(--space-3)" }, outlook));
+        });
+      } else if (question.type === "short") {
+        const source = finalPolicy ? draft : answer;
         const input = h("textarea", {
           rows: "4",
           placeholder: "Введите ответ",
           maxlength: "4000"
         });
-        input.value = typeof answer === "string" ? answer : "";
+        input.value = typeof source === "string" ? source : "";
         input.addEventListener("input", () => {
-          current.answers[key] = input.value;
-          queueSave();
+          if (finalPolicy) draftAnswers[key] = input.value;
+          else { current.answers[key] = input.value; queueSave(); }
         });
         questionBox.append(h("div", { class: "field", style: "margin-top:var(--space-3)" },
           h("label", {}, "Ваш ответ"), input));
       } else {
         const multiple = question.type === "multiple";
+        const source = finalPolicy ? draft : answer;
         const rawSelected = multiple
-          ? (Array.isArray(answer) ? answer : [])
-          : (Array.isArray(answer) ? answer : (answer === undefined || answer === null ? [] : [answer]));
+          ? (Array.isArray(source) ? source : [])
+          : (Array.isArray(source) ? source : (source === undefined || source === null ? [] : [source]));
         const selected = new Set(rawSelected
           .map(value => typeof value === "string" ? Number(value) : value)
           .filter(value => Number.isInteger(value) && value >= 0));
         const optionsBox = h("div", { class: "options" });
+        const confirmBtn = finalPolicy
+          ? h("button", { type: "button", class: "btn primary", style: "margin-top:var(--space-3)" }, "Ответить")
+          : null;
 
         order.options[questionIndex].forEach((optionIndex) => {
           const option = options[optionIndex];
@@ -876,37 +1038,73 @@ export default async function QuizPage() {
           }, input, h("span", {}, option.text || "—"));
 
           input.addEventListener("change", () => {
-            if (multiple) {
-              if (input.checked) selected.add(optionIndex);
-              else selected.delete(optionIndex);
-              const values = [...selected].sort((a, b) => a - b);
-              if (values.length) current.answers[key] = values;
-              else delete current.answers[key];
+            if (!finalPolicy) {
+              if (multiple) {
+                if (input.checked) selected.add(optionIndex);
+                else selected.delete(optionIndex);
+                const values = [...selected].sort((a, b) => a - b);
+                if (values.length) current.answers[key] = values;
+                else delete current.answers[key];
+              } else {
+                selected.clear();
+                selected.add(optionIndex);
+                current.answers[key] = optionIndex;
+              }
+              label.classList.toggle("correct", input.checked);
+              if (!multiple) {
+                optionsBox.querySelectorAll("input").forEach(other => {
+                  const otherLabel = other.closest("label");
+                  if (other !== input && otherLabel) otherLabel.classList.remove("correct");
+                });
+              }
+              queueSave();
             } else {
-              selected.clear();
-              selected.add(optionIndex);
-              current.answers[key] = optionIndex;
+              if (multiple) {
+                if (input.checked) selected.add(optionIndex);
+                else selected.delete(optionIndex);
+                draftAnswers[key] = [...selected].sort((a, b) => a - b);
+              } else {
+                selected.clear();
+                selected.add(optionIndex);
+                draftAnswers[key] = optionIndex;
+              }
+              label.classList.toggle("correct", input.checked);
+              if (!multiple) {
+                optionsBox.querySelectorAll("input").forEach(other => {
+                  const otherLabel = other.closest("label");
+                  if (other !== input && otherLabel) otherLabel.classList.remove("correct");
+                });
+              }
             }
-
-            label.classList.toggle("correct", input.checked);
-            if (!multiple) {
-              optionsBox.querySelectorAll("input").forEach(other => {
-                const otherLabel = other.closest("label");
-                if (other !== input && otherLabel) otherLabel.classList.remove("correct");
-              });
-            }
-            queueSave();
           });
 
           optionsBox.appendChild(label);
         });
 
         questionBox.append(optionsBox);
+        if (confirmBtn) {
+          // Фиксация кнопкой: сохраняем на сервере и ставим замок.
+          confirmBtn.addEventListener("click", () => {
+            if (finalPolicy && draftAnswers[key] !== undefined && !isAnswered(current.answers[key])) {
+              current.answers[key] = draftAnswers[key];
+            }
+            locked.add(key);
+            if (finalPolicy) persistNow();
+            renderQuestion();
+          });
+          questionBox.append(confirmBtn);
+        }
       }
 
       counter.textContent = `Вопрос ${current.index + 1} из ${questions.length}`;
       progressBar.style.width = `${((current.index + 1) / questions.length) * 100}%`;
-      backBtn.disabled = current.index === 0;
+      // Навигация: в final политика назад к зафиксированному вопросу нельзя.
+      const canGoBack = () => {
+        if (current.index === 0) return false;
+        const prevKey = String(order.questions[current.index - 1]);
+        return !(finalPolicy && locked.has(prevKey));
+      };
+      backBtn.disabled = !canGoBack();
       nextBtn.disabled = current.index >= questions.length - 1;
       renderPalette();
       setError("");
@@ -961,7 +1159,7 @@ export default async function QuizPage() {
           timerId = null;
           if (!submitting && !autoSubmitTriggered) {
             autoSubmitTriggered = true;
-            doSubmit({ auto: true });
+            doSubmit({ auto: true, expire: onTotalTimeout === "expire" });
           }
           return;
         }
@@ -975,12 +1173,14 @@ export default async function QuizPage() {
       }
     }
 
-    async function doSubmit({ auto }) {
+    async function doSubmit({ auto = false, expire = false } = {}) {
       if (submitting) return;
       submitting = true;
       setError("");
       if (timerId) clearInterval(timerId);
+      if (questionTimerId) clearInterval(questionTimerId);
       timerId = null;
+      questionTimerId = null;
       if (saveTimer) {
         clearTimeout(saveTimer);
         saveTimer = null;
@@ -989,13 +1189,14 @@ export default async function QuizPage() {
       backBtn.disabled = true;
       nextBtn.disabled = true;
       confirmYes.disabled = true;
-      setSaveState(auto ? "Время истекло. Отправляем…" : "Отправляем…");
+      setSaveState(expire ? "Время истекло. Попытка будет помечена просроченной…"
+        : auto ? "Время истекло. Отправляем…" : "Отправляем…");
 
       try {
         // Ждём уже начатое сохранение ответов, чтобы оно не пришло после
         // отправки и не было отклонено правилами как изменение submitted.
         await savePromise.catch(() => {});
-        await submitAttemptById(current.attempt.id, current.answers);
+        await submitAttemptById(current.attempt.id, current.answers, { expire });
         clearLocal(current.attempt.id);
         if (unloadHandler) {
           window.removeEventListener("beforeunload", unloadHandler);
@@ -1005,14 +1206,15 @@ export default async function QuizPage() {
         const updated = {
           ...current.attempt,
           answers: { ...current.answers },
-          status: "submitted",
+          status: expire ? "expired" : "submitted",
           submittedAt: new Date(),
           finishedAt: new Date()
         };
         attempts = attempts.map(item => item.id === updated.id ? updated : item)
           .sort((a, b) => attemptTime(b) - attemptTime(a));
         submitting = false;
-        toast("Ответы отправлены", "success");
+        toast(expire ? "Время истекло, попытка просрочена" : "Ответы отправлены",
+          expire ? "warning" : "success");
         renderStudentIntro();
       } catch (err) {
         console.error("Не удалось отправить попытку:", err);

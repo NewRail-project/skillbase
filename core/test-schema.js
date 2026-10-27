@@ -1,3 +1,7 @@
+import {
+  ON_QUESTION_TIMEOUT_VALUES, ON_TOTAL_TIMEOUT_VALUES, ANSWER_POLICY_VALUES
+} from "./settings.js";
+
 export function emptyTest() {
   return {
     id: null,
@@ -16,12 +20,12 @@ export function emptyTest() {
       shuffleOptions: true,
       timePerQuestion: null,
       totalTime: null,
-      onQuestionTimeout: "skip",
-      onTotalTimeout: "autosubmit",
+      onQuestionTimeout: "lock",
+      onTotalTimeout: "submit",
       passScore: null,
       attemptsLimit: 3,
-      allowRetake: false,
-      answerPolicy: "never",
+      allowRetake: true,
+      answerPolicy: "final",
       showLeaderboard: false,
       showCorrectAfterQuestion: false
     },
@@ -148,6 +152,41 @@ export function validateTest(test, { publishing = false } = {}) {
       (!Number.isInteger(settings.attemptsLimit) ||
        settings.attemptsLimit < 1 || settings.attemptsLimit > 50)) {
     errors.push("Количество попыток должно быть целым числом от 1 до 50");
+  }
+
+  // Новые настройки: перечисления и связки (core/settings.js).
+  // Для совместимости со старыми документами допустимы и legacy-значения —
+  // при сохранении mergeSettings переведёт их в новые («skip»→«lock» и т.д.).
+  const OK_ON_QUESTION_TIMEOUT = [...ON_QUESTION_TIMEOUT_VALUES, "skip"];
+  const OK_ON_TOTAL_TIMEOUT = [...ON_TOTAL_TIMEOUT_VALUES, "autosubmit"];
+  const OK_ANSWER_POLICY = [...ANSWER_POLICY_VALUES, "never"];
+
+  if (settings.onQuestionTimeout != null &&
+      !OK_ON_QUESTION_TIMEOUT.includes(settings.onQuestionTimeout)) {
+    errors.push("Поведение по истечении времени вопроса: «next» или «lock»");
+  }
+
+  if (settings.onTotalTimeout != null &&
+      !OK_ON_TOTAL_TIMEOUT.includes(settings.onTotalTimeout)) {
+    errors.push("Поведение по истечении общего времени: «submit» или «expire»");
+  }
+
+  if (settings.answerPolicy != null &&
+      !OK_ANSWER_POLICY.includes(settings.answerPolicy)) {
+    errors.push("Политика ответов: «changeable» или «final»");
+  }
+
+  // Противоречие формы блокируем при сохранении и публикации: показ верного
+  // ответа возможен только при финальной фиксации ответа.
+  if (settings.showCorrectAfterQuestion === true &&
+      settings.answerPolicy != null &&
+      settings.answerPolicy !== "final") {
+    errors.push("«Показать верный ответ после вопроса» работает только при политике ответов «final»");
+  }
+
+  if (settings.allowRetake === false && settings.attemptsLimit != null &&
+      settings.attemptsLimit !== 1) {
+    warnings.push("При allowRetake=false лимит попыток принудительно считается равным 1");
   }
 
   const sizeLimit = 700;

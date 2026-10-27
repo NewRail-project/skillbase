@@ -1,8 +1,9 @@
 import {
-  db, collection, doc, getDoc, getDocs, addDoc, updateDoc, query, where,
-  serverTimestamp, Timestamp
+  db, collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc, query, where,
+  serverTimestamp, Timestamp, writeBatch
 } from "../shared/firebase.js";
 import { isCorrect, normalizeKeys, sanitizeAnswers, scoreAttempt } from "./scoring.js";
+import { State } from "./auth.js";
 
 export { isCorrect, sanitizeAnswers };
 
@@ -70,9 +71,22 @@ export async function startAttempt({ test, user, profile, assignmentId = "", att
   };
   if (authorId) payload.testAuthorId = authorId;
 
-  const ref = await addDoc(collection(db, "attempts"), payload);
+  // Маркер «идёт попытка»: в одном batch пишем попытку и маркер
+  // activeAttempts/{uid}. По нему правила закрывают учебный материал
+  // (materials/**) на время прохождения.
+  const batch = writeBatch(db);
+  const attemptRef = doc(collection(db, "attempts"));
+  batch.set(attemptRef, payload);
+  batch.set(doc(db, "activeAttempts", user.uid), {
+    uid: user.uid,
+    attemptId: attemptRef.id,
+    testId: test.id,
+    deadlineAt: deadline,
+    startedAt: serverTimestamp()
+  });
+  await batch.commit();
 
-  return ref.id;
+  return attemptRef.id;
 }
 
 export async function saveAttemptAnswers(attemptId, answers) {
@@ -85,17 +99,22 @@ export async function saveAttemptAnswers(attemptId, answers) {
   });
 }
 
-export async function submitAttemptById(attemptId, answers) {
+export async function submitAttemptById(attemptId, answers, { expired = false } = {}) {
   requireOnline("Нет подключения к интернету. Ответы не отправлены.");
   if (!attemptId) throw new Error("Попытка не найдена.");
 
-  await updateDoc(doc(db, "attempts", attemptId), {
+  // Отправка и снятие маркера активной попытки — в одном batch:
+  // материал открывается ровно в момент завершения попытки.
+  const batch = writeBatch(db);
+  batch.update(doc(db, "attempts", attemptId), {
     answers: sanitizeAnswers(answers),
-    status: "submitted",
+    status: expired ? "expired" : "submitted",
     submittedAt: serverTimestamp(),
     finishedAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });
+  batch.delete(doc(db, "activeAttempts", State.user?.uid || ""));
+  await batch.commit();
 }
 
 export async function getAttempt(attemptId) {

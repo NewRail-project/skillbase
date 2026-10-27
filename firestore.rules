@@ -209,8 +209,21 @@ service cloud.firestore {
     // ---------- testKeys ----------
 
     match /testKeys/{id} {
-      // Ключи теста — только сотрудники той же организации.
-      allow read: if isStaffOf(resource.data.orgId);
+      // Ключи теста: сотрудники организации; студент — только пока у него
+      // открыта попытка этого теста И в настройках теста включён
+      // showCorrectAfterQuestion (правильный ответ после фиксации ответа).
+      // Известная цена: правилу доступен весь документ keys, клиент
+      // обязан показывать только текущий вопрос (см. tests/schema).
+      allow read: if isStaffOf(resource.data.orgId)
+        || (
+          role() == "student"
+          && get(
+            /databases/$(database)/documents/tests/$(id)
+          ).data.settings.showCorrectAfterQuestion == true
+          && get(
+            /databases/$(database)/documents/activeAttempts/$(request.auth.uid)
+          ).data.testId == id
+        );
 
       allow create: if isStaff()
         && request.resource.data.orgId == myOrg()
@@ -221,7 +234,61 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // ---------- attempts ----------
+    // ---------- activeAttempts ----------
+    // Маркер «у меня идёт попытка на тест X». Один документ на студента.
+    // Его назначение: во время попытки закрывать учебный материал
+    // (materials/**), чтобы ответы не подсматривали.
+    match /activeAttempts/{ownerId} {
+      function markerDoc() {
+        return get(
+          /databases/$(database)/documents/activeAttempts/$(ownerId)
+        ).data;
+      }
+
+      // Читает (и удаляет по условиям ниже) правило сам владелец:
+      // маркер нужен только ему и правилам materials.
+      allow read: if signedIn() && request.auth.uid == ownerId;
+
+      // Создать или перезаписать маркер может только владелец и только
+      // под свою попытку в этой же организации.
+      allow create, update: if hasProfile()
+        && role() == "student"
+        && request.auth.uid == ownerId
+        && request.resource.data.keys().hasOnly(
+          ["uid", "attemptId", "testId", "deadlineAt", "startedAt"]
+        )
+        && request.resource.data.uid == ownerId
+        && exists(/databases/$(database)/documents/tests/$(request.resource.data.testId))
+        && get(
+          /databases/$(database)/documents/tests/$(request.resource.data.testId)
+        ).data.orgId == myOrg()
+        && get(
+          /databases/$(database)/documents/tests/$(request.resource.data.testId)
+        ).data.status == "published"
+        // Попытка создаётся в том же batch — смотрим в пост-состояние.
+        && existsAfter(/databases/$(database)/documents/attempts/$(request.resource.data.attemptId))
+        && getAfter(
+          /databases/$(database)/documents/attempts/$(request.resource.data.attemptId)
+        ).data.userId == request.auth.uid
+        && getAfter(
+          /databases/$(database)/documents/attempts/$(request.resource.data.attemptId)
+        ).data.status == "in_progress";
+
+      // Удалить маркер можно, только если соответствующая попытка больше
+      // не в работе (пост-состояние batch: отправка и снятие маркера
+      // атомарны) либо срок попытки прошёл (освобождение материала).
+      allow delete: if signedIn()
+        && request.auth.uid == ownerId
+        && (
+          getAfter(
+            /databases/$(database)/documents/attempts/$(resource.data.attemptId)
+          ).data.status != "in_progress"
+          || (
+            resource.data.deadlineAt != null
+            && request.time >= resource.data.deadlineAt
+          )
+        );
+    }
 
     match /attempts/{id} {
       // Попытка: снимок полей профиля должен совпадать с самим профилем.
@@ -324,6 +391,13 @@ service cloud.firestore {
           )
           || (
             request.resource.data.status == "submitted"
+            && request.resource.data.submittedAt == request.time
+            && request.resource.data.finishedAt == request.time
+          )
+          || (
+            // Просроченная попытка: автоотправка помечает её как expired,
+            // оценивать её правила не дадут (grading — только submitted).
+            request.resource.data.status == "expired"
             && request.resource.data.submittedAt == request.time
             && request.resource.data.finishedAt == request.time
           )

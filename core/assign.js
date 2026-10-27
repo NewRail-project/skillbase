@@ -41,12 +41,14 @@ export async function assignTest({
     throw new Error("Назначать можно только опубликованный тест.");
   }
 
-  const limit = attemptsLimit == null || attemptsLimit === ""
+  let limit = attemptsLimit == null || attemptsLimit === ""
     ? null
     : Number(attemptsLimit);
   if (limit !== null && (!Number.isInteger(limit) || limit < 1 || limit > 50)) {
     throw new Error("Количество попыток должно быть целым числом от 1 до 50.");
   }
+  // allowRetake=false → ровно одна попытка, что бы ни было в поле.
+  if (testData.settings?.allowRetake === false) limit = 1;
 
   // Чистая валидация задания (kind/заметка/материалы/срок training).
   const check = validateAssignmentDraft({ kind, deadline, note, materialText, materialUrl });
