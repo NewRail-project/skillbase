@@ -136,6 +136,11 @@ service cloud.firestore {
         );
     }
 
+    // Пресеты реакций Live-комнат (для правила reactions ниже).
+    function reactionsList() {
+      return ["👍", "🔥", "😂", "😮", "🎉"];
+    }
+
     // ---------- publicProfiles ----------
 
     match /publicProfiles/{id} {
@@ -144,9 +149,19 @@ service cloud.firestore {
           || (hasProfile()
             && userDoc().orgId == resource.data.orgId));
 
+      // Аватар — только пресет «preset:<id>» (строка: латиница, цифры и
+      // дефисы, до 20 символов) или null. Загрузка файлов запрещена.
+      function validAvatar() {
+        return request.resource.data.get("avatar", null) == null
+          || (request.resource.data.avatar is string
+            && request.resource.data.avatar.matches("^preset:[a-z0-9-]{1,20}$"));
+      }
+
       allow create, update: if signedIn()
         && request.auth.uid == id
-        && request.resource.data.keys().hasOnly(["displayName", "orgId"]);
+        && request.resource.data.keys().hasOnly(
+          ["displayName", "orgId", "avatar", "updatedAt"])
+        && validAvatar();
     }
 
     // ---------- tests ----------
@@ -626,21 +641,42 @@ service cloud.firestore {
           && request.resource.data.observer is bool
           && roomDoc().status == "active";
 
-        // Ответ на текущий вопрос: только новый ключ, только один раз.
-        allow update: if hasProfile()
+        // Ответ на текущий вопрос — отдельным документом
+        // players/{uid}/answers/{qid}: создать можно только если он ещё
+        // не существует (перезапись невозможна в принципе), только во
+        // время открытого вопроса и только для номера currentQuestionId.
+        // Метка времени at == request.time — ведущий считает разницу
+        // серверных at - qStartedAt, часы устройств не влияют.
+        // Наблюдатель ответ не пишет (см. match /answers/ ниже).
+        allow delete: if isRoomHost();
+      }
+
+      match /players/{playerId}/answers/{qid} {
+        function playerDoc() {
+          return get(
+            /databases/$(database)/documents/rooms/$(roomId)/players/$(playerId)
+          ).data;
+        }
+
+        // Чужие ответы участника не читаются: сам игрок или ведущий.
+        allow read: if (hasProfile() && request.auth.uid == playerId)
+          || isRoomHost();
+
+        allow create: if hasProfile()
           && request.auth.uid == playerId
-          && request.resource.data.diff(resource.data)
-            .affectedKeys().hasOnly(["answers", "updatedAt"])
-          && request.resource.data.answers is map
-          && resource.data.observer != true
+          && playerDoc().observer != true
           && roomDoc().status == "active"
           && roomDoc().phase == "opened"
-          && request.resource.data.get("answers", {})
-            .get(roomDoc().currentQuestionId, null) != null
-          && resource.data.get("answers", {})
-            .get(roomDoc().currentQuestionId, null) == null;
+          && roomDoc().currentQuestionId is string
+          && roomDoc().currentQuestionId != ""
+          && qid == roomDoc().currentQuestionId
+          && request.resource.data.keys().hasOnly(["answer", "at"])
+          // Время ответа — серверная метка request.time.
+          && request.resource.data.at == request.time;
 
-        allow delete: if isRoomHost();
+        // Перезаписать ответ нельзя: обновление — только ведущему
+        // (на случай чистки комнаты).
+        allow update, delete: if isRoomHost();
       }
 
       match /scores/{scoreId} {
@@ -660,6 +696,29 @@ service cloud.firestore {
         allow create: if isRoomHost();
 
         allow update, delete: if false;
+      }
+
+      match /reactions/{reactorId} {
+        // Реакции: участник и наблюдатель пишут только свой документ и
+        // не чаще раза в секунду (request.time > at + 1 с, сравнение в
+        // миллисекундах). Эмодзи — только из пресетов reactionsList.
+        function validReaction() {
+          return request.resource.data.keys().hasOnly(["emoji", "at"])
+            && reactionsList().hasAll([request.resource.data.emoji])
+            && request.resource.data.at == request.time;
+        }
+
+        allow read: if isRoomHost() || inRoomAnyRole();
+
+        allow create: if hasProfile()
+          && request.auth.uid == reactorId
+          && validReaction();
+
+        allow update: if request.auth.uid == reactorId
+          && validReaction()
+          && request.time.toMillis() > resource.data.at.toMillis() + 1000;
+
+        allow delete: if request.auth.uid == reactorId;
       }
 
       match /observers/{observerId} {

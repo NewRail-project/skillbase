@@ -78,6 +78,84 @@ export function answeredCount(players, questionId, { includeObservers = false } 
     && p.answers?.[questionId] != null).length;
 }
 
+// ---------- Очки: база, серия, бонус за скорость ----------
+// Очки пересчитываются с нуля по answers/times при каждом закрытии
+// вопроса; функция чистая, потому остаётся идемпотентной.
+
+// Серия: +10% за каждый верный ответ подряд, максимум +50%.
+export const STREAK_STEP = 0.10;
+export const STREAK_MAX = 0.50;
+
+export function streakRatio(streak) {
+  const n = Number.isFinite(streak) && streak > 0 ? streak : 0;
+  return Math.min(STREAK_MAX, n * STREAK_STEP);
+}
+
+// Бонус за скорость: до +50% от базовых очков, линейно по оставшемуся
+// времени. Действует только если у комнаты задан qDurationSec > 0.
+// Время ответа — серверное: times.<q> (мс) минус qStartedAt (мс).
+export const SPEED_MAX = 0.50;
+
+export function speedRatio(qDurationSec, answeredMs) {
+  const duration = Number(qDurationSec);
+  if (!Number.isFinite(duration) || duration <= 0) return 0;
+  if (typeof answeredMs !== "number" || !Number.isFinite(answeredMs) || answeredMs < 0) return 0;
+  const left = 1 - answeredMs / (duration * 1000);
+  // Ответ позже длительности даёт 0: вопрос уже не открыт.
+  if (left <= 0) return 0;
+  return Math.min(1, left) * SPEED_MAX;
+}
+
+// Итог очков одного ответа: базовые очки, домноженные на бонусы.
+export function answerPoints(basePoints, { streak = 0, speed = 0 } = {}) {
+  const mult = 1 + streakRatio(streak) + Math.min(SPEED_MAX, Math.max(0, speed));
+  return Math.round((basePoints || 1) * mult);
+}
+
+// Игрок из снапшота дальше идёт в чистые функции: times приведены к мс.
+export function normalizePlayerTimes(player) {
+  if (!player) return player;
+  const times = player.times || {};
+  const fixed = {};
+  for (const qid of Object.keys(times)) fixed[qid] = toNumberMs(times[qid]);
+  return { ...player, times: fixed };
+}
+
+function toNumberMs(value) {
+  if (typeof value === "number") return value;
+  if (value && typeof value.toMillis === "function") return value.toMillis();
+  if (value && typeof value.seconds === "number") return value.seconds * 1000;
+  if (value) {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) return date.getTime();
+  }
+  return null;
+}
+
+// Множитель зоны расчёта скорости: qStarts — карта qid → мс начала
+// вопроса (серверные метки, пишет ведущий при openQuestion).
+function speedRatioFor(player, qid, speedOpts) {
+  const startedMs = speedOpts?.qStarts?.[qid];
+  const answeredMs = player?.times?.[qid];
+  if (!startedMs || typeof answeredMs !== "number") return 0;
+  return speedRatio(speedOpts?.qDurationSec, answeredMs - startedMs);
+}
+
+// Вердикт по моему ответу после закрытия вопроса: true/false/null (reveal нет).
+export function myAnswerVerdict(reveal, myAnswer) {
+  if (!reveal || myAnswer == null) return null;
+  const data = reveal.reveal || {};
+  if (data.type === "short") {
+    const mine = String(myAnswer ?? "").trim().toLowerCase();
+    const answer = String(data.answer ?? "").trim().toLowerCase();
+    if (!mine) return false;
+    return mine === answer;
+  }
+  const correct = Array.isArray(data.correct) ? data.correct.map(Number) : [];
+  const mine = Array.isArray(myAnswer) ? myAnswer.map(Number) : [Number(myAnswer)];
+  return correct.length === mine.length && correct.every(value => mine.includes(value));
+}
+
 // Очки по ответам выбранного вопроса. keys — map индексов вопросов.
 export function scoreForQuestion(key, answer) {
   if (!key) return { correct: false, points: 0 };
@@ -87,20 +165,35 @@ export function scoreForQuestion(key, answer) {
 
 // Одиночный подсчёт: агрегирует ответы по всем открытым вопросам.
 // revealedUntil — сколько вопросов уже закрыто и за них начислить очки.
-export function computeScores(players, keys, openedIndexes = []) {
+// speed (необязательно): { qDurationSec, qStarts: {qid: ms} } — включает
+// бонус за скорость для вопросов, у которых есть начальные/ответные
+// серверные метки. Пересчёт с нуля из ответов — идемпотентен.
+export function computeScores(players, keys, openedIndexes = [], speed = null) {
   const normalized = normalizeKeys(keys);
-  const perPlayer = (players || []).filter(p => !p.observer).map(player => {
+  const perPlayer = (players || []).filter(p => !p.observer).map(raw => {
+    const player = speed ? normalizePlayerTimes(raw) : raw;
     let score = 0;
     let max = 0;
     let correctCount = 0;
+    let streak = 0;
     openedIndexes.forEach(index => {
-      const key = normalized[String(index)];
+      const qid = String(index);
+      const key = normalized[qid];
       if (!key) return;
       max += key.points || 1;
-      const { correct, points } = scoreForQuestion(key, player.answers?.[String(index)]);
+      const answer = player.answers?.[qid];
+      if (answer == null) { streak = 0; return; } // пропуск сбрасывает серию
+      const { correct, points } = scoreForQuestion(key, answer);
       if (correct) {
         correctCount += 1;
-        score += points;
+        streak += 1;
+        const add = answerPoints(points, {
+          streak,
+          speed: speed ? speedRatioFor(player, qid, speed) : 0
+        }) - points;
+        score += points + add;
+      } else {
+        streak = 0; // неверный ответ сбрасывает серию
       }
     });
     return {

@@ -1,41 +1,74 @@
-// ui/pages/room.js — единый экран Live-комнаты: host, player, observer.
-// Перерисовка только при изменении сигнатуры состояния (roomSignature),
-// чтобы поле ввода участника не теряло фокус на каждом снапшоте.
-// Автозакрытие вопроса у ведущего срабатывает один раз на вопрос; если
-// оно не прошло (нет сети), кнопка «Закрыть» продолжает работать.
+// ui/pages/room.js — единый экран Live-комнат: host, player, observer
+// и проектор (#room/CODE/screen — только ведущий).
+// Перерисовка только при изменении сигнатуры (where правилом поля ввода
+// участника не теряет фокус). Таблица лидеров живёт вне сменной
+// перерисовки: так техника FLIP сравнивает позиции строк между кадрами.
 import { h } from "../../shared/dom.js";
 import { State, isStaff } from "../../core/auth.js";
-import { loadTest } from "../../core/editor.js";
 import {
   subscribeRoom, openQuestion, closeQuestion, saveAnswer, closeRoom,
-  questionDurationSec
+  questionDurationSec, sendReaction, subscribeReactions
 } from "../../core/rooms.js";
 import {
-  roomSignature, questionTimeMs, answeredCount
+  questionTimeMs, answeredCount, myAnswerVerdict
 } from "../../core/rooms-logic.js";
 import {
   db, doc, getDoc, onSnapshot, collection
 } from "../../shared/firebase.js";
+import { loadPublicProfiles } from "../../core/profile.js";
+import { avatarPreset } from "../../shared/avatars.js";
+import { play, soundEnabled, setSoundEnabled, vibrate } from "../../shared/sound.js";
+import { REACTIONS } from "../../shared/reactions.js";
 import { icons } from "../../shared/icons.js";
 import { toast } from "../components/toast.js";
 
 let unsubs = [];
-let autoTimer = null;
+let autoTimer = null;   // автозакрытие у ведущего
+let tickTimer = null;   // звук последних 5 секунд
 let pageRef = null;
+let leaderRef = null;
+let reactionRef = null;
+let floatsRef = null;
+let confettiTimer = null;
 const autoClosed = new Set();
 let lastSignature = null;
+let lastBoardSig = null;
 let local = null;
+
+// Обратный замеченный предыдущее «событийное» состояние комнаты.
+let prev = null;
+// Задержки показанных реакций: uid → atMs последней показанной.
+let shownReactions = new Map();
+// Ранг строки (uid → индекс прошлого кадра) для значков «↑2/↓1».
+let lastRanks = null;
+let lastScores = null; // uid → прошлый счёт (count-up)
+let lastReactionTs = 0; // локальный троттлинг отправки реакций
+let profilesLoaded = false;
 
 function reset() {
   unsubs.forEach(fn => { try { fn(); } catch (e) { /* уже отписаны */ } });
   unsubs = [];
-  if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+  stopInterval(autoTimer); autoTimer = null;
+  stopInterval(tickTimer); tickTimer = null;
+  if (confettiTimer) { clearTimeout(confettiTimer); confettiTimer = null; }
   autoClosed.clear();
   lastSignature = null;
+  lastBoardSig = null;
+  lastRanks = null;
+  lastScores = null;
+  shownReactions = new Map();
+  prev = null;
+  lastReactionTs = 0;
+  profilesLoaded = false;
   pageRef = null;
-  local = { room: null, players: [], scores: [], reveals: {}, test: null, keys: null, receivedMs: 0, code: "" };
+  leaderRef = null;
+  local = { room: null, players: [], scores: [], reveals: {}, reactions: [], profiles: new Map(), test: null, keys: null, receivedMs: 0, code: "" };
 }
 reset();
+
+function stopInterval(timer) {
+  try { clearInterval(timer); } catch (e) { /* уже остановлен */ }
+}
 
 export function cleanup() {
   reset();
@@ -49,11 +82,25 @@ function toMs(value) {
   return Number.isNaN(date.getTime()) ? null : date.getTime();
 }
 
+function qStartsMs(room) {
+  const out = {};
+  for (const qid of Object.keys((room?.qStarts || {}))) {
+    const ms = toMs(room.qStarts[qid]);
+    if (ms) out[qid] = ms;
+  }
+  return out;
+}
+
 function formatClock(remainingMs) {
   const total = Math.max(0, Math.ceil(remainingMs / 1000));
   const mm = String(Math.floor(total / 60)).padStart(2, "0");
   const ss = String(total % 60).padStart(2, "0");
   return `${mm}:${ss}`;
+}
+
+function reducedMotion() {
+  return typeof matchMedia === "function"
+    && matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 function role() {
@@ -74,7 +121,6 @@ function signature() {
   const myAnswer = room?.phase === "opened" && room?.currentQuestionId
     ? my?.answers?.[String(room.currentQuestionId)]
     : null;
-  const board = (local.scores || []).map(s => `${String(s.uid).slice(0, 6)}:${s.score ?? 0}`).join(",");
   const revealId = room?.phase === "closed" && room?.currentQuestionId
     ? (local.reveals?.[String(room.currentQuestionId)] ? "on" : "off")
     : "-";
@@ -83,14 +129,15 @@ function signature() {
     .map(p => `${String(p.uid).slice(0, 6)}:${Object.keys(p.answers || {}).length}`)
     .sort()
     .join(",");
+  const ids = (local.players || []).map(p => String(p.uid).slice(0, 6)).sort().join(",");
   return [
     room ? room.status : "no-room",
     String(room?.currentQuestionId ?? ""),
     String(room?.phase ?? ""),
     String(room?.qStartedMs ?? ""),
     String(local.players.length),
+    `ids=${ids}`,
     `answers=${answers}`,
-    `board=${board}`,
     `reveal=${revealId}`,
     `me=${myAnswer != null ? 1 : 0}`,
     `role=${role()}`,
@@ -108,72 +155,13 @@ function openMsLeft() {
   return started + duration * 1000 - Date.now();
 }
 
-export default async function RoomPage() {
-  const page = h("div", { class: "page room-page" });
-  const codeRaw = decodeURIComponent((State.routeParam || "").split("/")[0] || "");
-
-  let code = "";
-  try {
-    const probe = await probeRoom(codeRaw);
-    if (!probe) {
-      page.appendChild(notFoundPanel());
-      return page;
-    }
-    code = probe.id;
-    local.code = code;
-    local.room = { ...probe, id: probe.id };
-    local.test = await loadTestPublic(probe.testId);
-    if (probe.hostId === State.user.uid && isStaff()) {
-      local.keys = await loadKeys(probe.testId);
-    }
-  } catch (err) {
-    console.error("Комната:", err);
-    page.appendChild(errorPanel(err));
-    return page;
-  }
-
-  // Подписки. Каждый снапшот обновляет состояние и дергает render(),
-  // который перерисовывает экран только при смене сигнатуры.
-  const wake = () => scheduleRender(page);
-  unsubs.push(subscribeRoom(code, {
-    onRoom: room => {
-      local.room = room ? { ...room, qStartedMs: toMs(room.qStartedAt) } : null;
-      local.receivedMs = Date.now();
-      wake();
-    },
-    onPlayers: players => { local.players = players; wake(); },
-    onError: error => console.error("Комната snapshot:", error)
-  }));
-
-  unsubs.push(onSnapshot(
-    collection(db, "rooms", code, "scores"),
-    snapshot => {
-      local.scores = snapshot.docs.map(item => ({ uid: item.id, ...item.data() }));
-      wake();
-    },
-    error => console.error("scores snapshot:", error)
-  ));
-
-  unsubs.push(onSnapshot(
-    collection(db, "rooms", code, "reveals"),
-    snapshot => {
-      local.reveals = {};
-      snapshot.docs.forEach(item => { local.reveals[item.id] = item.data(); });
-      wake();
-    },
-    error => console.error("reveals snapshot:", error)
-  ));
-
-  page.appendChild(statusBar());
-  scheduleRender(page);
-  return page;
-}
+// ---------- Загрузка данных ----------
 
 // ---------- Загрузка данных ----------
 
 async function probeRoom(codeRaw) {
   const code = String(codeRaw || "").toUpperCase();
-  if (!/^[A-Z2-9]{6}$/.test(code)) return null;
+  if (!/^[A-HJ-NP-Z2-9]{6}$/.test(code)) return null;
   const snap = await getDoc(doc(db, "rooms", code));
   return snap.exists() ? { id: snap.id, ...snap.data() } : null;
 }
@@ -196,6 +184,135 @@ async function loadKeys(testId) {
   return {};
 }
 
+function soundToggle() {
+  const btn = h("button", {
+    type: "button",
+    class: "btn icon-btn room-sound-btn",
+    "aria-pressed": String(soundEnabled()),
+    title: soundEnabled() ? "Выключить звук" : "Включить звук",
+    "aria-label": soundEnabled() ? "Выключить звук" : "Включить звук"
+  }, soundEnabled() ? "🔊" : "🔇");
+  btn.addEventListener("click", () => {
+    const on = setSoundEnabled(!soundEnabled());
+    btn.textContent = on ? "🔊" : "🔇";
+    btn.setAttribute("aria-pressed", String(on));
+    btn.title = btn["aria-label"] = on ? "Выключить звук" : "Включить звук";
+    if (on) play("start");
+  });
+  return btn;
+}
+
+async function loadProfiles(orgId) {
+  if (profilesLoaded || !local.room?.orgId && !orgId) return;
+  const uids = (local.players || []).map(p => p.uid);
+  if (!uids.length) return;
+  profilesLoaded = true;
+  try {
+    const profiles = await loadPublicProfiles(uids, local.room?.orgId || orgId);
+    profiles.forEach(p => local.profiles.set(p.id, p));
+  } catch (err) {
+    console.error("Аватары участников:", err);
+    profilesLoaded = false;
+  }
+}
+
+export default async function RoomPage() {
+  const rawRoute = decodeURIComponent((State.routeParam || ""));
+  const parts = rawRoute.split("/");
+  const codeRaw = parts[0] || "";
+  const isScreen = parts[1] === "screen";
+  const page = h("div", {
+    class: "page room-page" + (isScreen ? " room-screen-page" : "")
+  });
+
+  let code = "";
+  try {
+    const probe = await probeRoom(codeRaw);
+    if (!probe) {
+      page.appendChild(notFoundPanel());
+      return page;
+    }
+    code = probe.id;
+    local.code = code;
+    local.room = { ...probe, id: probe.id };
+    local.test = await loadTestPublic(probe.testId);
+    if (probe.hostId === State.user.uid && isStaff()) {
+      local.keys = await loadKeys(probe.testId);
+    }
+  } catch (err) {
+    console.error("Комната:", err);
+    page.appendChild(errorPanel(err));
+    return page;
+  }
+
+  // Экран проектора: только ведущий.
+  if (isScreen && role() !== "host") {
+    page.appendChild(h("div", { class: "panel" },
+      h("div", { class: "empty-state" },
+        h("h2", {}, "Экран доступен только ведущему"),
+        h("p", { class: "muted" }, "Откройте страницу под учётной записью ведущего комнаты."),
+        h("a", { class: "btn secondary", href: "#/" }, "На главную"))
+    ));
+    return page;
+  }
+
+  // Подписки. Каждый снапшот обновляет состояние и дергает wake():
+  // сначала события звуков, затем перерисовка по сигнатуре.
+  const wake = () => { onStateUpdate(page, isScreen); };
+  unsubs.push(subscribeRoom(code, {
+    onRoom: room => {
+      local.room = room ? { ...room, qStartedMs: toMs(room.qStartedAt) } : null;
+      local.receivedMs = Date.now();
+      wake();
+    },
+    onPlayers: players => {
+      local.players = players;
+      loadProfiles().catch(err => console.error(err));
+      wake();
+    },
+    onError: error => console.error("Комната snapshot:", error)
+  }));
+
+  unsubs.push(onSnapshot(
+    collection(db, "rooms", code, "scores"),
+    snapshot => {
+      local.scores = snapshot.docs.map(item => ({ uid: item.id, ...item.data() }));
+      wake();
+    },
+    error => console.error("scores snapshot:", error)
+  ));
+
+  unsubs.push(onSnapshot(
+    collection(db, "rooms", code, "reveals"),
+    snapshot => {
+      local.reveals = {};
+      snapshot.docs.forEach(item => { local.reveals[item.id] = item.data(); });
+      wake();
+    },
+    error => console.error("reveals snapshot:", error)
+  ));
+
+  // Реакции: свои шлём кнопками, чужие показываем всплывающими эмодзи.
+  unsubs.push(subscribeReactions(
+    code,
+    reactions => { local.reactions = reactions; wake(); },
+    error => console.error("reactions snapshot:", error)
+  ));
+
+  if (!isScreen) page.appendChild(statusBar());
+  const leaderHost = h("section", { class: "room-leaderboard-host", "aria-label": "Таблица результатов" });
+  const reactionBar = h("div", { class: "room-reaction-bar" });
+  const floats = h("div", { class: "room-reaction-floats", "aria-hidden": "true" });
+  page.appendChild(leaderHost);
+  page.appendChild(reactionBar);
+  page.appendChild(floats);
+  leaderRef = leaderHost;
+  reactionRef = reactionBar;
+  floatsRef = floats;
+  scheduleRender(page);
+  return page;
+}
+
 // ---------- Каркас ----------
 
 function statusBar() {
@@ -211,28 +328,398 @@ function statusBar() {
           : "Вопрос закрыт";
   const me = myPlayer();
   const suffix = me ? me.observer ? " · вы наблюдатель" : " · вы участник" : "";
-  return h("div", { class: "room-status", role: "status" }, text + suffix);
+  const bar = h("div", { class: "room-status", role: "status" });
+  bar.append(text + suffix, soundToggle());
+  return bar;
 }
 
 function scheduleRender(page) {
   if (page) pageRef = page;
   const target = page || pageRef;
   const sig = signature();
-  if (sig === lastSignature) return;
-  lastSignature = sig;
-  if (target) renderPage(target);
-  manageAutoClose(target);
+  if (sig !== lastSignature) {
+    lastSignature = sig;
+    if (target) renderPage(target);
+    manageAutoClose();
+  }
+  updateLeaderboard();
+  updateReactionBar();
+  showFloats();
+  ensureTickTimer();
 }
 
 function renderPage(page) {
   const existing = page.querySelector(".room-view");
   const next = buildView();
   if (existing) existing.replaceWith(next);
-  else page.appendChild(next);
+  else page.insertBefore(next, page.querySelector(".room-leaderboard-host"));
+  updateLeaderboard();
+}
+
+// Снапшоты → события (звуки, вибрация, вспышки) → реакция на статусы.
+function onStateUpdate(page, isScreen) {
+  const room = local.room;
+  const now = { status: room?.status || "", phase: room?.phase || "", qid: room?.currentQuestionId || "" };
+  const ids = (local.players || []).map(p => p.uid).sort().join(",");
+  const myRank = rankOf(myPlayer()?.uid);
+  const reveal = room?.phase === "closed" ? room && local.reveals?.[now.qid] : null;
+  const mine = myPlayer()?.answers?.[now.qid];
+
+  if (prev) {
+    const oldIds = prev.ids.split(",").filter(Boolean);
+    const newIds = ids.split(",").filter(Boolean);
+    // Вход в комнату: у кого-то (включая меня) появился uid.
+    if (newIds.some(uid => !oldIds.includes(uid))) {
+      play("join");
+    }
+    // Начало вопроса.
+    if (now.phase === "opened" && now.qid && prev.qid !== now.qid) {
+      play("start");
+    }
+    // Верность моего ответа: только когда вопрос закрылся и есть reveal.
+    if (reveal && !prev.reveal) {
+      const verdict = myAnswerVerdict(reveal, mine);
+      if (verdict === true) {
+        play("correct"); vibrate("correct"); flash(page, "room-flash-correct");
+      } else if (verdict === false) {
+        play("wrong"); vibrate("wrong"); flash(page, "room-flash-wrong", true);
+      }
+    }
+    // Подъём моего места.
+    if (myRank != null && prev.rank != null && myRank < prev.rank) {
+      play("up");
+    }
+    // Финал комнаты.
+    if (room?.status === "closed" && prev.status === "active") {
+      play("final");
+      runConfetti(page);
+    }
+  }
+  prev = { ...now, ids, reveal: Boolean(reveal), rank: myRank, status: room?.status || "" };
+}
+
+// rankOf: место моего uid в таблице (по очкам).
+function rankOf(uid) {
+  if (!uid || !local.scores?.length) return null;
+  const sorted = [...local.scores].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  const index = sorted.findIndex(row => row.uid === uid);
+  return index === -1 ? null : index + 1;
+}
+
+// Мой ответ верен? — myAnswerVerdict из core/rooms-logic.js.
+
+function flash(page, className, shake = false) {
+  if (!page || reducedMotion()) return;
+  page.classList.remove("room-flash-correct", "room-flash-wrong", "room-shake");
+  requestAnimationFrame(() => {
+    page.classList.add(className);
+    if (shake) page.classList.add("room-shake");
+    setTimeout(() => {
+      page.classList.remove("room-flash-correct", "room-flash-wrong", "room-shake");
+    }, 700);
+  });
+}
+
+// Тик последних 5 секунд — только если вопрос ограничен по времени.
+function ensureTickTimer() {
+  const left = openMsLeft();
+  if (left === null) {
+    if (tickTimer) { stopInterval(tickTimer); tickTimer = null; }
+    return;
+  }
+  if (tickTimer) return;
+  tickTimer = setInterval(() => {
+    const remaining = openMsLeft();
+    if (remaining === null) { stopInterval(tickTimer); tickTimer = null; return; }
+    if (remaining > 0 && Math.ceil(remaining / 1000) <= 5) play("tick");
+  }, 1000);
+}
+
+// ---------- Реакции ----------
+
+function isScreenRoute() {
+  return decodeURIComponent((State.routeParam || "")).split("/")[1] === "screen";
+}
+
+function updateReactionBar() {
+  const bar = reactionRef;
+  if (!bar) return;
+  bar.hidden = isScreenRoute();
+  bar.textContent = "";
+  const whose = role();
+  if (!whose || !local.room || local.room.status === "closed") return;
+  bar.appendChild(h("span", { class: "room-reaction-label" }, "Реакция:"));
+  REACTIONS.forEach(emoji => {
+    bar.appendChild(h("button", {
+      type: "button",
+      class: "room-reaction-btn",
+      "aria-label": `Реакция ${emoji}`,
+      onclick: () => {
+        const at = Date.now();
+        if (at - lastReactionTs < 1100) return; // правила требуют > 1 с
+        lastReactionTs = at;
+        sendReaction(local.code, emoji).catch(err => {
+          console.error("Реакция:", err);
+          toast("Реакцию не отправили (не чаще раза в секунду)", "error");
+        });
+      }
+    }, emoji));
+  });
+}
+
+// Всплывающие эмодзи: показываем только новые (uid с новым at).
+function showFloats() {
+  const host = floatsRef;
+  if (!host) return;
+  for (const item of local.reactions || []) {
+    const atMs = item.atMs || 0;
+    if (atMs <= (shownReactions.get(item.uid) || 0)) continue;
+    shownReactions.set(item.uid, atMs);
+    const el = h("span", { class: "room-float-emoji" }, item.emoji || "👍");
+    el.style.left = `${30 + Math.abs(hashUid(item.uid)) % 40}%`;
+    host.appendChild(el);
+    setTimeout(() => el.remove(), 2200);
+  }
+}
+
+function hashUid(uid) {
+  let acc = 0;
+  for (const ch of String(uid)) acc = (acc * 31 + ch.charCodeAt(0)) | 0;
+  return acc;
+}
+
+// ---------- Таблица лидеров: FLIP, place badge, count-up ----------
+
+function boardRows() {
+  return [...(local.scores || [])].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)
+    || String(a.name).localeCompare(String(b.name), "ru"));
+}
+
+function leaderSignature(rows) {
+  return rows.map((row, index) =>
+    `${row.uid}:${index}:${row.score ?? 0}:${row.correctCount ?? 0}`).join(",");
+}
+
+function updateLeaderboard() {
+  const host = leaderRef;
+  if (!host) return;
+  // На проекторе таблица построена в screenView — здесь не дублируем.
+  if (isScreenRoute()) return;
+  const room = local.room;
+  const roleHere = role();
+
+  // Участнику таблица — только по настройке теста showLeaderboard.
+  const rows = Boolean(room)
+    && (roleHere !== "player" || room.showLeaderboard === true)
+    ? boardRows()
+    : [];
+  if (!rows.length) {
+    host.classList.add("room-leaderboard-empty");
+    if (host.textContent) host.textContent = "";
+    lastBoardSig = null;
+    lastRanks = null;
+    return;
+  }
+  host.classList.remove("room-leaderboard-empty");
+  const sig = leaderSignature(rows);
+  if (host.querySelector("table") && sig === lastBoardSig) return;
+
+  // FLIP: запомнить позиции ДО перерисовки.
+  const oldRects = new Map();
+  host.querySelectorAll("tr[data-uid]").forEach(row => {
+    oldRects.set(row.getAttribute("data-uid"), row.getBoundingClientRect());
+  });
+  const oldRanks = oldRanksMap(host);
+  const oldScores = lastScores || new Map();
+
+  // Перерисовка.
+  host.textContent = "";
+  const table = h("table", { class: "table room-leader-table" },
+    h("thead", {}, h("tr", {},
+      h("th", {}, "#"), h("th", {}, "Участник"),
+      h("th", {}, "Верно"), h("th", {}, "Баллы"))),
+    h("tbody", {})
+  );
+  const newRanks = new Map();
+  rows.forEach((row, index) => {
+    newRanks.set(row.uid, index + 1);
+    table.querySelector("tbody").appendChild(leaderRow(row, index, oldRanks, oldScores));
+  });
+  host.appendChild(table);
+  lastBoardSig = sig;
+  lastRanks = newRanks;
+  lastScores = new Map(rows.map(row => [row.uid, row.score ?? 0]));
+
+  animateFlip(host, oldRects);
+}
+
+function leaderRow(entry, index, oldRanks, oldScores) {
+  const oldRank = oldRanks?.get(entry.uid);
+  const delta = typeof oldRank === "number" ? oldRank - (index + 1) : 0;
+  const rankCell = h("td", {},
+    String(index + 1),
+    delta !== 0 && !reducedMotion()
+      ? h("span", { class: "leader-move" }, delta > 0 ? `↑${delta}` : `↓${-delta}`)
+      : null);
+  // Столбец очков: count-up от предыдущего значения.
+  const oldScore = oldScores.get(entry.uid);
+  const targetScore = entry.score ?? 0;
+  const scoreCell = h("td", { class: "leader-score" }, "");
+  if (typeof oldScore === "number" && oldScore !== targetScore && !reducedMotion()) {
+    scoreCell.appendChild(countUp(targetScore, oldScore, entry.max ?? 0));
+  } else {
+    scoreCell.textContent = `${targetScore} из ${entry.max ?? 0}`;
+  }
+  return h("tr", { "data-uid": entry.uid },
+    rankCell,
+    h("td", {}, avatarChip(entry), h("b", {}, entry.name || "Участник")),
+    h("td", {}, `${entry.correctCount ?? 0}`),
+    scoreCell
+  );
+}
+
+function countUp(target, from, max) {
+  const span = h("span", { class: "score-countup" }, `${from} из ${max}`);
+  const start = performance.now();
+  const dur = 600;
+  const step = (at) => {
+    const progress = Math.min(1, (at - start) / dur);
+    span.textContent = `${Math.round(from + (target - from) * progress)} из ${max}`;
+    if (progress < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+  setTimeout(() => { span.textContent = `${target} из ${max}`; }, dur + 50);
+  return span;
+}
+
+function oldRanksMap(host) {
+  const out = new Map();
+  let index = 0;
+  host.querySelectorAll("tr[data-uid]").forEach(row => {
+    out.set(row.getAttribute("data-uid"), ++index);
+  });
+  return out;
+}
+
+// FLIP: строки поменялись местами — старые позиции к новым прыгают
+// плавным transform 600 мс.
+function animateFlip(host, oldRects) {
+  if (reducedMotion() || !oldRects.size) return;
+  const rows = host.querySelectorAll("tr[data-uid]");
+  rows.forEach(row => {
+    const uid = row.getAttribute("data-uid");
+    const beforeRect = oldRects.get(uid);
+    if (!beforeRect) return;
+    const afterRect = row.getBoundingClientRect();
+    const delta = beforeRect.top - afterRect.top;
+    if (Math.abs(delta) < 1) return;
+    row.style.transition = "none";
+    row.style.transform = `translateY(${delta}px)`;
+    requestAnimationFrame(() => {
+      row.style.transition = "transform 600ms ease";
+      row.style.transform = "";
+    });
+  });
+}
+
+// ---------- Аватары ----------
+
+function avatarChip(entry) {
+  const profile = local.profiles.get(entry.uid);
+  const preset = avatarPreset(profile?.avatar);
+  if (preset) {
+    return h("span", {
+      class: "avatar-chip",
+      style: `background:${preset.bg}`,
+      "aria-hidden": "true"
+    }, preset.emoji);
+  }
+  return h("span", { class: "avatar-chip avatar-chip-fallback", "aria-hidden": "true" },
+    (entry.name || "У").trim().slice(0, 1).toUpperCase() || "?");
+}
+
+// ---------- Подиум и конфетти ----------
+
+function podiumPanel() {
+  const rows = boardRows().slice(0, 3);
+  if (!rows.length) return null;
+  const medals = ["🥇", "🥈", "🥉"];
+  const heights = ["podium-first", "podium-second", "podium-third"];
+  return h("div", { class: "panel room-podium" },
+    h("div", { class: "panel-head" }, h("h2", {}, "Итоги")),
+    h("div", { class: "podium-row" },
+      rows.map((row, index) => h("div", { class: `podium ${heights[index]}` },
+        h("div", { class: "podium-medal", "aria-hidden": "true" }, medals[index]),
+        avatarChip(row),
+        h("div", { class: "podium-name" }, row.name || row.uid),
+        h("div", { class: "podium-score" }, `${row.score ?? 0} б.`)
+      ))
+    )
+  );
+}
+
+// Confetti на canvas без библиотек: до 120 частиц, остановка через 4 с.
+function runConfetti(page) {
+  if (!page || reducedMotion()) return;
+  const canvas = h("canvas", { class: "room-confetti", "aria-hidden": "true" });
+  page.appendChild(canvas);
+  const resize = () => {
+    canvas.width = page.clientWidth;
+    canvas.height = page.clientHeight;
+  };
+  resize();
+  const colors = ["#F44336", "#FFC107", "#4CAF50", "#2196F3", "#9C27B0", "#FF9800"];
+  const particles = [];
+  const rnd = Math.random;
+  for (let i = 0; i < 120; i++) {
+    particles.push({
+      x: rnd() * canvas.width,
+      y: -20 - rnd() * canvas.height * 0.3,
+      vx: (rnd() - 0.5) * 2,
+      vy: 2 + rnd() * 3,
+      size: 4 + rnd() * 6,
+      rot: rnd() * Math.PI,
+      vr: (rnd() - 0.5) * 0.2,
+      color: colors[Math.floor(rnd() * colors.length)],
+      shape: rnd() < 0.5 ? "rect" : "circle"
+    });
+  }
+  const ctx2d = canvas.getContext("2d");
+  const start = performance.now();
+  const finishAfter = 4000;
+  const draw = (at) => {
+    if (at - start > finishAfter) {
+      canvas.remove();
+      return;
+    }
+    ctx2d.clearRect(0, 0, canvas.width, canvas.height);
+    for (const p of particles) {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.rot += p.vr;
+      if (p.y > canvas.height + 20) { p.y = -20; p.x = rnd() * canvas.width; }
+      ctx2d.save();
+      ctx2d.translate(p.x, p.y);
+      ctx2d.rotate(p.rot);
+      ctx2d.fillStyle = p.color;
+      if (p.shape === "rect") {
+        ctx2d.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+      } else {
+        ctx2d.beginPath();
+        ctx2d.arc(0, 0, p.size / 2, 0, Math.PI * 2);
+        ctx2d.fill();
+      }
+      ctx2d.restore();
+    }
+    if (confettiTimer !== null) requestAnimationFrame(draw);
+  };
+  requestAnimationFrame(draw);
+  // 4 секунды дальше — canvas подчищаем и без rAF-цепочки.
+  confettiTimer = setTimeout(() => { confettiTimer = null; canvas.remove(); }, finishAfter + 100);
 }
 
 function notFoundPanel() {
-  return h("div", { class: "panel" },
+  return h("div", { class: "panel room-view" },
     h("div", { class: "empty-state" },
       h("div", { class: "empty-state-icon", innerHTML: icons.users }),
       h("h2", {}, "Комната не найдена"),
@@ -243,7 +730,7 @@ function notFoundPanel() {
 }
 
 function errorPanel(err) {
-  return h("div", { class: "panel" },
+  return h("div", { class: "panel room-view" },
     h("div", { class: "empty-state" },
       h("div", { class: "empty-state-icon", innerHTML: icons.users }),
       h("h2", {}, "Не удалось открыть комнату"),
@@ -284,29 +771,10 @@ function questionPanel(question, { showAnswer = false } = {}) {
   return panel;
 }
 
-function scoresTable() {
-  if (!local.scores.length) return null;
-  // Ведущему и наблюдателям таблица нужна всегда; участникам — по
-  // настройке теста showLeaderboard.
-  const roleHere = role();
-  if (roleHere === "player" && local.room?.showLeaderboard !== true) return null;
-  const rows = [...local.scores]
-    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || String(a.name).localeCompare(String(b.name), "ru"));
-  return h("div", { class: "panel" },
-    h("div", { class: "panel-head" }, h("h2", {}, "Таблица результатов")),
-    h("table", { class: "table" },
-      h("thead", {}, h("tr", {},
-        h("th", {}, "#"), h("th", {}, "Участник"), h("th", {}, "Верно"), h("th", {}, "Баллы"))),
-      h("tbody", {},
-        rows.map((entry, index) => h("tr", {},
-          h("td", {}, String(index + 1)),
-          h("td", {}, entry.name || "Участник"),
-          h("td", {}, `${entry.correctCount ?? 0}`),
-          h("td", {}, `${entry.score ?? 0} из ${entry.max ?? 0}`)
-        ))
-      )
-    )
-  );
+// Результаты комнаты: подиум при закрытии.
+function roomResults() {
+  if (local.room?.status !== "closed") return null;
+  return podiumPanel();
 }
 
 // ---------- Вид ведущего ----------
@@ -321,7 +789,9 @@ function hostView() {
       h("div", { class: "eyebrow" }, "Live-комната · вы ведущий"),
       h("h1", {}, room.testTitle || "Комната"),
       h("p", { class: "page-sub" }, `Код комнаты: `),
-    )
+    ),
+    h("a", { class: "btn secondary", href: `#room/${room.code || room.id}/screen` },
+      "Экран проектора")
   ));
   // Код крупно, чтобы продемонстрировать на экране/камере.
   wrap.appendChild(h("div", { class: "room-code-badge" }, room.code || room.id));
@@ -358,6 +828,7 @@ function hostView() {
     if (reveal) wrap.appendChild(revealPanel(reveal, question, { mine: null }));
     if (room.phase === "opened") {
       const counter = answeredCount(local.players.filter(p => !p.observer), currentId);
+      const left = openMsLeft();
       const controls = h("div", { class: "panel" },
         h("div", { class: "panel-head" },
           h("h2", {}, "Ответили"),
@@ -406,8 +877,8 @@ function hostView() {
     }
   }
 
-  const board = scoresTable();
-  if (board) wrap.appendChild(board);
+  const results = roomResults();
+  if (results) wrap.appendChild(results);
   return wrap;
 }
 
@@ -418,7 +889,11 @@ async function manualClose(room) {
       index: Number(room.currentQuestionId),
       keys: local.keys,
       test: local.test,
-      players: local.players
+      players: local.players,
+      speed: {
+        qDurationSec: questionDurationSec(local.test, room.settings),
+        qStarts: qStartsMs(room)
+      }
     });
     // Снапшоты обновят состояние; принудительно перерисуем, чтобы
     // кнопка «Следующий вопрос» появилась сразу.
@@ -432,7 +907,7 @@ async function manualClose(room) {
 
 // Автозакрытие: раз в секунду проверяем, истёк ли вопрос; срабатывает
 // один раз на вопрос, кнопка «Закрыть» при сбое остаётся рабочей.
-function manageAutoClose(page) {
+function manageAutoClose() {
   if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
   if (role() !== "host") return;
   const room = local.room;
@@ -485,8 +960,8 @@ function playerView() {
     wrap.appendChild(h("div", { class: "panel" },
       h("div", { class: "empty-state" }, h("h2", {}, "Комната закрыта"), h("p", { class: "muted" }, "Ведущий завершил сеанс."))
     ));
-    const board = scoresTable();
-    if (board) wrap.appendChild(board);
+    const results = roomResults();
+    if (results) wrap.appendChild(results);
     return wrap;
   }
 
@@ -496,6 +971,14 @@ function playerView() {
     if (m) wrap.appendChild(m);
   } else if (myAnswer != null && reveal) {
     wrap.appendChild(revealPanel(reveal, question, { mine: myAnswer }));
+    const verdict = myAnswerVerdict(reveal, myAnswer);
+    if (verdict === true || verdict === false) {
+      // Всплывающий «+N»: базовые очки вопроса.
+      const bonus = h("div", { class: "room-plus", "aria-hidden": "true" },
+        verdict ? `+${question.points || 1}` : "0");
+      wrap.appendChild(bonus);
+      setTimeout(() => bonus.remove(), 1500);
+    }
   } else if (myAnswer != null) {
     wrap.appendChild(waitPanel("Ответ принят. Ждём закрытия вопроса."));
     const m = materialButton();
@@ -503,9 +986,6 @@ function playerView() {
   } else {
     wrap.appendChild(answerForm(question, currentId));
   }
-
-  const board = scoresTable();
-  if (board) wrap.appendChild(board);
   return wrap;
 }
 
@@ -647,6 +1127,15 @@ function observerView() {
   const question = currentId !== null ? questions[Number(currentId)] : null;
   const reveal = room.phase === "closed" ? local.reveals?.[currentId] : null;
 
+  if (!room || room.status !== "active") {
+    wrap.appendChild(h("div", { class: "panel" },
+      h("div", { class: "empty-state" }, h("h2", {}, "Комната закрыта"))
+    ));
+    const results = roomResults();
+    if (results) wrap.appendChild(results);
+    return wrap;
+  }
+
   if (!question) {
     wrap.appendChild(waitPanel("Ведущий пока не задал вопрос."));
   } else if (reveal) {
@@ -661,8 +1150,6 @@ function observerView() {
       )
     ));
   }
-  const board = scoresTable();
-  if (board) wrap.appendChild(board);
   return wrap;
 }
 
@@ -687,9 +1174,78 @@ function revealPanel(reveal, question, { mine }) {
   );
 }
 
+// ---------- Экран проектора ----------
+
+// #room/CODE/screen: только ведущий, крупные шрифты, вопрос, таймер,
+// варианты, таблица. Кнопок управления нет — они остаются на телефоне
+// ведущего. Спам реакции и всплывающие эмодзи работают и здесь.
+function screenView() {
+  const room = local.room;
+  const test = local.test;
+  const questions = test?.questions || [];
+  const wrap = h("div", { class: "room-view room-screen-view" });
+
+  const currentId = room?.phase === "opened" || room?.phase === "closed"
+    ? String(room.currentQuestionId)
+    : null;
+  const question = currentId !== null ? questions[Number(currentId)] : null;
+  const reveal = room?.phase === "closed" ? local.reveals?.[currentId] : null;
+  const left = openMsLeft();
+
+  wrap.appendChild(h("div", { class: "screen-top" },
+    h("div", { class: "screen-title" },
+      room?.status === "closed"
+        ? "Итоги комнаты"
+        : room?.testTitle || "Комната"),
+    h("div", { class: "screen-code" }, room?.code || local.code || ""),
+    left && left > 0
+      ? h("div", { class: "screen-timer" }, formatClock(left))
+      : h("div", { class: "screen-timer screen-timer-empty" }, "")
+  ));
+
+  if (room?.status === "closed") {
+    const podium = podiumPanel();
+    if (podium) wrap.appendChild(podium);
+  } else if (!question) {
+    wrap.appendChild(h("div", { class: "screen-wait" }, "Ожидание вопроса…"));
+  } else {
+    wrap.appendChild(h("div", { class: "screen-question panel" },
+      h("h2", { class: "screen-question-text" }, question.text || "Вопрос без текста"),
+      reveal ? h("div", { class: "screen-reveal" }, "Правильный ответ: ") : null,
+      Array.isArray(question.options) && question.options.length
+        ? h("ul", { class: "screen-options" },
+            question.options.map((option, index) => h("li", {
+              class: "screen-option" + (reveal && reveal.reveal?.correct?.includes(index) ? " correct" : "")
+            }, option.text || "—")))
+        : reveal && reveal.reveal?.type === "short"
+          ? h("div", { class: "screen-option correct" }, String(reveal.reveal.answer || ""))
+          : null,
+      reveal?.reveal?.explanation
+        ? h("p", { class: "screen-explanation" }, reveal.reveal.explanation)
+        : null
+    ));
+  }
+
+  const rows = boardRows();
+  if (rows.length) {
+    wrap.appendChild(h("div", { class: "screen-board" },
+      rows.slice(0, 6).map((row, index) => h("div", { class: "screen-row" },
+        h("span", { class: "screen-rank" }, `${index + 1}.`),
+        avatarChip(row),
+        h("span", { class: "screen-name" }, row.name || row.uid),
+        h("span", { class: "screen-score" }, `${row.score ?? 0} б.`)
+      ))
+    ));
+  }
+  return wrap;
+}
+
 // ---------- Роутер вида ----------
 
 function buildView() {
+  // Проектор рисуется всё тем же buildView: разбор через локальную метку.
+  const rawRoute = decodeURIComponent((State.routeParam || ""));
+  if (rawRoute.split("/")[1] === "screen") return screenView();
   const current = role();
   if (current === "host") return hostView();
   if (current === "observer") return observerView();

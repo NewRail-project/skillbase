@@ -185,6 +185,50 @@ function profileMocks(uid, role, orgId = ORG, extra = {}) {
     ];
 }
 
+// Моки комнаты r1: ведущий teacher1, вопрос открыт на номер questionId.
+function roomMocks(questionId = "3", phase = "opened") {
+    return [
+        {
+            function: "get",
+            args: [{ exactValue: `${DB}/rooms/r1` }],
+            result: {
+                value: {
+                    data: {
+                        hostId: "teacher1",
+                        orgId: ORG,
+                        status: "active",
+                        phase,
+                        currentQuestionId: questionId
+                    }
+                }
+            }
+        },
+        {
+            function: "exists",
+            args: [{ exactValue: `${DB}/rooms/r1/players/student1` }],
+            result: { value: true }
+        }
+    ];
+}
+
+// Моки документа players/{uid} для playerDoc() внутри /answers/.
+function playerMock(uid, observer) {
+    const path = `${DB}/rooms/r1/players/${uid}`;
+    const data = { uid, playerId: uid, observer, name: "Test User" };
+    return [
+        {
+            function: "exists",
+            args: [{ exactValue: path }],
+            result: { value: true }
+        },
+        {
+            function: "get",
+            args: [{ exactValue: path }],
+            result: { value: { data } }
+        }
+    ];
+}
+
 function testDoc(overrides = {}) {
     return {
         id: "t1",
@@ -548,84 +592,56 @@ function testCases() {
             ]
         },
         {
-            name: "Комнаты: участник пишет свой ответ на текущий вопрос",
+            name: "Комнаты: участник пишет ответ на текущий вопрос",
             expectation: "ALLOW",
             request: {
                 auth: { uid: "student1" },
-                path: `${DB}/rooms/r1/players/student1`,
-                method: "update",
-                requestResource: true
-            },
-            existingDoc: {
-                uid: "student1", playerId: "student1", observer: false
-            },
-            newDoc: {
-                uid: "student1", playerId: "student1", observer: false,
-                answers: { "3": "A" }
+                path: `${DB}/rooms/r1/players/student1/answers/3`,
+                method: "create",
+                resource: {
+                    data: { answer: "A", at: "2026-01-01T00:00:01Z" }
+                },
+                time: "2026-01-01T00:00:01Z"
             },
             functionMocks: [
                 ...profileMocks("student1", "student"),
-                {
-                    function: "get",
-                    args: [{ exactValue: `${DB}/rooms/r1` }],
-                    result: {
-                        value: {
-                            data: {
-                                hostId: "teacher1",
-                                orgId: ORG,
-                                status: "active",
-                                phase: "opened",
-                                currentQuestionId: "3"
-                            }
-                        }
-                    }
-                },
-                {
-                    function: "exists",
-                    args: [{ exactValue: `${DB}/rooms/r1/players/student1` }],
-                    result: { value: true }
-                }
+                ...roomMocks("3"),
+                ...playerMock("student1", false)
             ]
         },
         {
-            name: "Комнаты: участник не пишет ответ вне открытого вопроса",
+            name: "Комнаты: ответ на не текущий вопрос — отказ",
             expectation: "DENY",
             request: {
                 auth: { uid: "student1" },
-                path: `${DB}/rooms/r1/players/student1`,
-                method: "update",
-                requestResource: true
-            },
-            existingDoc: {
-                uid: "student1", playerId: "student1", observer: false,
-                answers: { "3": "A" }
-            },
-            newDoc: {
-                uid: "student1", playerId: "student1", observer: false,
-                answers: { "3": "B" }
+                path: `${DB}/rooms/r1/players/student1/answers/2`,
+                method: "create",
+                resource: {
+                    data: { answer: "A", at: "2026-01-01T00:00:01Z" }
+                },
+                time: "2026-01-01T00:00:01Z"
             },
             functionMocks: [
                 ...profileMocks("student1", "student"),
-                {
-                    function: "get",
-                    args: [{ exactValue: `${DB}/rooms/r1` }],
-                    result: {
-                        value: {
-                            data: {
-                                hostId: "teacher1",
-                                orgId: ORG,
-                                status: "active",
-                                phase: "opened",
-                                currentQuestionId: "3"
-                            }
-                        }
-                    }
-                },
-                {
-                    function: "exists",
-                    args: [{ exactValue: `${DB}/rooms/r1/players/student1` }],
-                    result: { value: true }
-                }
+                ...roomMocks("3"),
+                ...playerMock("student1", false)
+            ]
+        },
+        {
+            name: "Комнаты: перезапись собственного ответа (update) — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/players/student1/answers/3`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: { answer: "A", at: "2026-01-01T00:00:01Z" },
+            newDoc: { answer: "B", at: "2026-01-01T00:00:02Z" },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...roomMocks("3"),
+                ...playerMock("student1", false)
             ]
         },
         {
@@ -633,40 +649,157 @@ function testCases() {
             expectation: "DENY",
             request: {
                 auth: { uid: "student2" },
-                path: `${DB}/rooms/r1/players/student2`,
-                method: "update",
-                requestResource: true
-            },
-            existingDoc: {
-                uid: "student2", playerId: "student2", observer: true
-            },
-            newDoc: {
-                uid: "student2", playerId: "student2", observer: true,
-                answers: { "3": "A" }
+                path: `${DB}/rooms/r1/players/student2/answers/3`,
+                method: "create",
+                resource: {
+                    data: { answer: "A", at: "2026-01-01T00:00:01Z" }
+                },
+                time: "2026-01-01T00:00:01Z"
             },
             functionMocks: [
                 ...profileMocks("student2", "student"),
-                {
-                    function: "get",
-                    args: [{ exactValue: `${DB}/rooms/r1` }],
-                    result: {
-                        value: {
-                            data: {
-                                hostId: "teacher1",
-                                orgId: ORG,
-                                status: "active",
-                                phase: "opened",
-                                currentQuestionId: "3"
-                            }
-                        }
-                    }
-                },
-                {
-                    function: "exists",
-                    args: [{ exactValue: `${DB}/rooms/r1/players/student2` }],
-                    result: { value: true }
-                }
+                ...roomMocks("3"),
+                ...playerMock("student2", true)
             ]
+        },
+        {
+            name: "Комнаты: at не равен request.time — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/players/student1/answers/3`,
+                method: "create",
+                resource: {
+                    data: { answer: "A", at: "2025-12-31T00:00:00Z" }
+                },
+                time: "2026-01-01T00:00:01Z"
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...roomMocks("3"),
+                ...playerMock("student1", false)
+            ]
+        },
+        {
+            name: "Реакции: участник пишет свой документ с пресетом",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/reactions/student1`,
+                method: "create",
+                resource: {
+                    data: { emoji: "🔥", at: "2026-01-01T00:00:01Z" }
+                },
+                time: "2026-01-01T00:00:01Z"
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...roomMocks("3")
+            ]
+        },
+        {
+            name: "Реакции: чужой документ не пишется",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student2" },
+                path: `${DB}/rooms/r1/reactions/student1`,
+                method: "create",
+                resource: {
+                    data: { emoji: "🔥", at: "2026-01-01T00:00:01Z" }
+                },
+                time: "2026-01-01T00:00:01Z"
+            },
+            functionMocks: [
+                ...profileMocks("student2", "student"),
+                ...roomMocks("3")
+            ]
+        },
+        {
+            name: "Реакции: не из списка пресетов — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/reactions/student1`,
+                method: "create",
+                resource: {
+                    data: { emoji: "🐍", at: "2026-01-01T00:00:01Z" }
+                },
+                time: "2026-01-01T00:00:01Z"
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...roomMocks("3")
+            ]
+        },
+        {
+            name: "Реакции: чаще раза в секунду — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/reactions/student1`,
+                method: "update",
+                requestResource: true,
+                time: "2026-01-01T00:00:02Z"
+            },
+            existingDoc: { emoji: "👍", at: "2026-01-01T00:00:01.5Z" },
+            newDoc: { emoji: "🔥", at: "2026-01-01T00:00:02Z" },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...roomMocks("3")
+            ]
+        },
+        {
+            name: "Реакции: через секунду — можно",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/reactions/student1`,
+                method: "update",
+                requestResource: true,
+                time: "2026-01-01T00:00:03Z"
+            },
+            existingDoc: { emoji: "👍", at: "2026-01-01T00:00:01Z" },
+            newDoc: { emoji: "🔥", at: "2026-01-01T00:00:03Z" },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...roomMocks("3")
+            ]
+        },
+        {
+            name: "Аватары: пресет разрешён",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/publicProfiles/student1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: { data: { displayName: "Student One", orgId: ORG } },
+            newDoc: {
+                displayName: "Student One",
+                orgId: ORG,
+                avatar: "preset:fox",
+                updatedAt: ISO
+            },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Аватары: загружаемый файл (base64) — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/publicProfiles/student1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: { data: { displayName: "Student One", orgId: ORG } },
+            newDoc: {
+                displayName: "Student One",
+                orgId: ORG,
+                avatar: "data:image/png;base64,AAAA",
+                updatedAt: ISO
+            },
+            functionMocks: profileMocks("student1", "student")
         },
         {
             name: "Комнаты: чужие players не читаются",

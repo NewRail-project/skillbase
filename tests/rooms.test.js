@@ -98,7 +98,8 @@ test('computeScores: баллы и сортировка по очкам', () => 
   const board = computeScores(players, KEYS, [0, 1, 2]);
   assert.equal(board.length, 2, 'наблюдатель не в таблице');
   assert.deepEqual(board.map(p => p.name), ['Аня', 'Борис']);
-  assert.equal(board[0].score, 10); // 2 + 3 + 5
+  // Серия Live-комнаты: 2×1.1=2.2→2, 3×1.2=3.6→4, 5... 6×1.2=7.2→7 → 13.
+  assert.equal(board[0].score, 13);
   assert.equal(board[1].score, 0);
   assert.equal(board[0].max, 10);
 });

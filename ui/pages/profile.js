@@ -1,6 +1,7 @@
 import { h } from "../../shared/dom.js";
 import { State, logout, refreshProfile, createOwnProfile, saveOwnProfile } from "../../core/auth.js";
-import { displayName, initialsAvatar, validateFullName, processAvatarFile, saveProfile, computeProfileStats } from "../../core/profile.js";
+import { displayName, initialsAvatar, validateFullName, saveProfile, computeProfileStats } from "../../core/profile.js";
+import { AVATAR_PRESETS, avatarPreset } from "../../shared/avatars.js";
 import { needsFullName } from "../../core/registration.js";
 import { listMyAttempts } from "../../core/attempts.js";
 import { icons } from "../../shared/icons.js";
@@ -206,7 +207,14 @@ function missingNameBlock(profile) {
 
 function avatarNode(profile, avatarUrl) {
   const node = h("div", { class: "profile-avatar", "aria-hidden": "true" });
-  if (avatarUrl) {
+  // Аватар теперь только пресетный: "preset:<id>". Унаследованные
+  // изображения (старые base64) продолжают показываться.
+  const preset = avatarPreset(avatarUrl);
+  if (preset) {
+    node.textContent = preset.emoji;
+    node.style.background = preset.bg;
+    node.classList.add("avatar-preset");
+  } else if (typeof avatarUrl === "string" && avatarUrl.startsWith("data:image/")) {
     const img = h("img", { alt: "", src: avatarUrl });
     node.appendChild(img);
   } else {
@@ -393,34 +401,36 @@ function editForm(profile) {
 
 function avatarDialog(profile) {
   const dialog = modal();
-  const preview = h("div", { class: "avatar-preview-container" });
+  const grid = h("div", { class: "avatar-preset-grid", role: "radiogroup", "aria-label": "Пресет аватара" });
   const errorBox = h("div", { class: "avatar-error", role: "alert" });
   let pending = null;
 
-  const fileInput = h("input", {
-    type: "file",
-    accept: "image/jpeg,image/png,image/webp",
-    onchange: async (e) => {
-      errorBox.textContent = "";
-      const file = e.target.files && e.target.files[0];
-      if (!file) return;
-      try {
-        pending = await processAvatarFile(file);
-        preview.textContent = "";
-        preview.appendChild(h("img", { src: pending, alt: "Предпросмотр аватара", class: "avatar-preview-img" }));
-      } catch (err) {
-        pending = null;
-        errorBox.textContent = err.message || "Не удалось обработать файл.";
-      }
+  const renderGrid = () => {
+    grid.textContent = "";
+    for (const preset of AVATAR_PRESETS) {
+      const selected = pending === `preset:${preset.id}`;
+      const item = h("button", {
+        type: "button",
+        class: "avatar-preset-cell" + (selected ? " selected" : ""),
+        style: `background:${preset.bg}`,
+        "aria-pressed": String(selected),
+        title: preset.id,
+        onclick: () => {
+          pending = `preset:${preset.id}`;
+          renderGrid();
+        }
+      }, preset.emoji);
+      grid.appendChild(item);
     }
-  });
+  };
+  renderGrid();
 
   const saveBtn = h("button", {
     type: "button",
     class: "btn primary",
     onclick: async () => {
       if (!pending) {
-        errorBox.textContent = "Сначала выберите изображение.";
+        errorBox.textContent = "Сначала выберите пресет.";
         return;
       }
       saveBtn.disabled = true;
@@ -435,7 +445,7 @@ function avatarDialog(profile) {
         dialog.close();
       } catch (err) {
         console.error("Ошибка сохранения аватара:", err);
-        errorBox.textContent = "Не удалось сохранить аватар. Проверьте формат и размер файла.";
+        errorBox.textContent = "Не удалось сохранить аватар. Проверьте подключение.";
         saveBtn.disabled = false;
         saveBtn.textContent = "Сохранить";
       }
@@ -444,10 +454,9 @@ function avatarDialog(profile) {
 
   dialog.querySelector(".modal-content").append(
     h("h2", { style: "margin-top:0" }, "Аватар"),
-    h("p", { class: "muted" }, "JPEG, PNG или WebP до 3 МБ. Изображение обрезается до квадрата."),
-    preview,
+    h("p", { class: "muted" }, "Выберите пресет: эмодзи на цветном фоне. Загрузка файлов не используется."),
+    grid,
     errorBox,
-    fileInput,
     h("div", { class: "btn-row" },
       saveBtn,
       h("button", { type: "button", class: "btn secondary", onclick: () => dialog.close() }, "Отмена")

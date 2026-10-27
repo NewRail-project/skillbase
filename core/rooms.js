@@ -12,13 +12,24 @@ import {
 } from "../shared/firebase.js";
 import {
   generateRoomCode, normalizeRoomCode, isValidRoomCode,
-  computeScores, buildReveal
+  computeScores, buildReveal, normalizePlayerTimes
 } from "./rooms-logic.js";
 import { normalizeKeys } from "./scoring.js";
 import { State } from "./auth.js";
+import {
+  REACTIONS, normalizeReaction
+} from "../shared/reactions.js";
 
 function requireOnline(message) {
   if (!navigator.onLine) throw new Error(message || "Нет подключения к интернету.");
+}
+
+function toMs(value) {
+  if (!value) return null;
+  if (typeof value.toMillis === "function") return value.toMillis();
+  if (typeof value.seconds === "number") return value.seconds * 1000;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.getTime();
 }
 
 function roomRef(code) {
@@ -52,6 +63,10 @@ export async function createRoom({ test, profile }) {
         currentQuestionId: "",
         phase: "idle",
         qStartedAt: null,
+        // Серверные метки старта каждого вопроса: { "0": timestamp, ... }.
+        // Задержки сдают расчёт бонуса за скорость на пересчёте с нуля.
+        qStarts: {},
+        qDurationSec: questionDurationSec(test, test?.settings || {}),
         questionCount: questions.length,
         showLeaderboard: Boolean(test?.settings?.showLeaderboard),
         createdAt: serverTimestamp(),
@@ -130,6 +145,8 @@ export async function openQuestion(code, questionIndex) {
     currentQuestionId: String(index),
     phase: "opened",
     qStartedAt: serverTimestamp(),
+    // История стартов — основа бонуса за скорость при пересчёте с нуля.
+    [`qStarts.${index}`]: serverTimestamp(),
     updatedAt: serverTimestamp()
   });
 }
@@ -149,8 +166,9 @@ export function questionDurationSec(test, settings) {
 }
 
 // Ведущий закрывает вопрос: пишет reveal (правильный ответ виден всем)
-// и пересчитывает scores по ответам на уже закрытые вопросы.
-export async function closeQuestion({ code, index, keys, test, players }) {
+// и пересчитывает scores по ответам на уже закрытые вопросы. speed:
+// { qDurationSec, qStarts: {qid: ms} } — бонус за скорость и серия.
+export async function closeQuestion({ code, index, keys, test, players, speed = null }) {
   requireOnline("Нет подключения к интернету. Вопрос не закрыт.");
   const roomCode = normalizeRoomCode(code);
   if (!roomCode) throw new Error("Некорректный код комнаты.");
@@ -178,7 +196,7 @@ export async function closeQuestion({ code, index, keys, test, players }) {
 
   const openedIndexes = [];
   for (let i = 0; i <= targetIndex; i++) openedIndexes.push(i);
-  const board = computeScores(players || [], normalized, openedIndexes);
+  const board = computeScores(players || [], normalized, openedIndexes, speed);
   for (const entry of board) {
     await setDoc(doc(db, "rooms", roomCode, "scores", entry.uid), {
       uid: entry.uid,
@@ -199,12 +217,61 @@ export async function closeQuestion({ code, index, keys, test, players }) {
 }
 
 // Подписка на комнату и список игроков. Возвращает функцию отписки,
-// вызываемую в cleanup() страницы.
+// вызываемую в cleanup() страницы. Ответы участников лежат в
+// players/{uid}/answers/{qid} — подписываемся динамически на каждого.
 export function subscribeRoom(code, { onRoom, onPlayers, onError }) {
   const roomCode = normalizeRoomCode(code);
   if (!roomCode) {
     throw new Error("Некорректный код комнаты.");
   }
+  let playersRaw = [];
+  const answerUnsubs = new Map();   // uid → unsubscribe
+  const answersByUid = new Map();   // uid → {qid: value}
+  const timesByUid = new Map();     // uid → {qid: ms}
+
+  function emitPlayers() {
+    if (!onPlayers) return;
+    onPlayers(playersRaw.map(p => normalizePlayerTimes({
+      ...p,
+      answers: answersByUid.get(p.uid) || {},
+      times: timesByUid.get(p.uid) || {}
+    })));
+  }
+
+  function watchAnswers(player) {
+    if (answerUnsubs.has(player.uid)) return;
+    answersByUid.set(player.uid, {});
+    timesByUid.set(player.uid, {});
+    const unsub = onSnapshot(
+      collection(db, "rooms", roomCode, "players", player.uid, "answers"),
+      snapshot => {
+        const answers = {};
+        const times = {};
+        snapshot.docs.forEach(item => {
+          answers[item.id] = (item.data() || {}).answer;
+          times[item.id] = toMs((item.data() || {}).at);
+        });
+        answersByUid.set(player.uid, answers);
+        timesByUid.set(player.uid, times);
+        emitPlayers();
+      },
+      error => onError && onError(error)
+    );
+    answerUnsubs.set(player.uid, unsub);
+  }
+
+  function unwatchGone() {
+    const alive = new Set(playersRaw.map(p => p.uid));
+    for (const [uid, unsub] of answerUnsubs) {
+      if (!alive.has(uid)) {
+        try { unsub(); } catch (e) { /* уже отписаны */ }
+        answerUnsubs.delete(uid);
+        answersByUid.delete(uid);
+        timesByUid.delete(uid);
+      }
+    }
+  }
+
   const unsubscribeRoom = onSnapshot(
     roomRef(roomCode),
     snapshot => onRoom && onRoom(snapshot.exists()
@@ -214,17 +281,28 @@ export function subscribeRoom(code, { onRoom, onPlayers, onError }) {
   );
   const unsubscribePlayers = onSnapshot(
     collection(db, "rooms", roomCode, "players"),
-    snapshot => onPlayers && onPlayers(snapshot.docs.map(item => ({ uid: item.id, ...item.data() }))),
+    snapshot => {
+      playersRaw = snapshot.docs.map(item => ({ uid: item.id, ...item.data() }));
+      playersRaw.forEach(watchAnswers);
+      unwatchGone();
+      emitPlayers();
+    },
     error => onError && onError(error)
   );
   return () => {
     try { unsubscribeRoom(); } catch (e) { /* уже отписаны */ }
     try { unsubscribePlayers(); } catch (e) { /* уже отписаны */ }
+    answerUnsubs.forEach(unsub => { try { unsub(); } catch (e) { /* уже отписаны */ } });
+    answerUnsubs.clear();
   };
 }
 
 // Участник отвечает на текущий вопрос один раз: правила запрещают
 // перезапись ключа answers.<текущий вопрос>.
+// Ответ на текущий вопрос — документ players/{uid}/answers/{qid}
+// { answer, at }: правила разрешают только create и только пока qid ==
+// currentQuestionId, поэтому перезапись и ответы на будущие вопросы
+// невозможны. at — серверная метка (основа бонуса за скорость).
 export async function saveAnswer(code, questionId, answer) {
   requireOnline("Нет подключения к интернету. Ответ не сохранён.");
   const roomCode = normalizeRoomCode(code);
@@ -232,12 +310,53 @@ export async function saveAnswer(code, questionId, answer) {
   if (!State.user?.uid) throw new Error("Нужно войти в аккаунт.");
   const questionStr = String(questionId);
   if (!questionStr || questionStr === "null") throw new Error("Вопрос не открыт.");
-  await updateDoc(
-    doc(db, "rooms", roomCode, "players", State.user.uid),
-    {
-      [`answers.${questionStr}`]: answer,
-      updatedAt: serverTimestamp()
-    }
+  await setDoc(
+    doc(db, "rooms", roomCode, "players", State.user.uid, "answers", questionStr),
+    { answer, at: serverTimestamp() },
+    { merge: false }
+  );
+}
+
+// ---------- Реакции ----------
+
+// rooms/{code}/reactions/{uid}: { emoji, at }. Каждый участник/наблюдатель
+// пишет только свой документ; правила не дают слать чаще раза в секунду.
+export const REACTIONS_PRESETS = REACTIONS;
+
+export async function sendReaction(code, emoji) {
+  requireOnline("Нет подключения к интернету. Реакция не отправлена.");
+  const roomCode = normalizeRoomCode(code);
+  if (!roomCode) throw new Error("Некорректный код комнаты.");
+  if (!State.user?.uid) throw new Error("Нужно войти в аккаунт.");
+  const clean = normalizeReaction(emoji);
+  if (!clean) throw new Error("Неизвестная реакция.");
+  await setDoc(
+    doc(db, "rooms", roomCode, "reactions", State.user.uid),
+    { emoji: clean, at: serverTimestamp() },
+    { merge: true }
+  );
+}
+
+// Подписка на реакции: возвращаем uid/emoji/at (мс). Рисует всплывающие
+// эмодзи страница; здесь только снапшоты.
+export function subscribeReactions(code, callback, onError) {
+  const roomCode = normalizeRoomCode(code);
+  if (!roomCode) throw new Error("Некорректный код комнаты.");
+  return onSnapshot(
+    collection(db, "rooms", roomCode, "reactions"),
+    snapshot => {
+      if (!callback) return;
+      callback(snapshot.docs
+        .map(item => {
+          const data = item.data() || {};
+          return {
+            uid: item.id,
+            emoji: data.emoji || "",
+            atMs: toMs(data.at)
+          };
+        }));
+    },
+    error => onError && onError(error)
   );
 }
 

@@ -841,3 +841,162 @@ body.sidebar-open { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .book { transition: none !important; }
 }
+
+/* ---------- Live-комнаты: таблица лидеров, реакции, подиум, проектор ---------- */
+.room-leaderboard-host:empty { display: none; }
+.leader-score { font-variant-numeric: tabular-nums; }
+.leader-move { font-size: .8rem; font-weight: 700; color: var(--color-success, #2e7d32); margin-left: var(--space-2); }
+.score-countup { font-variant-numeric: tabular-nums; }
+.room-leader-table tbody tr { will-change: transform; }
+.avatar-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px; height: 28px;
+  margin-right: var(--space-2);
+  border-radius: 50%;
+  font-size: 16px;
+  line-height: 1;
+  flex: none;
+  vertical-align: middle;
+}
+.avatar-chip-fallback { background: var(--accent); color: var(--on-accent); font-size: .8rem; font-weight: 700; }
+
+/* Реакции */
+.room-reaction-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-2);
+  background: var(--surface, #fff);
+  border-top: 1px solid var(--border);
+}
+.room-reaction-bar[hidden] { display: none; }
+.room-reaction-label { color: var(--muted, #666); font-size: .85rem; }
+.room-reaction-btn {
+  font-size: 22px;
+  min-width: 44px; min-height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface, #fff);
+  cursor: pointer;
+}
+.room-reaction-btn:active { transform: scale(.9); }
+.room-reaction-floats { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 40; }
+.room-float-emoji {
+  position: absolute;
+  bottom: 64px;
+  font-size: 30px;
+  animation: room-float 2s ease-out forwards;
+}
+@keyframes room-float {
+  0% { opacity: 0; transform: translateY(0) scale(.6); }
+  12% { opacity: 1; transform: translateY(-12px) scale(1.1); }
+  100% { opacity: 0; transform: translateY(-160px) scale(1); }
+}
+
+/* Вспышки ответа: верный — зелёная, неверный — покачивание */
+.room-flash-correct { animation: room-flash-green .7s ease; }
+@keyframes room-flash-green {
+  0% { box-shadow: 0 0 0 3px rgba(46,125,50,.5) inset; }
+  100% { box-shadow: none; }
+}
+.room-shake { animation: room-shake .5s ease; }
+@keyframes room-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+.room-plus {
+  display: inline-block;
+  margin: var(--space-2) auto 0;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-weight: 700;
+  color: var(--color-success, #2e7d32);
+  animation: room-plus-pop 1.5s ease forwards;
+}
+@keyframes room-plus-pop {
+  0% { opacity: 0; transform: translateY(6px); }
+  20% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-14px); }
+}
+
+/* Подиум */
+.podium-row { display: flex; align-items: flex-end; gap: var(--space-3); justify-content: center; padding: var(--space-3) 0; }
+.podium { display: grid; gap: 4px; justify-items: center; padding: var(--space-3); border-radius: 10px; background: rgba(28,26,23,.05); min-width: 96px; }
+.podium-first { padding-bottom: calc(var(--space-3) + 18px); }
+.podium-three { padding-bottom: var(--space-3); }
+.podium-second { padding-bottom: calc(var(--space-3) + 9px); }
+.podium-medal { font-size: 26px; }
+.podium-name { font-weight: 700; text-align: center; }
+.podium-score { color: var(--muted, #666); font-size: .9rem; }
+
+/* Конфетти */
+.room-confetti { position: fixed; inset: 0; pointer-events: none; z-index: 50; }
+
+/* Экран проектора */
+.room-screen-page {
+  max-width: none;
+  min-height: 100vh;
+  padding: var(--space-4);
+  background: #14161c;
+  color: #f4f4f6;
+}
+.room-screen-view { display: grid; gap: var(--space-3); }
+.screen-top { display: flex; align-items: baseline; gap: var(--space-4); }
+.screen-title { font-size: clamp(1.6rem, 4vw, 3rem); font-weight: 800; }
+.screen-code { font-size: clamp(1.2rem, 3vw, 2rem); letter-spacing: .3em; color: #9fd3ff; }
+.screen-timer { margin-left: auto; font-size: clamp(1.6rem, 4vw, 3rem); font-variant-numeric: tabular-nums; }
+.screen-timer-empty { visibility: hidden; }
+.screen-question { background: #1d2029; border: 1px solid #2c313f; }
+.screen-question-text { font-size: clamp(1.4rem, 3.5vw, 2.6rem); margin: 0; }
+.screen-reveal { font-size: clamp(1.3rem, 3vw, 2.2rem); font-weight: 700; }
+.screen-options { display: grid; gap: var(--space-2); }
+.screen-option {
+  padding: var(--space-3);
+  border-radius: 10px;
+  background: #14161c;
+  border: 1px solid #2c313f;
+  font-size: clamp(1.1rem, 2.4vw, 1.6rem);
+}
+.screen-option.correct { border-color: #66bb6a; color: #a5d6a7; font-weight: 700; }
+.screen-explanation { color: #9aa2b1; font-size: clamp(1rem, 2vw, 1.3rem); }
+.screen-wait { font-size: clamp(1.5rem, 4vw, 2.6rem); text-align: center; padding: 12vh 0; color: #9aa2b1; }
+.screen-board { display: grid; gap: var(--space-2); }
+.screen-row {
+  display: flex; align-items: center; gap: var(--space-3);
+  background: #1d2029; border-radius: 10px;
+  padding: var(--space-2) var(--space-3);
+}
+.screen-rank { width: 2ch; color: #9aa2b1; }
+.screen-name { flex: 1; font-size: clamp(1.05rem, 2.2vw, 1.5rem); font-weight: 700; }
+.screen-score { font-size: clamp(1.05rem, 2.2vw, 1.5rem); font-variant-numeric: tabular-nums; }
+.screen-board .avatar-chip { width: 34px; height: 34px; font-size: 19px; }
+
+/* Кнопка звука в статус-баре */
+.room-status { display: flex; align-items: center; justify-content: space-between; }
+.room-sound-btn { font-size: 18px; min-height: 40px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .room-float-emoji, .room-flash-correct, .room-shake, .room-plus,
+  .room-leader-table tbody tr { animation: none !important; transition: none !important; transform: none !important; }
+}
+.avatar-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+}
+.avatar-preset-cell {
+  aspect-ratio: 1;
+  border-radius: 12px;
+  border: 2px solid transparent;
+  font-size: 22px;
+  cursor: pointer;
+}
+.avatar-preset-cell.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(27,90,122,.35); }
