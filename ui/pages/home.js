@@ -160,7 +160,7 @@ async function loadStaffData(profile) {
   const data = { tests: [], attempts: [], errors: [] };
   await Promise.all([
     (async () => {
-      try { data.tests = await listMyTests(profile.uid); }
+      try { data.tests = await listMyTests(profile.uid, profile.orgId, profile.role); }
       catch (e) { console.error("Мои тесты:", e); data.errors.push("тесты"); }
     })(),
     (async () => {

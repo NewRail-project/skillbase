@@ -38,7 +38,7 @@ export default async function AdminPanelPage() {
   const state = { tests: [], attempts: [], testsError: null, attemptsError: null };
   await Promise.all([
     (async () => {
-      try { state.tests = await listMyTests(State.user.uid); }
+      try { state.tests = await listMyTests(State.user.uid, profile.orgId, profile.role); }
       catch (e) { state.testsError = e; }
     })(),
     (async () => {

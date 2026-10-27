@@ -174,7 +174,7 @@ export default async function TestsPage() {
 
   try {
     tests = staff
-      ? await listMyTests(State.user.uid)
+      ? await listMyTests(State.user.uid, State.profile.orgId, State.profile.role)
       : await listPublishedTests(State.profile.orgId);
     refreshCategoryFilter();
     draw();

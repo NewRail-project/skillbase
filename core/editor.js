@@ -252,7 +252,8 @@ export async function getTestKeys(testId) {
   try {
     const snap = await getDoc(doc(db, "testKeys", testId));
     return snap.exists() ? snap.data().items : null;
-  } catch (_) {
+  } catch (error) {
+    console.error("[Skillbase] Не удалось прочитать testKeys:", error?.code || "unknown", error?.message || error);
     return null;
   }
 }
@@ -279,7 +280,22 @@ export async function getTestForReview(testId, version = null) {
     try {
       const keysSnap = await getDoc(doc(db, "testKeys", testId));
       if (keysSnap.exists()) keys = keysSnap.data().items;
-    } catch (_) {
+    } catch (error) {
+      console.error("[Skillbase] Не удалось прочитать ключи версии:", error?.code || "unknown", error?.message || error);
+      keys = null;
+    }
+  }
+
+  if (!keys) {
+    try {
+      const keysSnap = await getDoc(doc(db, "testKeys", testId));
+      if (keysSnap.exists()) {
+        keys = keysSnap.data().items;
+      } else {
+        console.warn("[Skillbase] Документ testKeys отсутствует для теста:", testId);
+      }
+    } catch (error) {
+      console.error("[Skillbase] Не удалось прочитать testKeys при проверке:", error?.code || "unknown", error?.message || error);
       keys = null;
     }
   }
@@ -313,10 +329,20 @@ export function validateTestForPublish(test) {
 
 // ---------- Списки тестов ----------
 
-// Тесты, созданные преподавателем.
-export async function listMyTests(uid) {
-  const snap = await getDocs(query(collection(db, "tests"), where("authorId", "==", uid)));
-  return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byUpdatedDesc);
+// Преподаватель видит свои тесты, администратор — тесты своей организации.
+export async function listMyTests(uid, orgId, role = "teacher") {
+  if (!uid || !orgId) throw new Error("Не определены пользователь или организация.");
+
+  const constraints = [where("orgId", "==", orgId)];
+
+  if (role !== "admin") {
+    constraints.push(where("authorId", "==", uid));
+  }
+
+  const snap = await getDocs(query(collection(db, "tests"), ...constraints));
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .sort(byUpdatedDesc);
 }
 
 // Опубликованные тесты организации (для студентов).
