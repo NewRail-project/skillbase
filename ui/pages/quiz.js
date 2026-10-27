@@ -8,7 +8,7 @@ import {
   submitAttemptById,
   listMyAttemptsForTest
 } from "../../core/attempts.js";
-import { getAssignment, assignTest, getStudentAssignments } from "../../core/assign.js";
+import { getAssignment, getStudentAssignments } from "../../core/assign.js";
 import { isDeadlinePassed, attemptDeadlineMs as calcAttemptDeadlineMs } from "../../core/timing.js";
 import { icons } from "../../shared/icons.js";
 import { toast } from "../components/toast.js";
@@ -462,64 +462,13 @@ export default async function QuizPage() {
     );
 
     if (test.status === "published") {
-      const groupInput = h("input", { type: "text", placeholder: "Например, ИТ-01", maxlength: "100" });
-      const deadlineInput = h("input", { type: "datetime-local" });
-      const limitInput = h("input", {
-        type: "number", min: "1", max: "50",
-        value: String(settings.attemptsLimit || 1)
-      });
-      const message = h("div", { class: "form-hint", role: "status" });
-      const assignBtn = h("button", { type: "button", class: "btn primary" }, "Назначить группе");
-
-      assignBtn.addEventListener("click", async () => {
-        message.textContent = "";
-        message.className = "form-hint";
-        const groupId = groupInput.value.trim();
-        if (!groupId) {
-          message.textContent = "Укажите группу.";
-          message.className = "form-error";
-          return;
-        }
-        if (deadlineInput.value && new Date(deadlineInput.value).getTime() <= Date.now()) {
-          message.textContent = "Срок выполнения должен быть в будущем.";
-          message.className = "form-error";
-          return;
-        }
-
-        assignBtn.disabled = true;
-        assignBtn.textContent = "Назначаем…";
-        try {
-          await assignTest({
-            test,
-            teacherId: State.user.uid,
-            groupId,
-            deadline: deadlineInput.value || null,
-            attemptsLimit: limitInput.value || null
-          });
-          message.textContent = `Тест назначен группе «${groupId}».`;
-          message.className = "form-hint";
-          toast("Задание создано", "success");
-        } catch (err) {
-          console.error("Не удалось назначить тест:", err);
-          message.textContent = errorText(err, "Не удалось назначить тест.");
-          message.className = "form-error";
-        } finally {
-          assignBtn.disabled = false;
-          assignBtn.textContent = "Назначить группе";
-        }
-      });
-
       actions.append(
         h("div", { class: "section-title", style: "margin-top:var(--space-5)" },
-          h("h2", {}, "Назначить группе")),
-        h("p", { class: "muted" }, "Студенты увидят задание, если администратор указал им эту группу."),
-        h("div", { class: "field-grid" },
-          h("div", { class: "field" }, h("label", {}, "Группа"), groupInput),
-          h("div", { class: "field" }, h("label", {}, "Срок сдачи"), deadlineInput),
-          h("div", { class: "field" }, h("label", {}, "Попыток"), limitInput)
-        ),
-        h("div", { class: "btn-row" }, assignBtn),
-        message
+          h("h2", {}, "Как провести")),
+        h("p", { class: "muted" }, "Выберите режим: Live-комната, обучающее задание или проверка знаний."),
+        h("div", { class: "btn-row" },
+          h("a", { class: "btn primary", href: `#launch/${encodeURIComponent(test.id)}` }, "Запустить")
+        )
       );
     } else {
       actions.append(h("p", { class: "muted", style: "margin-top:var(--space-3)" },

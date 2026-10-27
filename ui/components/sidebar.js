@@ -13,6 +13,7 @@ const GROUPS = [
       { id: "home", label: "Главная", icon: icons.home, route: "#/" },
       { id: "assignments", label: "Задания", icon: icons.clipboard, route: "#assignments", auth: true },
       { id: "tests", label: "Каталог тестов", icon: icons.book, route: "#tests", auth: true },
+      { id: "join", label: "Войти по коду", icon: icons.qr, route: "#join", auth: true },
       { id: "create-test", label: "Создать тест", icon: icons.plus, route: "#create-test", auth: true, roles: ["teacher", "admin"] },
       { id: "results", label: "Результаты", icon: icons.chart, route: "#results", auth: true, roles: ["teacher", "admin"] }
     ]

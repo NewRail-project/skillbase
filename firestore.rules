@@ -402,11 +402,7 @@ service cloud.firestore {
         && request.resource.data.orgId == resource.data.orgId
         && request.resource.data.groupId == resource.data.groupId
         && request.resource.data.testId == resource.data.testId
-        && request.resource.data.status in ["active", "closed"]
-        && (!("startAt" in request.resource.data.keys())
-          || request.resource.data.startAt == null
-          || request.time >= request.resource.data.startAt
-          || request.resource.data.startAt == resource.data.startAt);
+        && request.resource.data.status in ["active", "closed"];
 
       allow delete: if hasProfile()
         && (
@@ -420,11 +416,10 @@ service cloud.firestore {
     }
 
     // ---------- rooms, players, scores, reveals, observers ----------
-    // ВНИМАНИЕ: файл .ref/fixed/firestore.rules, из которого следовало
-    // перенести этот блок «как есть», в репозитории отсутствует, поэтому
-    // правила написаны заново по заявленной логике: участник пишет только
-    // свой ответ на текущий вопрос и только один раз; наблюдатель ответ не
-    // пишет; чужие players не читаются. Не считаются «проверенными».
+    // Live-комнаты: ведущий пишет room/scores/reveals, участник —
+    // только свой players/{uid} и только answers.<номер вопроса>,
+    // один раз per вопрос; наблюдатель ответ не пишет; чужие players
+    // не читаются (таблица результатов приходит из scores).
 
     match /rooms/{roomId} {
       function roomDoc() {
@@ -439,11 +434,18 @@ service cloud.firestore {
 
       function inRoomAsPlayer() {
         return exists(
-          /databases/$(database)/documents/rooms/$(roomId)/players/$(uid())
+          /databases/$(database)/documents/rooms/$(roomId)/players/$(request.auth.uid)
         );
       }
 
-      allow read: if isStaffOf(resource.data.orgId) || isRoomHost();
+      function inRoomAnyRole() {
+        return inRoomAsPlayer() || exists(
+          /databases/$(database)/documents/rooms/$(roomId)/observers/$(request.auth.uid)
+        );
+      }
+
+      allow read: if isRoomHost() || inRoomAnyRole()
+        || (hasProfile() && isStaffOf(roomDoc().orgId));
 
       allow create: if isStaff()
         && request.resource.data.orgId == myOrg()
@@ -453,65 +455,68 @@ service cloud.firestore {
       allow update, delete: if isRoomHost();
 
       match /players/{playerId} {
+        // Чужие players не читаются: сам игрок или ведущий.
         allow read: if (hasProfile() && request.auth.uid == playerId)
           || isRoomHost();
 
         // Войти в комнату может только сам участник.
-        allow create, update: if hasProfile()
+        allow create: if hasProfile()
           && request.auth.uid == playerId
           && request.resource.data.keys().hasOnly(
-            ["playerId", "observer", "joinedAt", "updatedAt", "displayName"]
+            ["uid", "playerId", "name", "observer", "joinedAt", "updatedAt"]
           )
+          && request.resource.data.uid == playerId
           && request.resource.data.playerId == request.auth.uid
+          && request.resource.data.observer is bool
           && roomDoc().status == "active";
+
+        // Ответ на текущий вопрос: только новый ключ, только один раз.
+        allow update: if hasProfile()
+          && request.auth.uid == playerId
+          && request.resource.data.diff(resource.data)
+            .affectedKeys().hasOnly(["answers", "updatedAt"])
+          && request.resource.data.answers is map
+          && resource.data.observer != true
+          && roomDoc().status == "active"
+          && roomDoc().phase == "opened"
+          && request.resource.data.get("answers", {})
+            .get(roomDoc().currentQuestionId, null) != null
+          && resource.data.get("answers", {})
+            .get(roomDoc().currentQuestionId, null) == null;
 
         allow delete: if isRoomHost();
       }
 
       match /scores/{scoreId} {
-        function myPlayerDoc() {
-          return get(
-            /databases/$(database)/documents/rooms/$(roomId)/players/$(uid())
-          ).data;
-        }
+        // Таблицу видят игроки и наблюдатели комнаты; пишет только ведущий.
+        allow read: if isRoomHost() || inRoomAnyRole();
 
-        // Идентификатор ответа фиксирует пару «участник+вопрос», поэтому
-        // повторная запись на тот же вопрос невозможна.
-        allow read: if (hasProfile()
-            && resource.data.playerId == request.auth.uid)
-          || isRoomHost();
+        allow create, update: if isRoomHost()
+          && request.resource.data.uid == scoreId;
 
-        allow create: if hasProfile()
-          && inRoomAsPlayer()
-          && myPlayerDoc().observer != true
-          && request.resource.data.playerId == request.auth.uid
-          && request.resource.data.keys().hasOnly(
-            ["playerId", "questionId", "answer", "createdAt"]
-          )
-          && scoreId == request.resource.data.playerId + "_"
-            + request.resource.data.questionId
-          && roomDoc().status == "active"
-          && request.resource.data.questionId == roomDoc().currentQuestionId;
+        allow delete: if false;
+      }
+
+      match /reveals/{qid} {
+        // Правильный ответ раскрывается только после закрытия вопроса.
+        allow read: if isRoomHost() || inRoomAnyRole();
+
+        allow create: if isRoomHost();
 
         allow update, delete: if false;
       }
 
-      match /reveals/{id} {
-        allow read: if isRoomHost() || (hasProfile() && inRoomAsPlayer());
-
-        allow create, update: if isRoomHost();
-
-        allow delete: if isRoomHost();
-      }
-
       match /observers/{observerId} {
-        // Наблюдатель — сотрудник; смотрит комнату, но ответ не пишет.
-        allow read: if isStaffOf(resource.data.orgId)
-          || request.auth.uid == observerId;
+        allow read: if request.auth.uid == observerId
+          || isRoomHost()
+          || inRoomAsPlayer();
 
-        allow create, update, delete: if isStaff()
-          && request.resource.data.orgId == myOrg()
-          && observerId == request.auth.uid;
+        allow create, update: if request.auth.uid == observerId
+          && hasProfile()
+          && request.resource.data.uid == observerId
+          && roomDoc().status == "active";
+
+        allow delete: if request.auth.uid == observerId || isRoomHost();
       }
     }
   }

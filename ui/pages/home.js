@@ -237,6 +237,7 @@ function studentView(profile, data) {
       quickActions([
         { icon: icons.clipboard, label: "Задания", hint: "Назначенные тесты", href: "#assignments" },
         { icon: icons.book, label: "Каталог", hint: "Доступные тесты", href: "#tests" },
+        { icon: icons.qr, label: "Войти по коду", hint: "Комната или тест", href: "#join" },
         { icon: icons.users, label: "Профиль", hint: "Данные и тема", href: "#profile" }
       ])
     ),
@@ -335,6 +336,7 @@ function staffView(profile, data) {
       quickActions([
         { icon: icons.plus, label: "Новый тест", hint: "Конструктор", href: "#create-test" },
         { icon: icons.chart, label: "Результаты", hint: "Проверка и экспорт", href: "#results" },
+        { icon: icons.qr, label: "Войти по коду", hint: "Live-комната", href: "#join" },
         { icon: icons.users, label: "Пользователи", hint: "Роли и группы", href: "#users" }
       ])
     ),

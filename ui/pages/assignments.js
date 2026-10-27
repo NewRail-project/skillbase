@@ -1,6 +1,16 @@
+// ui/pages/assignments.js — задания студента: обучающие и проверочные.
+// Бейджи «Обучение»/«Проверка», статусы (запланировано, выполнено,
+// просрочено, срок сегодня), сортировка по срочности, перед стартом
+// тест показывает название и материал задания.
 import { h } from "../../shared/dom.js";
 import { State } from "../../core/auth.js";
 import { getStudentAssignments } from "../../core/assign.js";
+import { listMyAttempts } from "../../core/attempts.js";
+import {
+  assignmentKindLabel, assignmentBadgeClass,
+  assignmentState, STATE_LABEL, STATE_BADGE, STATE_DOT,
+  sortAssignments, isAssignmentVisible, deadlineSubtitle
+} from "../../core/assignment-logic.js";
 import { icons } from "../../shared/icons.js";
 import { generateQRDataUrl } from "../../shared/qr.js";
 
@@ -50,6 +60,43 @@ function showQRCode(title, url) {
   overlay._cleanup = () => document.removeEventListener("keydown", close);
 }
 
+// Старт с показом названия и материала задания.
+function startWithPreview(a) {
+  const overlay = h("div", { class: "modal-overlay", role: "dialog", "aria-label": "О задании" });
+  const deadline = formatDate(a.deadline);
+  const body = h("div", { class: "modal-body" },
+    deadline ? h("p", { class: "muted" }, `Срок: ${deadline} · ${deadlineSubtitle(a.deadline)}`) : null,
+    a.note ? h("p", {}, a.note) : null,
+    a.materialText ? h("div", { class: "assignment-material" }, a.materialText) : null,
+    a.materialUrl
+      ? h("p", {},
+          h("a", { href: a.materialUrl, target: "_blank", rel: "noopener" },
+            a.materialUrl.replace(/^https:\/\//, "")))
+      : null,
+    !(a.note || a.materialText || a.materialUrl)
+      ? h("p", { class: "muted" }, "Материала нет: сразу к вопросам.")
+      : null
+  );
+  overlay.appendChild(h("div", { class: "modal-panel panel" },
+    h("div", { class: "modal-head" },
+      h("h2", {}, a.title || a.testTitle || "Назначенный тест"),
+      h("button", { class: "btn secondary", onclick: () => overlay.remove() }, "Закрыть")
+    ),
+    body,
+    h("div", { class: "modal-body", style: "display:flex;gap:8px" },
+      h("a", {
+        class: "btn primary",
+        href: `#quiz/${encodeURIComponent(a.testId)}/${encodeURIComponent(a.id)}`
+      }, "Начать тест")
+    )
+  ));
+
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+  const close = (e) => { if (e.key === "Escape") { overlay.remove(); document.removeEventListener("keydown", close); } };
+  document.addEventListener("keydown", close);
+  document.body.appendChild(overlay);
+}
+
 export default async function Assignments() {
   const page = h("div", { class: "page" });
   const profile = State.profile || {};
@@ -58,10 +105,11 @@ export default async function Assignments() {
     h("div", {},
       h("div", { class: "eyebrow" }, "Обучение"),
       h("h1", {}, "Мои задания"),
-      h("p", { class: "page-sub" }, "Тесты, назначенные вашей группе, и сроки их прохождения.")
+      h("p", { class: "page-sub" }, "Обучающие и проверочные задания вашей группы, сроки и материалы.")
     ),
     h("div", { class: "page-head-actions" },
-      h("a", { class: "btn secondary", href: "#tests" }, "Каталог тестов")
+      h("a", { class: "btn secondary", href: "#tests" }, "Каталог тестов"),
+      h("a", { class: "btn secondary", href: "#join" }, "Войти по коду")
     )
   ));
 
@@ -86,53 +134,71 @@ export default async function Assignments() {
   body.appendChild(h("div", { class: "panel-body" }, h("div", { class: "spinner" })));
 
   try {
-    const items = await getStudentAssignments(profile.groupId, profile.orgId);
+    const [items, myAttempts] = await Promise.all([
+      getStudentAssignments(profile.groupId, profile.orgId),
+      listMyAttempts(profile.uid)
+    ]);
 
-    if (!items.length) {
+    // Запланированные задания студенту ещё не видно.
+    const visible = items.filter(a => isAssignmentVisible(a));
+    if (!visible.length) {
       body.textContent = "";
       body.appendChild(h("div", { class: "empty-state" },
         h("div", { class: "empty-state-icon", innerHTML: icons.clipboard }),
-        h("h2", {}, "Активных заданий нет"),
-        h("p", { class: "muted" }, "Как только преподаватель назначит тест вашей группе, он появится здесь.")
+        h("h2", {}, items.length ? "Задания ещё не открыты" : "Активных заданий нет"),
+        h("p", { class: "muted" }, items.length
+          ? "Преподаватель запланировал открытия. Задания появятся здесь."
+          : "Как только преподаватель назначит тест вашей группе, он появится здесь.")
       ));
       return page;
     }
 
+    const ordered = sortAssignments(visible, myAttempts);
     body.textContent = "";
-    items
-      .sort((a, b) => (a.deadline?.seconds || Infinity) - (b.deadline?.seconds || Infinity))
-      .forEach(a => {
-        const left = daysLeft(a.deadline);
-        const deadline = formatDate(a.deadline);
-        const overdue = left !== null && left < 0;
+    ordered.forEach(a => {
+      const state = assignmentState(a, myAttempts);
+      const deadline = formatDate(a.deadline);
+      const startAt = a.startAt?.toDate?.() || a.startAt?.seconds && new Date(a.startAt.seconds * 1000);
+      const subParts = [
+        deadline ? `Срок: ${deadline} · ${deadlineSubtitle(a.deadline)}` : "Срок не указан"
+      ];
+      if (startAt && startAt.getTime() > Date.now()) {
+        subParts.push(`откроется ${formatDate(a.startAt)}`);
+      }
 
-        const row = h("div", { class: "list-row" },
-          h("span", { class: "dot " + (overdue ? "warn" : "ok") }),
-          h("div", { class: "list-row-main" },
-            h("div", { class: "list-row-title" }, a.title || a.testTitle || "Назначенный тест"),
-            h("div", { class: "list-row-sub" },
-              deadline
-                ? `Срок: ${deadline}${left === null ? "" : overdue ? " · просрочено" : ` · осталось ${left} дн.`}`
-                : "Срок не указан"
-            )
-          ),
-          h("div", { class: "list-row-end", style: "display:flex;gap:8px;" },
-            h("button", {
-              class: "btn secondary icon-only",
-              title: "Показать QR-код",
-              onclick: () => {
-                const url = window.location.origin + window.location.pathname + `#quiz/${encodeURIComponent(a.testId)}/${encodeURIComponent(a.id)}`;
-                showQRCode(a.title || a.testTitle, url);
-              }
-            }, h("span", { innerHTML: icons.qr || "QR" })),
-            h("a", {
-              class: "btn " + (overdue ? "secondary" : "primary"),
-              href: `#quiz/${encodeURIComponent(a.testId)}/${encodeURIComponent(a.id)}`
-            }, "Открыть")
-          )
-        );
-        body.appendChild(row);
-      });
+      const row = h("div", { class: "list-row" },
+        h("span", { class: "dot " + STATE_DOT[state] }),
+        h("div", { class: "list-row-main" },
+          h("div", { class: "list-row-title" }, a.title || a.testTitle || "Назначенный тест"),
+          h("div", { class: "list-row-sub" }, subParts.join(" · "))
+        ),
+        h("div", { class: "list-row-end", style: "display:flex;gap:8px;align-items:center" },
+          h("span", { class: "badge badge-neutral" }, assignmentKindLabel(a)),
+          h("span", { class: STATE_BADGE[state] }, STATE_LABEL[state]),
+          h("button", {
+            class: "btn secondary icon-only",
+            title: "Показать QR-код",
+            onclick: () => {
+              const url = window.location.origin + window.location.pathname
+                + `#quiz/${encodeURIComponent(a.testId)}/${encodeURIComponent(a.id)}`;
+              showQRCode(a.title || a.testTitle, url);
+            }
+          }, h("span", { innerHTML: icons.qr || "QR" })),
+          state === "done"
+            ? h("a", {
+                class: "btn secondary",
+                href: `#results`
+              }, "Результат")
+            : state === "scheduled"
+              ? h("span", { class: "badge badge-neutral" }, STATE_LABEL[state])
+              : h("button", {
+                  class: "btn " + (state === "overdue" ? "secondary" : "primary"),
+                  onclick: () => startWithPreview(a)
+                }, state === "overdue" ? "Просрочено · открыть" : state === "dueToday" ? "Срок сегодня · открыть" : "Открыть")
+        )
+      );
+      body.appendChild(row);
+    });
   } catch (err) {
     console.error("Задания:", err);
     body.textContent = "";

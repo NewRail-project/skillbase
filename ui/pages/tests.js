@@ -59,6 +59,9 @@ function testCard(test, index, staff) {
     foot.append(
       status,
       h("a", { class: "btn secondary", href: `#create-test/${encodeURIComponent(test.id)}` }, "Редактировать"),
+      test.status === "published"
+        ? h("a", { class: "btn primary", href: `#launch/${encodeURIComponent(test.id)}` }, "Запустить")
+        : null,
       h("a", { class: "btn secondary", href: `#quiz/${encodeURIComponent(test.id)}` }, "Открыть")
     );
   } else {

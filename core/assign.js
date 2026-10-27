@@ -2,6 +2,7 @@ import {
   db, collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc,
   query, where, serverTimestamp, orderBy, Timestamp
 } from "../shared/firebase.js";
+import { validateAssignmentDraft } from "./assignment-logic.js";
 
 function toDeadline(value) {
   if (!value) return null;
@@ -11,8 +12,20 @@ function toDeadline(value) {
   return Timestamp.fromDate(date);
 }
 
-// Назначение опубликованного теста группе.
-export async function assignTest({ test, teacherId, groupId, deadline = null, attemptsLimit = null }) {
+function toStartDate(value) {
+  if (!value) return null;
+  if (value instanceof Timestamp) return value;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) throw new Error("Некорректная дата открытия.");
+  return Timestamp.fromDate(date);
+}
+
+// Назначение опубликованного теста группе:
+// kind "exam" (проверка) или "training" (обучение со сроком и материалом).
+export async function assignTest({
+  test, teacherId, groupId, deadline = null, attemptsLimit = null,
+  kind = "exam", note = "", materialText = "", materialUrl = "", startAt = null
+}) {
   if (!test?.id) throw new Error("Тест не выбран.");
   if (!teacherId) throw new Error("Нужно войти в аккаунт.");
 
@@ -35,10 +48,19 @@ export async function assignTest({ test, teacherId, groupId, deadline = null, at
     throw new Error("Количество попыток должно быть целым числом от 1 до 50.");
   }
 
+  // Чистая валидация задания (kind/заметка/материалы/срок training).
+  const check = validateAssignmentDraft({ kind, deadline, note, materialText, materialUrl });
+  if (!check.ok) {
+    const error = new Error(Object.values(check.errors)[0]);
+    error.fields = check.errors;
+    throw error;
+  }
+
   const deadlineValue = toDeadline(deadline);
   if (deadlineValue && deadlineValue.toMillis() <= Date.now()) {
     throw new Error("Срок выполнения должен быть в будущем.");
   }
+  const startAtValue = toStartDate(startAt);
 
   const ref = await addDoc(collection(db, "assignments"), {
     testId: test.id,
@@ -46,8 +68,13 @@ export async function assignTest({ test, teacherId, groupId, deadline = null, at
     teacherId,
     groupId: group,
     orgId: testData.orgId || "",
+    kind: check.values.kind,
+    note: check.values.note || "",
+    materialText: check.values.materialText || "",
+    materialUrl: check.values.materialUrl || "",
     deadline: deadlineValue,
     attemptsLimit: limit,
+    startAt: startAtValue,
     status: "active",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()

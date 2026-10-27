@@ -514,16 +514,16 @@ function testCases() {
             expectation: "ALLOW",
             request: {
                 auth: { uid: "student1" },
-                path: `${DB}/rooms/r1/scores/student1_q1`,
-                method: "create",
-                resource: {
-                    data: {
-                        playerId: "student1",
-                        questionId: "q1",
-                        answer: "A",
-                        createdAt: ISO
-                    }
-                }
+                path: `${DB}/rooms/r1/players/student1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: {
+                uid: "student1", playerId: "student1", observer: false
+            },
+            newDoc: {
+                uid: "student1", playerId: "student1", observer: false,
+                answers: { "3": "A" }
             },
             functionMocks: [
                 ...profileMocks("student1", "student"),
@@ -536,7 +536,8 @@ function testCases() {
                                 hostId: "teacher1",
                                 orgId: ORG,
                                 status: "active",
-                                currentQuestionId: "q1"
+                                phase: "opened",
+                                currentQuestionId: "3"
                             }
                         }
                     }
@@ -545,15 +546,47 @@ function testCases() {
                     function: "exists",
                     args: [{ exactValue: `${DB}/rooms/r1/players/student1` }],
                     result: { value: true }
-                },
+                }
+            ]
+        },
+        {
+            name: "Комнаты: участник не пишет ответ вне открытого вопроса",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/players/student1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: {
+                uid: "student1", playerId: "student1", observer: false,
+                answers: { "3": "A" }
+            },
+            newDoc: {
+                uid: "student1", playerId: "student1", observer: false,
+                answers: { "3": "B" }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
                 {
                     function: "get",
-                    args: [{ exactValue: `${DB}/rooms/r1/players/student1` }],
+                    args: [{ exactValue: `${DB}/rooms/r1` }],
                     result: {
                         value: {
-                            data: { playerId: "student1", observer: false }
+                            data: {
+                                hostId: "teacher1",
+                                orgId: ORG,
+                                status: "active",
+                                phase: "opened",
+                                currentQuestionId: "3"
+                            }
                         }
                     }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/rooms/r1/players/student1` }],
+                    result: { value: true }
                 }
             ]
         },
@@ -562,16 +595,16 @@ function testCases() {
             expectation: "DENY",
             request: {
                 auth: { uid: "student2" },
-                path: `${DB}/rooms/r1/scores/student2_q1`,
-                method: "create",
-                resource: {
-                    data: {
-                        playerId: "student2",
-                        questionId: "q1",
-                        answer: "A",
-                        createdAt: ISO
-                    }
-                }
+                path: `${DB}/rooms/r1/players/student2`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: {
+                uid: "student2", playerId: "student2", observer: true
+            },
+            newDoc: {
+                uid: "student2", playerId: "student2", observer: true,
+                answers: { "3": "A" }
             },
             functionMocks: [
                 ...profileMocks("student2", "student"),
@@ -584,7 +617,8 @@ function testCases() {
                                 hostId: "teacher1",
                                 orgId: ORG,
                                 status: "active",
-                                currentQuestionId: "q1"
+                                phase: "opened",
+                                currentQuestionId: "3"
                             }
                         }
                     }
@@ -593,15 +627,6 @@ function testCases() {
                     function: "exists",
                     args: [{ exactValue: `${DB}/rooms/r1/players/student2` }],
                     result: { value: true }
-                },
-                {
-                    function: "get",
-                    args: [{ exactValue: `${DB}/rooms/r1/players/student2` }],
-                    result: {
-                        value: {
-                            data: { playerId: "student2", observer: true }
-                        }
-                    }
                 }
             ]
         },
@@ -627,10 +652,16 @@ function testCases() {
                                 hostId: "teacher1",
                                 orgId: ORG,
                                 status: "active",
-                                currentQuestionId: "q1"
+                                phase: "opened",
+                                currentQuestionId: "3"
                             }
                         }
                     }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/rooms/r1/players/student1` }],
+                    result: { value: true }
                 }
             ]
         },
