@@ -10,6 +10,7 @@ import {
 } from "../../core/attempts.js";
 import { getAssignment, getStudentAssignments } from "../../core/assign.js";
 import { effectiveSettings } from "../../core/settings.js";
+import { materialCompleted } from "../../core/materials.js";
 import { isDeadlinePassed, attemptDeadlineMs as calcAttemptDeadlineMs } from "../../core/timing.js";
 import { db, doc, getDoc } from "../../shared/firebase.js";
 import { icons } from "../../shared/icons.js";
@@ -260,6 +261,17 @@ export default async function QuizPage() {
   let attemptsError = null;
   let autoSubmitted = false;
   let expiredError = null;
+
+  // Обучающее задание (kind=training): тест открывается только после
+  // прочтения материала-книги (materialProgress.completed == true).
+  let needMaterialRead = false;
+  if (!staff && assignment?.kind === "training") {
+    try {
+      needMaterialRead = !(await materialCompleted(State.user.uid, test.id));
+    } catch (_) {
+      needMaterialRead = true;
+    }
+  }
 
   if (!staff) {
     try {
@@ -599,6 +611,12 @@ export default async function QuizPage() {
       if (blocked) {
         startBtn.disabled = true;
         startBtn.textContent = limitReached ? "Попытки исчерпаны" : "Прохождение недоступно";
+      } else if (needMaterialRead) {
+        // Обучающее задание: сначала дочитать материал-книгу.
+        startBtn.disabled = true;
+        startBtn.textContent = "Сначала материал";
+        actions.append(h("div", { class: "btn-row" },
+          h("a", { class: "btn primary", href: `#material/${encodeURIComponent(test.id)}` }, "Открыть материал")));
       } else {
         startBtn.addEventListener("click", handleStart);
       }
@@ -608,6 +626,9 @@ export default async function QuizPage() {
       if (limitReached) {
         actions.append(h("p", { class: "muted" },
           "Лимит попыток исчерпан. Обратитесь к преподавателю, если нужна ещё одна."));
+      } else if (needMaterialRead) {
+        actions.append(h("p", { class: "muted" },
+          "Для обучающего задания нужно дочитать материал до последней страницы."));
       }
     }
 
@@ -621,6 +642,10 @@ export default async function QuizPage() {
 
   async function handleStart() {
     if (submitting) return;
+    if (needMaterialRead) {
+      window.location.hash = `#material/${encodeURIComponent(test.id)}`;
+      return;
+    }
     submitting = true;
     try {
       if (fromDeadline()) {

@@ -7,7 +7,14 @@ import { State, isAdmin } from "../../core/auth.js";
 import { serializeTest } from "../../core/import/serializer.js";
 import { authErrorMessage } from "../../shared/errors.js";
 import { icons } from "../../shared/icons.js";
+import { toast } from "../components/toast.js";
 import { formFromSettings, mergeSettings } from "../../core/settings.js";
+import {
+  loadMaterial, saveMaterial
+} from "../../core/materials.js";
+import {
+  pageFillRatio, pageTextLength, IMAGE_MAX_BYTES, CALLOUT_KINDS
+} from "../../core/material-logic.js";
 
 const EXAMPLE = `1. Какой сигнал разрешает движение?
 A) Красный
@@ -48,6 +55,255 @@ function hasStoredKeys(test) {
     if (question?.type === "short") return Boolean(question.answer);
     return (question?.options || []).some(option => option?.correct === true);
   });
+}
+
+// ---------- Редактор материала-книги ----------
+
+// Сжимает файл изображения до 1000 px / JPEG 0.7, пока не влезет в 300 КБ.
+async function compressImageFile(file, targetBytes = IMAGE_MAX_BYTES) {
+  const srcUrl = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const probe = new Image();
+      probe.onload = () => resolve(probe);
+      probe.onerror = reject;
+      probe.src = srcUrl;
+    });
+    const LIMIT = IMAGE_MAX_DIM;
+    let width = Math.min(img.naturalWidth, LIMIT);
+    let height = Math.round(img.naturalHeight * (width / img.naturalWidth));
+    let quality = 0.7;
+    for (let step = 0; step < 6; step++) {
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL("image/jpeg", quality);
+      if (dataUrl.length * 0.75 <= targetBytes) return dataUrl;
+      if (width > 480) { width = Math.round(width * 0.8); height = Math.round(height * 0.8); }
+      else quality = Math.max(0.4, quality - 0.1);
+    }
+    throw new Error("Не удалось сжать изображение до 300 КБ.");
+  } finally {
+    URL.revokeObjectURL(srcUrl);
+  }
+}
+
+function buildMaterialEditor(editing) {
+  const section = h("section", { class: "panel", id: "material-editor" });
+  section.appendChild(h("div", { class: "panel-head" },
+    h("h2", {}, "Материал-книга"),
+    h("button", { type: "button", class: "btn secondary", id: "material-save" }, "Сохранить материал"),
+  ));
+  const message = h("div", { class: "form-hint", role: "status" });
+  const pagesNav = h("div", { class: "btn-row", style: "flex-wrap:wrap" });
+  const editorPane = h("div", { class: "field" });
+
+  let pageIndex = 0;
+
+  function blockRowEditor(block, onChange, onRemove, onUp, onDown, label) {
+    const row = h("div", { class: "material-block" });
+    const typeSelect = h("select", {},
+      [["heading", "Заголовок"], ["paragraph", "Абзац"], ["list", "Список"],
+       ["callout", "Вызов"], ["image", "Изображение"], ["quote", "Цитата"]]
+        .map(([v, t]) => h("option", { value: v }, t)));
+    typeSelect.value = block.type;
+    const textInput = h("textarea", { rows: "3", maxlength: "1200" });
+    textInput.value = block.text || "";
+    let subFields;
+
+    function rebuild() {
+      subFields.textContent = "";
+      const t = typeSelect.value;
+      if (t === "list") {
+        const itemsInput = h("textarea", { rows: "3", placeholder: "Пункт 1\nПункт 2" });
+        itemsInput.value = (block.items || []).join("\n");
+        itemsInput.addEventListener("input", () => {
+          onChange({ ...block, items: itemsInput.value.split("\n").map(s => s.trim()).filter(Boolean) });
+        });
+        subFields.appendChild(h("label", {}, "Пункты (по одному в строке)"), itemsInput);
+      } else if (t === "callout") {
+        const kindSelect = h("select", {},
+          [["info", "К сведению"], ["warning", "Важно"], ["rule", "Правило"]].map(([v, x]) => h("option", { value: v }, x)));
+        kindSelect.value = CALLOUT_KINDS.includes(block.kind) ? block.kind : "info";
+        kindSelect.addEventListener("change", () => onChange({ ...block, kind: kindSelect.value }));
+        subFields.append(h("label", {}, "Вид вызова"), kindSelect);
+      } else if (t === "image") {
+        const fileInput = h("input", { type: "file", accept: "image/*" });
+        const urlNote = h("span", { class: "form-hint" }, block.src?.startsWith("data:") ? "Изображение загружено с устройства." : "Либо https-ссылка: текущая.");
+        const caption = h("input", { type: "text", maxlength: "200", placeholder: "Подпись обязательно" });
+        caption.value = block.caption || "";
+        caption.addEventListener("input", () => onChange({ ...block, caption: caption.value }));
+        fileInput.addEventListener("change", async () => {
+          const file = fileInput.files?.[0];
+          if (!file) return;
+          try {
+            message.textContent = "Сжимаем изображение…";
+            message.className = "form-hint";
+            const dataUrl = await compressImageFile(file);
+            onChange({ ...block, src: dataUrl });
+            urlNote.textContent = "Изображение загружено с устройства.";
+            message.textContent = "Изображение готово.";
+          } catch (err) {
+            message.textContent = err?.message || "Изображение не загружено.";
+            message.className = "form-error";
+          }
+        });
+        subFields.append(h("label", {}, "Файл изображения"), fileInput, urlNote,
+          h("label", {}, "Подпись"), caption);
+      }
+      if (t !== "image") {
+        textInput.disabled = false;
+        subFields.appendChild(h("label", {}, t === "heading" ? "Заголовок" : "Текст"), textInput);
+      } else {
+        textInput.disabled = true;
+      }
+    }
+
+    const actions = h("div", { class: "btn-row", style: "margin-top:6px" },
+      h("button", { type: "button", class: "btn secondary", "aria-label": "Выше", onclick: onUp }, "↑"),
+      h("button", { type: "button", class: "btn secondary", "aria-label": "Ниже", onclick: onDown }, "↓"),
+      h("button", { type: "button", class: "btn danger", "aria-label": `Удалить блок ${label}`, onclick: onRemove }, "Удалить"),
+    );
+
+    typeSelect.addEventListener("change", () => {
+      const next = { type: typeSelect.value };
+      if (next.type === "callout") next.kind = "info";
+      if (next.type === "image") { next.src = ""; next.caption = block.caption || ""; }
+      onChange(next);
+    });
+    textInput.addEventListener("input", () => onChange({ ...block, text: textInput.value }));
+
+    subFields = h("div", {});
+    rebuild();
+
+    row.append(h("div", { class: "eyebrow" }, `Блок ${label}`),
+      h("label", {}, "Тип блока"), typeSelect, subFields, actions);
+    return row;
+  }
+
+  function paintEditor() {
+    editorPane.textContent = "";
+    const blocks = pages[pageIndex] || [];
+    const fill = pageFillRatio(blocks);
+    editorPane.appendChild(h("div", { class: "form-hint" },
+      `Страница ${pageIndex + 1}: заполнено ${Math.round(fill * 100)}%, текста — ${pageTextLength(blocks)} симв.`));
+
+    blocks.forEach((block, i) => {
+      editorPane.appendChild(blockRowEditor(
+        block,
+        next => {
+          pages[pageIndex][i] = next;
+          pagesNav.replaceChildren();
+          paintPagesNav();
+        },
+        () => {
+          pages[pageIndex].splice(i, 1);
+          paintEditor();
+          paintPagesNav();
+        },
+        () => {
+          if (i === 0) return;
+          [pages[pageIndex][i - 1], pages[pageIndex][i]] = [pages[pageIndex][i], pages[pageIndex][i - 1]];
+          paintEditor();
+        },
+        () => {
+          if (i >= blocks.length - 1) return;
+          [pages[pageIndex][i + 1], pages[pageIndex][i]] = [pages[pageIndex][i], pages[pageIndex][i + 1]];
+          paintEditor();
+        },
+        i + 1
+      ));
+    });
+
+    const addBtn = h("button", { type: "button", class: "btn secondary", style: "margin-top:var(--space-3)" },
+      "Добавить блок");
+    addBtn.addEventListener("click", () => {
+      pages[pageIndex] = pages[pageIndex] || [];
+      pages[pageIndex].push({ type: "paragraph", text: "" });
+      paintEditor();
+    });
+    editorPane.appendChild(addBtn);
+
+    // Перестановка/удаление целой страницы.
+    editorPane.appendChild(h("div", { class: "btn-row", style: "margin-top:var(--space-4)" },
+      h("button", { type: "button", class: "btn secondary", disabled: pageIndex === 0,
+        onclick: () => { [pages[pageIndex - 1], pages[pageIndex]] = [pages[pageIndex], pages[pageIndex - 1]]; pageIndex -= 1; paintEditor(); paintPagesNav(); } },
+        "Страницу выше"),
+      h("button", { type: "button", class: "btn secondary", disabled: pageIndex >= pages.length - 1,
+        onclick: () => { [pages[pageIndex + 1], pages[pageIndex]] = [pages[pageIndex], pages[pageIndex + 1]]; pageIndex += 1; paintEditor(); paintPagesNav(); } },
+        "Страницу ниже"),
+      h("button", { type: "button", class: "btn secondary",
+        onclick: () => { pages.splice(pageIndex, 1); pageIndex = Math.max(0, pageIndex - 1); paintEditor(); paintPagesNav(); } },
+        "Удалить страницу"),
+      h("button", { type: "button", class: "btn primary",
+        onclick: () => { pages.push([{ type: "paragraph", text: "" }]); pageIndex = pages.length - 1; paintEditor(); paintPagesNav(); } },
+        "Добавить страницу"),
+    ));
+  }
+
+  function paintPagesNav() {
+    pagesNav.textContent = "";
+    pages.forEach((blocks, n) => {
+      const chip = h("button", {
+        type: "button",
+        class: "chip" + (n === pageIndex ? " active" : ""),
+        "aria-pressed": String(n === pageIndex),
+        style: "position:relative"
+      }, `${n + 1} · ${Math.round(pageFillRatio(blocks) * 100)}%`);
+      chip.addEventListener("click", () => { pageIndex = n; paintEditor(); paintPagesNav(); });
+      pagesNav.appendChild(chip);
+    });
+  }
+
+  const pages = [];
+  let loaded = false;
+
+  section.querySelector("#material-save").addEventListener("click", async () => {
+    if (!loaded) return;
+    message.textContent = "";
+    message.className = "form-hint";
+    try {
+      await saveMaterial(editing.id, {
+        title: editing.title,
+        orgId: editing.orgId || State.profile.orgId,
+        authorId: State.user.uid,
+        pages
+      });
+      message.textContent = `Материал сохранён: ${pages.length} страниц.`;
+      toast("Материал сохранён", "success");
+    } catch (err) {
+      message.textContent = err?.message || "Не удалось сохранить материал.";
+      message.className = "form-error";
+    }
+  });
+
+  async function init() {
+    try {
+      const material = await loadMaterial(editing.id);
+      pages.length = 0;
+      if (material?.pages?.length) pages.push(...material.pages.map(blocks => [...blocks]));
+      else pages.push([{ type: "paragraph", text: "" }]);
+      loaded = pages.length > 0;
+      pagesNav.appendChild(h("div", { class: "form-hint" }, ""));
+      paintPagesNav();
+      paintEditor();
+    } catch (err) {
+      // Студент может открыть create-test без прав материалов… но staff есть.
+      message.textContent = err?.code === "permission-denied"
+        ? "Правила Firestore не разрешают чтение материала."
+        : "Материал не загружен; можно создать с нуля.";
+      message.className = "form-error";
+      pages.push([{ type: "paragraph", text: "" }]);
+      loaded = true;
+      paintPagesNav();
+      paintEditor();
+    }
+  }
+  init();
+
+  section.append(h("div", { class: "panel-body" }, pagesNav, editorPane, message));
+  return section;
 }
 
 export default async function CreateTestPage() {
@@ -282,6 +538,20 @@ export default async function CreateTestPage() {
   );
 
   page.append(h("div", { class: "split" }, editor, preview));
+
+  // ---------- Материал-книга (вкладка «Материал») ----------
+  // Хранение: materials/{testId} + pages/{n}; страница = { blocks: [...] }.
+  if (editing?.id) {
+    page.appendChild(buildMaterialEditor(editing));
+  } else {
+    const note = h("div", { class: "panel" },
+      h("div", { class: "empty-state" },
+        h("h2", {}, "Материал-книга"),
+        h("p", { class: "muted" }, "Сначала сохраните тест — появятся страницы материала, которые студенты читают до вопроса."),
+      )
+    );
+    page.appendChild(note);
+  }
 
   const previewBody = preview.querySelector("#preview-body");
   const previewCount = preview.querySelector("#preview-count");

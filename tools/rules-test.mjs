@@ -113,6 +113,44 @@ function projectId() {
     return project;
 }
 
+// Снимок попытки для кейсов с гейтингом материалов.
+function attemptDoc() {
+    return {
+        userId: "student1",
+        userEmail: "student1@example.com",
+        orgId: ORG,
+        testId: "t1",
+        testTitle: "Тест",
+        assignmentId: "a1",
+        answers: {},
+        status: "in_progress",
+        attemptNo: 1,
+        deadlineAt: null,
+        userName: "Test User",
+        groupId: "default-group"
+    };
+}
+
+// Моки задания a1 нужного типа (training/exam).
+function assignmentMocks(kind = "training") {
+    return [
+        {
+            function: "exists",
+            args: [{ exactValue: `${DB}/assignments/a1` }],
+            result: { value: true }
+        },
+        {
+            function: "get",
+            args: [{ exactValue: `${DB}/assignments/a1` }],
+            result: {
+                value: {
+                    data: { status: "active", groupId: "default-group", orgId: ORG, kind, deadline: null }
+                }
+            }
+        }
+    ];
+}
+
 function userDoc(uid, role, orgId = ORG, extra = {}) {
     return {
         uid,
@@ -683,6 +721,234 @@ function testCases() {
                 }
             },
             functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Материалы: студент читает материал до попытки",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/materials/t1`,
+                method: "get"
+            },
+            resource: { data: { orgId: ORG, authorId: "teacher1", pageCount: 3 } },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/activeAttempts/student1` }],
+                    result: { value: false }
+                }
+            ]
+        },
+        {
+            name: "Материалы: студент с активной попыткой не читает материал",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/materials/t1`,
+                method: "get"
+            },
+            resource: { data: { orgId: ORG, authorId: "teacher1", pageCount: 3 } },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/activeAttempts/student1` }],
+                    result: { value: true }
+                }
+            ]
+        },
+        {
+            name: "Материалы: сотрудники читают даже с маркером студента",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher2" },
+                path: `${DB}/materials/t1/pages/0`,
+                method: "get"
+            },
+            resource: { data: { blocks: [] } },
+            functionMocks: [
+                ...profileMocks("teacher2", "teacher"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/materials/t1` }],
+                    result: { value: { data: { orgId: ORG, authorId: "teacher2", pageCount: 3 } } }
+                }
+            ]
+        },
+        {
+            name: "Материалы: студент читает страницу без маркера",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/materials/t1/pages/0`,
+                method: "get"
+            },
+            resource: { data: { blocks: [] } },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/materials/t1` }],
+                    result: { value: { data: { orgId: ORG, authorId: "teacher1", pageCount: 3 } } }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/activeAttempts/student1` }],
+                    result: { value: false }
+                }
+            ]
+        },
+        {
+            name: "Материалы: студент пишет свой прогресс чтения",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/materialProgress/student1_t1`,
+                method: "create",
+                resource: {
+                    data: {
+                        uid: "student1", testId: "t1",
+                        lastPage: 2, completed: true, updatedAt: ISO
+                    }
+                }
+            },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Материалы: чужой прогресс не пишется",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student2" },
+                path: `${DB}/materialProgress/student1_t1`,
+                method: "create",
+                resource: {
+                    data: {
+                        uid: "student1", testId: "t1",
+                        lastPage: 2, completed: true, updatedAt: ISO
+                    }
+                }
+            },
+            functionMocks: profileMocks("student2", "student")
+        },
+        {
+            name: "Материалы: попытка по training без прочтения запрещена",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/attempts/att-t1`,
+                method: "create",
+                resource: {
+                    data: attemptDoc()
+                }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/assignments/a1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: { data: { status: "published", orgId: ORG } } }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/materialProgress/student1_t1` }],
+                    result: { value: { data: { completed: false } } }
+                }
+            ]
+        },
+        {
+            name: "Материалы: попытка по training после прочтения разрешена",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/attempts/att-t1`,
+                method: "create",
+                resource: {
+                    data: attemptDoc()
+                }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/assignments/a1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/assignments/a1` }],
+                    result: {
+                        value: {
+                            data: { status: "active", groupId: "default-group", orgId: ORG, kind: "training", deadline: null }
+                        }
+                    }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: { data: { status: "published", orgId: ORG } } }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/materialProgress/student1_t1` }],
+                    result: { value: { data: { completed: true } } }
+                }
+            ]
+        },
+        {
+            name: "Материалы: маркер снимается после отправки попытки",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/activeAttempts/student1`,
+                method: "delete"
+            },
+            resource: {
+                data: { uid: "student1", attemptId: "att-t2", testId: "t1", deadlineAt: null }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "getAfter",
+                    args: [{ exactValue: `${DB}/attempts/att-t2` }],
+                    result: { value: { data: { status: "submitted", userId: "student1" } } }
+                }
+            ]
+        },
+        {
+            name: "Материалы: маркер не снимается, пока попытка в работе и срок не прошёл",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/activeAttempts/student1`,
+                method: "delete"
+            },
+            resource: {
+                data: { uid: "student1", attemptId: "att-t3", testId: "t1", deadlineAt: null }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "getAfter",
+                    args: [{ exactValue: `${DB}/attempts/att-t3` }],
+                    result: { value: { data: { status: "in_progress", userId: "student1" } } }
+                }
+            ]
         },
         {
             name: "Пользователь создаёт собственный студенческий профиль",

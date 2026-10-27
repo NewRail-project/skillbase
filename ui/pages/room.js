@@ -492,10 +492,14 @@ function playerView() {
 
   if (!question) {
     wrap.appendChild(waitPanel("Ведущий скоро задаст вопрос, следите за экраном."));
+    const m = materialButton();
+    if (m) wrap.appendChild(m);
   } else if (myAnswer != null && reveal) {
     wrap.appendChild(revealPanel(reveal, question, { mine: myAnswer }));
   } else if (myAnswer != null) {
     wrap.appendChild(waitPanel("Ответ принят. Ждём закрытия вопроса."));
+    const m = materialButton();
+    if (m) wrap.appendChild(m);
   } else {
     wrap.appendChild(answerForm(question, currentId));
   }
@@ -503,6 +507,19 @@ function playerView() {
   const board = scoresTable();
   if (board) wrap.appendChild(board);
   return wrap;
+}
+
+// Кнопка «Материал» доступна в ожидании, между вопросами и после
+// закрытия. Во время открытого вопроса — скрыта. ЗАЩИТА ТОЛЬКО НА
+// КЛИЕНТЕ: студент с прямой ссылкой #material/<testId> может открыть
+// материал в другой вкладке во время вопроса. Честное описание —
+// в docs/PROGRESS.md.
+function materialButton() {
+  const room = local.room;
+  if (!room || room.phase === "opened") return null;
+  return h("div", { class: "btn-row", style: "margin-top:var(--space-2)" },
+    h("a", { class: "btn secondary", href: `#material/${encodeURIComponent(room.testId || "")}` },
+      "Открыть материал"));
 }
 
 function waitPanel(text) {

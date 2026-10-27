@@ -10,6 +10,25 @@
 import { State, applyTheme } from "../core/auth.js";
 import { saveReturnTo, consumeReturnTo } from "./return-to.js";
 
+// Хеш-страж: пока открыта читалка материала, hashchange откатывается,
+// кроме разрешённых (страж следит и хранит последний легальный хеш).
+let hashGuard = null;
+let guardHash = "#/";
+
+// Страница устанавливает страж: fn(nextHash) → boolean разрешить уход.
+// بدون стража роутер работает как раньше. Страж снимается через setHashGuard(null).
+export function setHashGuard(fn) {
+  hashGuard = fn;
+  if (fn) guardHash = window.location.hash;
+}
+
+// Разрешённый выход из-под стража (кнопка «К тесту» в читалке).
+export function leaveWithHash(nextHash) {
+  hashGuard = null;
+  guardHash = nextHash;
+  window.location.hash = nextHash;
+}
+
 const STAFF = ["teacher", "admin"];
 const ADMIN = ["admin"];
 
@@ -24,6 +43,7 @@ const routes = {
   "launch":       { file: "ui/pages/launch.js",            title: "Как провести тест",    auth: true, roles: STAFF },
   "join":         { file: "ui/pages/join.js",              title: "Вход по коду",         auth: true },
   "room":         { file: "ui/pages/room.js",              title: "Live-комната",         auth: true },
+  "material":     { file: "ui/pages/material.js",          title: "Материал",             auth: true },
   "results":      { file: "ui/pages/results.js",           title: "Результаты",           auth: true, roles: STAFF },
   "review":       { file: "ui/pages/review.js",            title: "Проверка попытки",     auth: true, roles: STAFF },
   "assignments":  { file: "ui/pages/assignments.js",       title: "Задания",              auth: true },
@@ -61,6 +81,19 @@ export async function router() {
   if (currentCleanup) {
     try { currentCleanup(); } catch (e) { console.error("cleanup error:", e); }
     currentCleanup = null;
+  }
+
+  // Хеш-страж: страница (например, читалка материала) может запретить
+  // уход по hashchange, пока не завершит работу. Страж возвращает false,
+  // если смену хеша нужно откатить; страницы-exit вызывают разрешённый
+  // переход сами, снимая страж.
+  if (hashGuard) {
+    const allowed = hashGuard(window.location.hash);
+    if (!allowed) {
+      if (guardHash != null) window.location.hash = guardHash;
+      return;
+    }
+    guardHash = window.location.hash;
   }
 
   if (route && route.auth && !State.user) {

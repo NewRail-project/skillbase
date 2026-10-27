@@ -290,7 +290,88 @@ service cloud.firestore {
         );
     }
 
+    // ---------- materials, materialProgress ----------
+    // Учебный материал-книга, читают ДО теста. Во время активной попытки
+    // (маркер activeAttempts/{uid}) студентам материалы закрыты,
+    // чтобы не подсматривать ответы; срок маркера (deadlineAt) отпускает.
+    match /materials/{testId} {
+      allow read: if isStaffOf(resource.data.orgId)
+        || (
+          hasProfile()
+          && role() == "student"
+          && !exists(/databases/$(database)/documents/activeAttempts/$(request.auth.uid))
+        );
+
+      allow create, update: if isStaff()
+        && request.resource.data.orgId == myOrg()
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.pageCount is int
+        && request.resource.data.pageCount >= 1;
+
+      allow delete: if isStaffOf(resource.data.orgId);
+
+      match /pages/{n} {
+        allow read: if get(
+            /databases/$(database)/documents/materials/$(testId)
+          ).data.orgId == myOrg()
+          && (
+            isStaff()
+            || (
+              role() == "student"
+              && !exists(
+                /databases/$(database)/documents/activeAttempts/$(request.auth.uid)
+              )
+            )
+          );
+
+        // Страницу пишет только сотрудник своей организации; структурность
+        // blocks проверяется на клиенте (core/material-logic.js).
+        allow create, update: if isStaff()
+          && get(
+            /databases/$(database)/documents/materials/$(testId)
+          ).data.orgId == myOrg();
+
+        allow delete: if isStaff()
+          && get(
+            /databases/$(database)/documents/materials/$(testId)
+          ).data.orgId == myOrg();
+      }
+    }
+
+    // Прогресс чтения: один документ на пару «студент+тест».
+    match /materialProgress/{progressId} {
+      allow read: if signedIn()
+        && progressId == resource.data.uid + "_" + resource.data.testId
+        && resource.data.uid == request.auth.uid;
+
+      allow create, update: if hasProfile()
+        && role() == "student"
+        && progressId == request.auth.uid + "_" + request.resource.data.testId
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.testId is string
+        && request.resource.data.lastPage is int
+        && request.resource.data.lastPage >= 0
+        && request.resource.data.completed is bool
+        && request.resource.data.keys().hasOnly(
+          ["uid", "testId", "lastPage", "completed", "updatedAt"]
+        );
+
+      allow delete: if false;
+    }
+
     match /attempts/{id} {
+      // По заданию типа training тест можно начать только после того,
+      // как студент дочитал материал (materialProgress.completed).
+      function attemptMaterialReadOk(d) {
+        return d.assignmentId == ""
+          || get(
+            /databases/$(database)/documents/assignments/$(d.assignmentId)
+          ).data.kind != "training"
+          || get(
+            /databases/$(database)/documents/materialProgress/$(request.auth.uid + "_" + d.testId)
+          ).data.completed == true;
+      }
+
       // Попытка: снимок полей профиля должен совпадать с самим профилем.
       function attemptProfileMatches(d) {
         return (!("userName" in d.keys()) || d.userName == userDoc().fullName)
@@ -364,6 +445,7 @@ service cloud.firestore {
         && request.resource.data.orgId == myOrg()
         && request.resource.data.status == "in_progress"
         && request.resource.data.answers is map
+        && attemptMaterialReadOk(request.resource.data)
         && !request.resource.data.keys().hasAny([
           "score", "total", "percent", "review", "gradedBy", "gradedAt"
         ])

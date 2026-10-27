@@ -714,3 +714,130 @@ body.sidebar-open { overflow: hidden; }
   border-radius: var(--radius, 10px);
   padding: var(--space-3);
 }
+
+/* ---------- Читалка материала (материал-книга) ---------- */
+/* В читалке тёмная тема не применяется: свои непрозрачные цвета. */
+.reading-mode .sidebar,
+.reading-mode .topbar,
+.reading-mode .site-footer { display: none !important; }
+.reading-mode #app { padding: 0; max-width: none; }
+
+.reader {
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: #f6f0e1; /* бумага */
+  color: #1c1a17;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-4, 20px);
+}
+.reader-title {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1rem;
+  letter-spacing: .02em;
+  opacity: .75;
+  margin-bottom: var(--space-3);
+}
+.reader-stage {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+}
+/* Ширина строки ≈62 символа при 20 px Georgia */
+.book {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 20px;
+  line-height: 1.7;
+  color: #1c1a17;
+  max-width: 44em;      /* ~62 симв. */
+  width: 100%;
+  padding: var(--space-6, 48px) clamp(16px, 6vw, 64px);
+  background: #f6f0e1;
+  /* Лёгкая тень краёв как у печатной страницы */
+  box-shadow: inset 18px 0 24px -18px rgba(60, 42, 10, .18),
+              inset -18px 0 24px -18px rgba(60, 42, 10, .18);
+}
+.book-page p { orphans: 2; widows: 2; }
+.book-h {
+  font-weight: 700;
+  font-size: 1.4em;
+  line-height: 1.25;
+  margin: 1.2em 0 .5em;
+}
+.book-p { margin: 0 0 1em; text-indent: 1.2em; }
+.book-p:first-of-type { text-indent: 0; }
+.book-list { margin: 0 0 1em; padding-left: 1.4em; }
+.book-list li { margin: .25em 0; }
+.book-callout {
+  border: 1px solid #d8cdb2;
+  border-left: 3px solid #8a7a4a;
+  border-radius: 6px;
+  padding: .8em 1em;
+  margin: 1.2em 0;
+  background: #efe7d2;
+}
+.book-callout.warning { border-left-color: #a4551a; background: #f3e2d0; }
+.book-callout.rule { border-left-color: #556b3e; background: #e7ecd9; }
+.book-callout-label {
+  display: block;
+  font-family: system-ui, sans-serif;
+  font-size: .62em;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  opacity: .7;
+  margin-bottom: .4em;
+}
+.book-figure { margin: 1.4em 0; text-align: center; }
+.book-figure img { max-width: 100%; max-height: 60vh; border-radius: 4px; }
+.book-caption {
+  font-size: .78em;
+  opacity: .75;
+  margin-top: .5em;
+  font-style: italic;
+}
+.book-quote {
+  margin: 1.2em 0 1.2em 1.4em;
+  padding-left: 1em;
+  border-left: 3px solid #cfc4a6;
+  font-style: italic;
+}
+.reader-page-num {
+  font-family: Georgia, serif;
+  font-size: .85rem;
+  opacity: .65;
+  margin: var(--space-3);
+}
+.reader-arrow {
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(28, 26, 23, .06);
+  border: 1px solid rgba(28, 26, 23, .15);
+  color: #1c1a17;
+  border-radius: 50%;
+  width: 46px; height: 46px;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+.reader-arrow:disabled { opacity: .25; cursor: default; }
+.reader-arrow.left { left: 12px; }
+.reader-arrow.right { right: 12px; }
+.reader-exit { margin: var(--space-3) 0; display: grid; gap: var(--space-2); justify-items: center; }
+.reader-hint { max-width: 30em; text-align: center; font-family: Georgia, serif; }
+
+/* ---------- Редактор материала в create-test ---------- */
+.material-block {
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 10px);
+  padding: var(--space-3);
+  margin: var(--space-3) 0;
+  display: grid;
+  gap: var(--space-2);
+}
+@media (prefers-reduced-motion: reduce) {
+  .book { transition: none !important; }
+}
