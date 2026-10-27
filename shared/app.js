@@ -45,6 +45,7 @@ const routes = {
   "room":         { file: "ui/pages/room.js",              title: "Live-комната",         auth: true },
   "material":     { file: "ui/pages/material.js",          title: "Материал",             auth: true },
   "results":      { file: "ui/pages/results.js",           title: "Результаты",           auth: true, roles: STAFF },
+  "analytics":    { file: "ui/pages/analytics.js",         title: "Аналитика по тесту",   auth: true, roles: STAFF },
   "review":       { file: "ui/pages/review.js",            title: "Проверка попытки",     auth: true, roles: STAFF },
   "assignments":  { file: "ui/pages/assignments.js",       title: "Задания",              auth: true },
   "student":      { file: "ui/pages/student-dashboard.js", title: "Панель студента",      auth: true },
@@ -169,7 +170,7 @@ export function updateHeaderNav() {
     return;
   }
   if (STAFF.includes(State.profile?.role)) {
-    nav.append(link("#create-test", "Тесты"), link("#results", "Результаты"));
+    nav.append(link("#create-test", "Тесты"), link("#results", "Результаты"), link("#analytics", "Аналитика"));
   }
   if (State.profile?.role === "admin") {
     nav.append(link("#admins", "Администраторы"));

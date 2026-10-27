@@ -621,16 +621,25 @@ service cloud.firestore {
       allow create: if isStaff()
         && request.resource.data.orgId == myOrg()
         && request.resource.data.hostId == request.auth.uid
-        && request.resource.data.status == "active";
+        && request.resource.data.status == "active"
+        // Ёмкость комнаты задана при создании; по документации MVP — 100.
+        && request.resource.data.get("maxPlayers", 100) is int
+        && request.resource.data.maxPlayers > 0;
 
-      allow update, delete: if isRoomHost();
+      // Ведущему можно менять состояние комнаты, но не хозяина: hostId
+      // остаётся неизменяемым даже для самого ведущего.
+      allow update, delete: if isRoomHost()
+        && request.resource.data.hostId == resource.data.hostId;
 
       match /players/{playerId} {
         // Чужие players не читаются: сам игрок или ведущий.
         allow read: if (hasProfile() && request.auth.uid == playerId)
           || isRoomHost();
 
-        // Войти в комнату может только сам участник.
+        // Войти в комнату может только сам участник; лимит — maxPlayers
+        // (счётчик playersCount публикуется ведущим с задержкой — это
+        // допустимая погрешность, см. docs/PROGRESS.md). Преподаватель,
+        // не являющийся ведущим этой комнаты, входит только наблюдателем.
         allow create: if hasProfile()
           && request.auth.uid == playerId
           && request.resource.data.keys().hasOnly(
@@ -639,7 +648,13 @@ service cloud.firestore {
           && request.resource.data.uid == playerId
           && request.resource.data.playerId == request.auth.uid
           && request.resource.data.observer is bool
-          && roomDoc().status == "active";
+          && roomDoc().status == "active"
+          && roomDoc().get("playersCount", 0) < roomDoc().get("maxPlayers", 100)
+          && (
+            roomDoc().hostId == request.auth.uid
+            || !isStaff()
+            || request.resource.data.observer == true
+          );
 
         // Ответ на текущий вопрос — отдельным документом
         // players/{uid}/answers/{qid}: создать можно только если он ещё

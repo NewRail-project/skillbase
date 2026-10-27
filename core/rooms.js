@@ -15,7 +15,7 @@ import {
   computeScores, buildReveal, normalizePlayerTimes
 } from "./rooms-logic.js";
 import { normalizeKeys } from "./scoring.js";
-import { State } from "./auth.js";
+import { State, isStaff } from "./auth.js";
 import {
   REACTIONS, normalizeReaction
 } from "../shared/reactions.js";
@@ -59,6 +59,10 @@ export async function createRoom({ test, profile }) {
         hostId: State.user?.uid || "",
         hostName: profile.fullName || "",
         status: "active",
+        // Ёмкость комнаты (MVP по умолчанию 100) + счётчик участников,
+        // публикуемый ведущим с задержкой (клиентские снапшоты).
+        maxPlayers: 100,
+        playersCount: 0,
         currentQuestion: -1,
         currentQuestionId: "",
         phase: "idle",
@@ -111,6 +115,16 @@ export async function joinRoom(code, { displayName, observer = false, profile } 
   if (room.status !== "active") throw new Error("Комната закрыта.");
   if (room.orgId && profile?.orgId && room.orgId !== profile.orgId) {
     throw new Error("Комната принадлежит другой организации.");
+  }
+  // Преподаватель, не ведущий этой комнаты, входит только наблюдателем
+  // (правило Firestore дублирует проверку на сервере).
+  if (observer === false && isStaff() && room.hostId !== uid) {
+    observer = true;
+  }
+  // Лимит: счётчик публикуется ведущим с задержкой — если он отстал,
+  // откажет уже правило Firestore (одна из допустимых погрешностей).
+  if ((room.playersCount || 0) >= (room.maxPlayers || 100)) {
+    throw new Error("Комната заполнена: участников больше не пускаем.");
   }
 
   await setDoc(

@@ -1,5 +1,5 @@
 import { h } from "../../shared/dom.js";
-import { State } from "../../core/auth.js";
+import { State, isStaff } from "../../core/auth.js";
 import { listOrgAttempts } from "../../core/attempts.js";
 import { loadPublicProfiles, displayName } from "../../core/profile.js";
 import { toCsv } from "../../shared/csv.js";

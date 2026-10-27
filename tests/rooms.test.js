@@ -39,10 +39,19 @@ test('questionTimeMs: в пределах ±2 минут берём сервер
   assert.equal(questionTimeMs(server, Date.now()), server);
 });
 
-test('questionTimeMs: расхождение больше 2 минут — локальное время', () => {
-  const server = Date.now() - 180_000;
-  const now = 5_000_000;
-  assert.equal(questionTimeMs(server, now), now);
+test('questionTimeMs: сильный уход сервера вперёд — момент получения', () => {
+  // Сервер «в будущем» (устройство отстало), но не сильно — берём сервер; этот кейс
+  // обозначает только сильный уход вперёд.
+  const server = Date.now() + 180_000;
+  const now = Date.now();
+  assert.equal(questionTimeMs(server, now), now, 'сильный уход вперёд — момент получения');
+});
+
+test('questionTimeMs: уход в прошлое не маскируем (восстановление комнаты)', () => {
+  // Вопрос открыт задолго до перезагрузки: серверная метка остаётся —
+  // таймер покажет, что время уже вышло, и автозакрытие сработает один раз.
+  const server = 1_000;
+  assert.equal(questionTimeMs(server, 5_000_000), server);
 });
 
 test('questionTimeMs: нет серверного времени — локальное', () => {

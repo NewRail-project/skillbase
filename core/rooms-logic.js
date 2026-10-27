@@ -36,15 +36,17 @@ export function isValidRoomCode(value) {
   return /^[A-HJ-NP-Z2-9]{6}$/.test(String(value || ""));
 }
 
-// Время вопроса на устройстве. Сервер даёт qStartedAt (мс):
-// если его снапшот старше/новее Date.now() больше чем на ±2 минуты
-// (сломанные часы, подвисший tabs), считаем от момента получения.
+// Время вопроса: сервер даёт qStartedAt (мс). Серверная метка — опора.
+// Смещение устройства в будущее (вопрос «ещё не начался») маскируем
+// моментом получения; уход в прошлое НЕ маскируем: после перезагрузки
+// ведущий и таймер должны видеть, что время вопроса уже вышло, чтобы
+// восстановление комнты честно закрывало вопрос один раз.
 export function questionTimeMs(qStartedMs, receivedMs = Date.now()) {
   const SKEW_MS = 120_000;
   if (typeof qStartedMs !== "number" || !Number.isFinite(qStartedMs)) {
     return receivedMs;
   }
-  if (Math.abs(receivedMs - qStartedMs) > SKEW_MS) return receivedMs;
+  if (qStartedMs > receivedMs + SKEW_MS) return receivedMs;
   return qStartedMs;
 }
 

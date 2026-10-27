@@ -9,10 +9,10 @@ import {
 import { State, isStaff } from "./auth.js";
 import { parseQuiz } from "./import/parser.js";
 import { emptyTest, validateTest } from "./test-schema.js";
-import { splitForStorage, mergeKeys, sanitizePublicTest } from "./test-storage.js";
+import { splitForStorage, mergeKeys, sanitizePublicTest, sameVersionSnapshot } from "./test-storage.js";
 
 export { effectiveDeadline } from "./timing.js";
-export { splitForStorage, mergeKeys, sanitizePublicTest };
+export { splitForStorage, mergeKeys, sanitizePublicTest, sameVersionSnapshot };
 
 const draftKey = (id) => {
   const uid = auth.currentUser?.uid || State?.user?.uid || "guest";
@@ -161,7 +161,10 @@ export async function publishTest(testId) {
     // читают attempts.js и getTestForReview (раньше addDoc давал случайный id,
     // и снимок невозможно было найти по номеру).
     const versionRef = doc(db, "tests", id, "versions", String(version));
-    await setDoc(versionRef, {
+    // Повторная публикация после сбоя: если версия уже записана, а tests не
+    // обновлён, продолжаем — читаем версию, сравниваем содержимое
+    // (sameVersionSnapshot без полей времени), обновляем тест.
+    const payload = {
       ...publicTest, id,
       authorId: currentTest.authorId,
       orgId: currentTest.orgId,
@@ -171,7 +174,21 @@ export async function publishTest(testId) {
       status: "published",
       version,
       items: keys
+    };
+    const existingVersion = await getDoc(versionRef).catch(err => {
+      console.error("Не удалось прочитать версию:", err);
+      return null;
     });
+    if (existingVersion?.exists()) {
+      if (!sameVersionSnapshot(existingVersion.data(), payload)) {
+        throw new Error(
+          `Версия ${version} уже опубликована с другим содержимым. ` +
+          "Обновите тест через новую публикацию.");
+      }
+      // Содержимое то же — считаем публикацию завершённой по шагу версии.
+    } else {
+      await setDoc(versionRef, payload);
+    }
     await updateDoc(doc(db, "tests", id), {
       status: "published",
       publishedAt: serverTimestamp(),

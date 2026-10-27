@@ -144,3 +144,36 @@ export function selectKeysForAttempt(currentItems, versionedItems, version) {
   }
   return currentItems;
 }
+
+// ---------- Повторная публикация после сбоя ----------
+
+// Канонический JSON с отсортированными ключами объектов: сравнение
+// содержимого версии независимо от порядка полей и от того, как
+// Firestore вернул документ.
+export function canonicalJson(value) {
+  if (value === null) return "null";
+  if (typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return "[" + value.map(canonicalJson).join(",") + "]";
+  }
+  const keys = Object.keys(value).filter(
+    key => typeof value[key] !== "function"
+  ).sort();
+  return "{" + keys.map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",") + "}";
+}
+
+// Содержимое версии совпадает? Серверные поля времени исключаются:
+// при неудачной публикации между setDoc(version) и updateDoc(test)
+// publishTest должен продолжить, а не упереться в неизменяемость версии.
+export function sameVersionSnapshot(existing, payload, {
+  ignored = ["createdAt", "updatedAt", "publishedAt"]
+} = {}) {
+  const strip = (obj) => {
+    const out = {};
+    for (const key of Object.keys(obj || {})) {
+      if (!ignored.includes(key)) out[key] = obj[key];
+    }
+    return out;
+  };
+  return canonicalJson(strip(existing)) === canonicalJson(strip(payload));
+}

@@ -13,7 +13,7 @@ import {
   questionTimeMs, answeredCount, myAnswerVerdict
 } from "../../core/rooms-logic.js";
 import {
-  db, doc, getDoc, onSnapshot, collection
+  db, doc, getDoc, onSnapshot, collection, updateDoc, serverTimestamp
 } from "../../shared/firebase.js";
 import { loadPublicProfiles } from "../../core/profile.js";
 import { avatarPreset } from "../../shared/avatars.js";
@@ -101,6 +101,21 @@ function formatClock(remainingMs) {
 function reducedMotion() {
   return typeof matchMedia === "function"
     && matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+// Ведущий публикует счётчик участников (не наблюдателей) в room doc:
+// правило players/create разрешит вход, пока playersCount < maxPlayers.
+// Счётчик отстаёт на тяжести подписки — это принятая погрешность.
+function publishCounter() {
+  const room = local.room;
+  if (role() !== "host") return;
+  const players = (local.players || []).filter(p => !p.observer).length;
+  if (!room || room.status !== "active") return;
+  if (room.playersCount != null && room.playersCount === players) return;
+  updateDoc(doc(db, "rooms", local.code), {
+    playersCount: players,
+    updatedAt: serverTimestamp()
+  }).catch(err => console.error("playersCount:", err));
 }
 
 function role() {
@@ -269,6 +284,7 @@ export default async function RoomPage() {
       local.players = players;
       loadProfiles().catch(err => console.error(err));
       wake();
+      publishCounter();
     },
     onError: error => console.error("Комната snapshot:", error)
   }));
