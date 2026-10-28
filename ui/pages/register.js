@@ -39,7 +39,7 @@ export default function RegisterPage() {
         ? h("p", { class: "form-hint", role: "status" }, "После регистрации вернём вас к выбранному тесту.")
         : null,
       state.errors.general ? h("div", { class: "form-error", role: "alert" }, state.errors.general) : null,
-      h("form", { id: "register-form" },
+      h("form", { id: "register-form", novalidate: "novalidate" },
         h("div", { class: "form-field" },
           h("label", { for: "fullName" }, "ФИО"),
           h("input", {
@@ -116,9 +116,11 @@ export default function RegisterPage() {
             h("option", { value: "depot" }, "Депо")
           ),
           h("div", { class: "form-hint" }, "Необязательно")
-        )
-      ),
-      h("button", { type: "submit", class: "btn primary" }, "Зарегистрироваться")
+        ),
+        // Кнопка отправки обязана быть ВНУТРИ form: кнопка снаружи не
+        // отправляет форму, клик «молчит» (регрессия после revert b7e11b6).
+        h("button", { type: "submit", class: "btn primary" }, "Зарегистрироваться")
+      )
     );
     // Для <select> значение задаётся свойством: атрибут value не выбирает option.
     const uiSelect = div.querySelector("#ui");
