@@ -682,6 +682,127 @@ function testCases() {
             ]
         },
         {
+            name: "Комнаты: студент читает комнату до входа (вход по коду)",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1`,
+                method: "get"
+            },
+            resource: { data: { hostId: "teacher1", orgId: ORG, status: "active", code: "R1XK2M" } },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/rooms/r1` }],
+                    result: { value: { data: { hostId: "teacher1", orgId: ORG, status: "active" } } }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/rooms/r1/players/student1` }],
+                    result: { value: false }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/rooms/r1/observers/student1` }],
+                    result: { value: false }
+                }
+            ]
+        },
+        {
+            name: "Комнаты: вошедший без профиля не читает комнату",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1`,
+                method: "get"
+            },
+            resource: { data: { hostId: "teacher1", orgId: ORG, status: "active" } },
+            functionMocks: [
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/users/student1` }],
+                    result: { value: false }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/rooms/r1/players/student1` }],
+                    result: { value: false }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/rooms/r1/observers/student1` }],
+                    result: { value: false }
+                }
+            ]
+        },
+        {
+            name: "Комнаты: анонимный гость читает комнату",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "guest1", token: { firebase: { sign_in_provider: "anonymous" } } },
+                path: `${DB}/rooms/r1`,
+                method: "get"
+            },
+            resource: { data: { hostId: "teacher1", orgId: ORG, status: "active", code: "R1XK2M" } },
+            functionMocks: [
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/users/guest1` }],
+                    result: { value: false }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/rooms/r1/players/guest1` }],
+                    result: { value: false }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/rooms/r1/observers/guest1` }],
+                    result: { value: false }
+                }
+            ]
+        },
+        {
+            name: "players: участник комнаты читает список players (чужой документ)",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student2" },
+                path: `${DB}/rooms/r1/players/student1`,
+                method: "get"
+            },
+            resource: { data: { uid: "student1", playerId: "student1", name: "Player One", observer: false } },
+            functionMocks: [
+                ...profileMocks("student2", "student"),
+                ...roomMocks("3"),
+                ...playerMock("student2", false)
+            ]
+        },
+        {
+            name: "players: посторонний с профилем не читает чужой players",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student3" },
+                path: `${DB}/rooms/r1/players/student1`,
+                method: "get"
+            },
+            resource: { data: { uid: "student1", playerId: "student1", name: "Player One", observer: false } },
+            functionMocks: [
+                ...profileMocks("student3", "student"),
+                ...roomMocks("3"),
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/rooms/r1/players/student3` }],
+                    result: { value: false }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/rooms/r1/observers/student3` }],
+                    result: { value: false }
+                }
+            ]
+        },
+        {
             name: "Реакции: участник пишет свой документ с пресетом",
             expectation: "ALLOW",
             request: {
@@ -914,41 +1035,9 @@ function testCases() {
                 ...roomMocks("3")
             ]
         },
-        {
-            name: "Комнаты: чужие players не читаются",
-            expectation: "DENY",
-            request: {
-                auth: { uid: "student1" },
-                path: `${DB}/rooms/r1/players/student2`,
-                method: "get"
-            },
-            resource: {
-                data: { playerId: "student2", observer: false }
-            },
-            functionMocks: [
-                ...profileMocks("student1", "student"),
-                {
-                    function: "get",
-                    args: [{ exactValue: `${DB}/rooms/r1` }],
-                    result: {
-                        value: {
-                            data: {
-                                hostId: "teacher1",
-                                orgId: ORG,
-                                status: "active",
-                                phase: "opened",
-                                currentQuestionId: "3"
-                            }
-                        }
-                    }
-                },
-                {
-                    function: "exists",
-                    args: [{ exactValue: `${DB}/rooms/r1/players/student1` }],
-                    result: { value: true }
-                }
-            ]
-        },
+        // Кейс «чужие players не читаются» (DENY) заменён на два кейса
+        // нового контракта: участник комнаты читает список players,
+        // посторонний с профилем — нет.
         {
             name: "Студент читает активное задание своей группы",
             expectation: "ALLOW",

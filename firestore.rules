@@ -631,10 +631,12 @@ function isGuest() {
         );
       }
 
-      // Публичные данные комнаты видны и гостю: документ комнаты
-      // не содержит вопросов и ключей ответов.
+      // Публичные данные комнаты: документ не содержит вопросов и ключей
+      // ответов. Читать комнату до входа необходимо, чтобы войти по коду
+      // (проверка статуса и лимита), поэтому её видят все с профилем
+      // и анонимные гости. Ключи теста лежат в testKeys и гостям недоступны.
       allow read: if isRoomHost() || inRoomAnyRole()
-        || (hasProfile() && isStaffOf(roomDoc().orgId))
+        || hasProfile()
         || isGuest();
 
       allow create: if isStaff()
@@ -651,11 +653,12 @@ function isGuest() {
         && request.resource.data.hostId == resource.data.hostId;
 
       match /players/{playerId} {
-        // Чужие players не читаются: сам игрок или ведущий. Гость
-        // читает только свой документ.
-        allow read: if (hasProfile() && request.auth.uid == playerId)
-          || (isGuest() && request.auth.uid == playerId)
-          || isRoomHost();
+        // Свой документ — любому вошедшему, участников комнаты — всем
+        // членам комнаты (список с именами и аватарами нужен интерфейсу
+        // комнаты: роль, счётчики, FLIP-таблица), и ведущему.
+        allow read: if request.auth.uid == playerId
+          || isRoomHost()
+          || inRoomAnyRole();
 
         // Войти в комнату может только сам участник; лимит — maxPlayers
         // (счётчик playersCount публикуется ведущим с задержкой — это
@@ -712,10 +715,11 @@ function isGuest() {
           ).data;
         }
 
-        // Чужие ответы участника не читаются: сам игрок или ведущий.
-        // Гость читает только свои ответы.
-        allow read: if (hasProfile() && request.auth.uid == playerId)
-          || (isGuest() && request.auth.uid == playerId)
+        // Чужие ответы участника не читаются: сам игрок (любой вошедший
+        // со своим документом) или ведущий. Ответы до раскрытия вопроса
+        // участникам недоступны — слушатель чужих ответов у не-ведущего
+        // просто не получает данных.
+        allow read: if request.auth.uid == playerId
           || isRoomHost();
 
         allow create: if (hasProfile()
