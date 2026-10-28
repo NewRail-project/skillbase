@@ -14,6 +14,10 @@ async function StudentDashboardPage() {
     const assignments = await getStudentAssignments('groupId');
     const list = div.querySelector('#list');
     list.textContent = "";
+    if (!assignments.length) {
+      list.append(h("p", { class: "muted" }, "Заданий пока нет."));
+      return div;
+    }
     assignments.forEach(a => {
       const card = h("div", { class: "card" });
       card.append(

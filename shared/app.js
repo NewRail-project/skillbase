@@ -7,7 +7,7 @@
 // Маршруты: хэш-роутинг. Параметры после слэша: #quiz/<assignmentId>, #test/<id>, #join/<code>, #results/<testId>.
 // 404: ui/pages/404.js. Очистка страницы при уходе. Один вызов router() при старте.
 
-import { State, applyTheme } from "../core/auth.js";
+import { State, applyTheme, logout } from "../core/auth.js";
 import { saveReturnTo, consumeReturnTo } from "./return-to.js";
 
 // Хеш-страж: пока открыта читалка материала, hashchange откатывается,
@@ -42,7 +42,9 @@ const routes = {
   "quiz":         { file: "ui/pages/quiz.js",              title: "Тест",                 auth: true },
   "launch":       { file: "ui/pages/launch.js",            title: "Как провести тест",    auth: true, roles: STAFF },
   "join":         { file: "ui/pages/join.js",              title: "Вход по коду" },
-  "room":         { file: "ui/pages/room.js",              title: "Live-комната",         auth: true },
+  // guest: маршрут открыт анонимному гостю (участие в live-комнате —
+  // единственная гостевая функция; остальное требует регистрации).
+  "room":         { file: "ui/pages/room.js",              title: "Live-комната",         auth: true, guest: true },
   "material":     { file: "ui/pages/material.js",          title: "Материал",             auth: true },
   "results":      { file: "ui/pages/results.js",           title: "Результаты",           auth: true, roles: STAFF },
   "analytics":    { file: "ui/pages/analytics.js",         title: "Аналитика по тесту",   auth: true, roles: STAFF },
@@ -129,6 +131,19 @@ export async function router() {
   const container = document.getElementById("app");
   if (!container) return;
 
+  // Гостевой режим: анонимный пользователь допущен только в live-комнату
+  // (и на вход по коду — маршруты без auth). Задания, каталог, профиль
+  // и прочее требуют полноценной регистрации. Скрытие интерфейса —
+  // удобство; защиту данных по-прежнему несут правила Firestore.
+  if (route && route.auth && State.user?.isAnonymous && !route.guest) {
+    updateHeaderNav();
+    message(container,
+      "Гостевой режим: доступен только вход в Live-комнату по коду. "
+      + "Задания, каталог и профиль доступны после полноценной регистрации.",
+      false);
+    return;
+  }
+
   updateHeaderNav();
 
   if (target.roles && !target.roles.includes(State.profile?.role)) {
@@ -167,6 +182,18 @@ export function updateHeaderNav() {
   nav.textContent = "";
   if (!State.user) {
     nav.append(link("#login", "Вход"), link("#register", "Регистрация"));
+    return;
+  }
+  // Анонимный гость: только вход в комнату по коду и выход.
+  if (State.user.isAnonymous) {
+    nav.append(link("#join", "Войти в комнату"));
+    const out = link("#login", "Выйти");
+    out.addEventListener("click", (event) => {
+      event.preventDefault();
+      logout().then(() => { window.location.hash = "#login"; })
+        .catch(err => console.error("Выход гостя:", err));
+    });
+    nav.append(out);
     return;
   }
   if (STAFF.includes(State.profile?.role)) {

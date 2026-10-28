@@ -702,6 +702,32 @@ function isGuest() {
           && roomDoc().status == "active"
           && roomDoc().get("playersCount", 0) < roomDoc().get("maxPlayers", 100));
 
+        // Повторный вход (update при merge:true) разрешён только самому
+        // участнику. Можно обновить имя или аватар (гостю), но нельзя
+        // сменить роль (observer), время первого входа (joinedAt) или
+        // привязку к аккаунту. Имя/аватар при изменении проверяются так же
+        // строго, как при создании.
+        allow update: if request.auth.uid == playerId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+            ["name", "avatar", "updatedAt"]
+          )
+          && (
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny(["name"])
+            || (
+              request.resource.data.name is string
+              && request.resource.data.name.size() >= 2
+              && request.resource.data.name.size() <= 120
+            )
+          )
+          && (
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny(["avatar"])
+            || request.resource.data.avatar.matches('^preset:[a-z0-9-]{1,20}$')
+          )
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.playerId == resource.data.playerId
+          && request.resource.data.joinedAt == resource.data.joinedAt
+          && request.resource.data.observer == resource.data.observer;
+
         // Ответ на текущий вопрос — отдельным документом
         // players/{uid}/answers/{qid}: создать можно только если он ещё
         // не существует (перезапись невозможна в принципе), только во

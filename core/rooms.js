@@ -12,7 +12,8 @@ import {
 } from "../shared/firebase.js";
 import {
   generateRoomCode, normalizeRoomCode, isValidRoomCode,
-  computeScores, buildReveal, normalizePlayerTimes
+  computeScores, buildReveal, normalizePlayerTimes,
+  joinPlayerFields, SERVER_TIMESTAMP
 } from "./rooms-logic.js";
 import { normalizeKeys } from "./scoring.js";
 import { State, isStaff } from "./auth.js";
@@ -103,7 +104,9 @@ export async function closeRoom(code) {
 }
 
 // Вход в комнату: участник и наблюдатель пишут свой players/{uid}
-// (наблюдатель пишет и observers/{uid}).
+// (наблюдатель пишет и observers/{uid}). Повторный вход не вызывает
+// permission-denied: поля, которые правила запрещают менять (joinedAt,
+// observer), не переписываются, роль сохраняется прежней.
 export async function joinRoom(code, { displayName, observer = false, profile } = {}) {
   requireOnline("Нет подключения к интернету. Вход в комнату не выполнен.");
   const roomCode = normalizeRoomCode(code);
@@ -127,19 +130,26 @@ export async function joinRoom(code, { displayName, observer = false, profile } 
     throw new Error("Комната заполнена: участников больше не пускаем.");
   }
 
+  // Свой документ читать можно (правила: request.auth.uid == playerId).
+  // Повторный вход: сохраняем прежнюю роль и время первого входа.
+  const playerRef = doc(db, "rooms", roomCode, "players", uid);
+  const playerSnap = await getDoc(playerRef);
+  const existing = playerSnap.exists() ? playerSnap.data() : null;
+  // Роль не меняем при повторном входе: правило update её защищает.
+  const effectiveObserver = existing ? existing.observer === true : !!observer;
+  const name = existing
+    ? (displayName || "").trim()
+    : (displayName || profile?.fullName || "");
+  const fields = joinPlayerFields(existing, {
+    name,
+    observer: effectiveObserver
+  });
   await setDoc(
-    doc(db, "rooms", roomCode, "players", uid),
-    {
-      uid,
-      playerId: uid,
-      name: displayName || profile?.fullName || "",
-      observer: !!observer,
-      joinedAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    },
+    playerRef,
+    replaceServerMarkers(fields),
     { merge: true }
   );
-  if (observer) {
+  if (effectiveObserver && !existing) {
     await setDoc(
       doc(db, "rooms", roomCode, "observers", uid),
       { uid, updatedAt: serverTimestamp() },
@@ -147,6 +157,15 @@ export async function joinRoom(code, { displayName, observer = false, profile } 
     );
   }
   return roomCode;
+}
+
+// Заменяет маркеры SERVER_TIMESTAMP на настоящую serverTimestamp().
+function replaceServerMarkers(fields) {
+  const out = {};
+  for (const [key, value] of Object.entries(fields)) {
+    out[key] = value === SERVER_TIMESTAMP ? serverTimestamp() : value;
+  }
+  return out;
 }
 
 // Ведущий открывает вопрос: серверный qStartedAt — опора для таймера.

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   generateRoomCode, normalizeRoomCode, isValidRoomCode,
   questionTimeMs, roomSignature, answeredCount,
-  computeScores, buildReveal
+  computeScores, buildReveal, joinPlayerFields, SERVER_TIMESTAMP
 } from '../core/rooms-logic.js';
 
 test('generateRoomCode: 6 символов алфавита без 0/O/1/I', () => {
@@ -133,4 +133,61 @@ test('buildReveal: single раскрывает индексы, short — отв�
 
 test('buildReveal: пустой ключ даёт null', () => {
   assert.equal(buildReveal(null), null);
+});
+
+// ---------- Повторный вход в комнату (P0-2) ----------
+
+// Первый вход: полный набор полей, включая joinedAt (серверная метка).
+test('joinPlayerFields: первый вход пишет joinedAt и роль', () => {
+  const fields = joinPlayerFields(null, { name: 'Иван Петров', observer: false });
+  assert.deepEqual(Object.keys(fields).sort(),
+    ['joinedAt', 'name', 'observer', 'playerId', 'uid', 'updatedAt']);
+  assert.equal(fields.observer, false);
+  assert.equal(fields.joinedAt, SERVER_TIMESTAMP);
+  assert.equal(fields.updatedAt, SERVER_TIMESTAMP);
+});
+
+// Повторный вход: joinedAt и observer не переписываются (правила update
+// запрещают их менять) — иначе permission-denied.
+test('joinPlayerFields: повторный вход не трогает joinedAt и observer', () => {
+  const existing = {
+    uid: 'u1', playerId: 'u1', name: 'Иван', observer: false,
+    joinedAt: '2026-01-01T00:00:00Z'
+  };
+  const fields = joinPlayerFields(existing, { name: 'Иван', observer: true });
+  assert.equal('joinedAt' in fields, false);
+  assert.equal('observer' in fields, false);
+  assert.deepEqual(fields, { uid: 'u1', playerId: 'u1', updatedAt: SERVER_TIMESTAMP });
+});
+
+// Повторный вход с тем же именем: только updatedAt (affectedKeys ⊆ allowed).
+test('joinPlayerFields: повторный вход без изменений — только updatedAt', () => {
+  const existing = { uid: 'u1', playerId: 'u1', name: 'Иван', observer: false };
+  const fields = joinPlayerFields(existing, { name: 'Иван', observer: false });
+  assert.deepEqual(fields, { uid: 'u1', playerId: 'u1', updatedAt: SERVER_TIMESTAMP });
+});
+
+// Повторный вход с новым именем: имя обновляется (правила разрешают).
+test('joinPlayerFields: повторный вход обновляет изменившееся имя', () => {
+  const existing = { uid: 'u1', playerId: 'u1', name: 'Иван', observer: false };
+  const fields = joinPlayerFields(existing, { name: 'Иван Петров', observer: false });
+  assert.equal(fields.name, 'Иван Петров');
+  assert.equal('joinedAt' in fields, false);
+});
+
+// Пустое имя при повторном входе не затирает прежнее (профиль не загрузился).
+test('joinPlayerFields: пустое имя при повторном входе не записывается', () => {
+  const existing = { uid: 'u1', playerId: 'u1', name: 'Иван', observer: false };
+  const fields = joinPlayerFields(existing, { name: '', observer: false });
+  assert.equal('name' in fields, false);
+});
+
+// Гость: аватар пишется при первом входе и обновляется при повторном.
+test('joinPlayerFields: аватар гостя — первый вход и повторный', () => {
+  const created = joinPlayerFields(null, { name: 'Гость', observer: false, avatar: 'preset:cat' });
+  assert.equal(created.avatar, 'preset:cat');
+  const existing = { uid: 'g1', playerId: 'g1', name: 'Гость', avatar: 'preset:cat', observer: false };
+  const updated = joinPlayerFields(existing, { name: 'Гость', observer: false, avatar: 'preset:fox' });
+  assert.equal(updated.avatar, 'preset:fox');
+  assert.equal('joinedAt' in updated, false);
 });

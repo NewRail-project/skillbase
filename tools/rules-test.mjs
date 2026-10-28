@@ -829,6 +829,114 @@ function testCases() {
             ]
         },
         {
+            name: "players: повторный вход — участник обновляет свой документ",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/players/student1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: {
+                data: { uid: "student1", playerId: "student1", name: "Иван", observer: false, joinedAt: "2026-01-01T00:00:00Z" }
+            },
+            newDoc: {
+                uid: "student1", playerId: "student1", name: "Иван", observer: false,
+                joinedAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:05:00Z"
+            },
+            functionMocks: []
+        },
+        {
+            name: "players: повторный вход гостя — меняет имя и аватар",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "guest1", token: { firebase: { sign_in_provider: "anonymous" } } },
+                path: `${DB}/rooms/r1/players/guest1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: {
+                data: { uid: "guest1", playerId: "guest1", name: "Гость", avatar: "preset:cat", observer: false, joinedAt: "2026-01-01T00:00:00Z" }
+            },
+            newDoc: {
+                uid: "guest1", playerId: "guest1", name: "Гость Петров", avatar: "preset:fox", observer: false,
+                joinedAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:05:00Z"
+            },
+            functionMocks: []
+        },
+        {
+            name: "players: повторный вход не меняет роль (observer)",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/players/student1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: {
+                data: { uid: "student1", playerId: "student1", name: "Иван", observer: false, joinedAt: "2026-01-01T00:00:00Z" }
+            },
+            newDoc: {
+                uid: "student1", playerId: "student1", name: "Иван", observer: true,
+                joinedAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:05:00Z"
+            },
+            functionMocks: []
+        },
+        {
+            name: "players: повторный вход не переписывает joinedAt",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/players/student1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: {
+                data: { uid: "student1", playerId: "student1", name: "Иван", observer: false, joinedAt: "2026-01-01T00:00:00Z" }
+            },
+            newDoc: {
+                uid: "student1", playerId: "student1", name: "Иван", observer: false,
+                joinedAt: "2026-01-01T00:05:00Z", updatedAt: "2026-01-01T00:05:00Z"
+            },
+            functionMocks: []
+        },
+        {
+            name: "players: чужой players-документ не обновляется",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student2" },
+                path: `${DB}/rooms/r1/players/student1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: {
+                data: { uid: "student1", playerId: "student1", name: "Иван", observer: false, joinedAt: "2026-01-01T00:00:00Z" }
+            },
+            newDoc: {
+                uid: "student1", playerId: "student1", name: "Взлом", observer: false,
+                joinedAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:05:00Z"
+            },
+            functionMocks: []
+        },
+        {
+            name: "players: повторный вход с пустым именем — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/players/student1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: {
+                data: { uid: "student1", playerId: "student1", name: "Иван", observer: false, joinedAt: "2026-01-01T00:00:00Z" }
+            },
+            newDoc: {
+                uid: "student1", playerId: "student1", name: "", observer: false,
+                joinedAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:05:00Z"
+            },
+            functionMocks: []
+        },
+        {
             name: "Реакции: участник пишет свой документ с пресетом",
             expectation: "ALLOW",
             request: {

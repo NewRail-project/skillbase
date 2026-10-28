@@ -1126,6 +1126,9 @@ function playerView() {
 function materialButton() {
   const room = local.room;
   if (!room || room.phase === "opened") return null;
+  // Гость не может читать материалы (правила требуют профиль) —
+  // не показываем кнопку, ведущую на закрытый для гостя раздел.
+  if (State.user?.isAnonymous) return null;
   return h("div", { class: "btn-row", style: "margin-top:var(--space-2)" },
     h("a", { class: "btn secondary", href: `#material/${encodeURIComponent(room.testId || "")}` },
       "Открыть материал"));

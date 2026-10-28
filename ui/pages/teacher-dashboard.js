@@ -1,5 +1,6 @@
 // STATUS: stub, будет заменён на этапе 6.
 import { h, esc } from "../../shared/dom.js";
+import { State } from "../../core/auth.js";
 
 const getTeacherResults = async (testId) => {
   // TODO: Заменить на Firestore-запрос

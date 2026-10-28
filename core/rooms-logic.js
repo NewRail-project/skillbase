@@ -228,3 +228,35 @@ export function buildReveal(key) {
   }
   return base;
 }
+
+// Поля players/{uid} для входа в комнату (joinRoom / joinRoomAsGuest).
+//
+// existing — данные существующего документа (или null при первом входе).
+// Правила Firestore разрешают update только имени, аватару и updatedAt:
+// повторный вход не переписывает joinedAt и не меняет роль (observer).
+// SERVER_TS — маркер серверной метки: вызывающий заменяет его на
+// serverTimestamp() перед записью.
+export const SERVER_TIMESTAMP = Symbol("serverTimestamp");
+
+export function joinPlayerFields(existing, { name, observer = false, avatar = null } = {}) {
+  if (!existing) {
+    const fields = {
+      uid: "",
+      playerId: "",
+      name,
+      observer: !!observer,
+      joinedAt: SERVER_TIMESTAMP,
+      updatedAt: SERVER_TIMESTAMP
+    };
+    if (avatar) fields.avatar = avatar;
+    return fields;
+  }
+
+  // Повторный вход: роль и время первого входа не трогаем, поле пишем
+  // только если значение реально изменилось (merge не трогает остальное).
+  const fields = { uid: existing.uid, playerId: existing.playerId };
+  if (name && name !== existing.name) fields.name = name;
+  if (avatar && avatar !== existing.avatar) fields.avatar = avatar;
+  fields.updatedAt = SERVER_TIMESTAMP;
+  return fields;
+}

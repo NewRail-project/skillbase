@@ -305,31 +305,44 @@ export async function signInAsGuest(roomId, displayName, avatarId) {
   await joinRoomAsGuest(roomId, nameCheck.value, avatarId);
 }
 
-// Добавление гостя в комнату.
+// Добавление гостя в комнату. Повторный вход (восстановление страницы,
+// повторное сканирование QR) не отклоняется: существующий документ
+// обновляется по правилам update (имя, аватар, updatedAt — без joinedAt
+// и без смены роли observer).
 export async function joinRoomAsGuest(roomId, displayName, avatarId) {
   // Валидация данных.
   const nameCheck = validateFullName(displayName);
   if (!nameCheck.ok) throw new Error(nameCheck.error);
   if (!isValidAvatarValue(avatarId)) throw new Error("Некорректный аватар.");
+  const uid = auth.currentUser?.uid;
+  if (!uid) throw new Error("Нужно войти как гость.");
 
-  // Проверка, что гость может присоединиться.
-  const playerRef = doc(db, "rooms", roomId, "players", auth.currentUser.uid);
+  // Свой документ читать можно (правила: request.auth.uid == playerId).
+  const playerRef = doc(db, "rooms", roomId, "players", uid);
   const playerSnap = await getDoc(playerRef);
-  if (playerSnap.exists()) {
-    throw new Error("Вы уже в этой комнате.");
-  }
+  const existing = playerSnap.exists() ? playerSnap.data() : null;
 
   // Создание документа участника для гостя. Аватар — только пресет
   // (isValidAvatarValue), ключи документа ограничены правилом.
-  const playerData = {
-    uid: auth.currentUser.uid,
-    playerId: auth.currentUser.uid,
-    name: displayName,
-    avatar: avatarId,
-    observer: false,
-    joinedAt: serverTimestamp()
-  };
-  await setDoc(playerRef, playerData);
+  // Повторный вход: joinedAt и observer не переписываются — правила
+  // запрещают их менять, а роль гостя всегда «участник».
+  const playerData = existing
+    ? {
+        uid,
+        playerId: uid,
+        name: nameCheck.value,
+        avatar: avatarId,
+        updatedAt: serverTimestamp()
+      }
+    : {
+        uid,
+        playerId: uid,
+        name: nameCheck.value,
+        avatar: avatarId,
+        observer: false,
+        joinedAt: serverTimestamp()
+      };
+  await setDoc(playerRef, playerData, { merge: true });
 }
 
 export async function logout() {
