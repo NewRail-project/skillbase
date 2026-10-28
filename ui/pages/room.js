@@ -21,7 +21,7 @@ import { play, soundEnabled, setSoundEnabled, vibrate } from "../../shared/sound
 import { REACTIONS } from "../../shared/reactions.js";
 import { icons } from "../../shared/icons.js";
 import { toast } from "../components/toast.js";
-import { generateQRDataUrl } from "../../shared/qr.js";
+import { generateQRSvg } from "../../shared/qr.js";
 
 let unsubs = [];
 let autoTimer = null;   // автозакрытие у ведущего
@@ -646,16 +646,25 @@ async function initRoomQR(room) {
   const qrWrapper = document.querySelector('.qr-wrapper');
   const copyBtn = document.getElementById('copy-link');
   const downloadBtn = document.getElementById('download-qr');
-  const messageEl = document.getElementById('qr-message');
 
   if (!qrWrapper || !copyBtn || !downloadBtn) return;
 
-  // Генерация QR-кода.
-  const url = `${window.location.origin}${window.location.pathname}#room/${room.code}`;
+  // Ссылка для участников: #join/<код> — там гостевая форма с уже
+  // подставленным кодом (и обычный вход для авторизованных). #room
+  // требует авторизации, по QR гость туда попасть не может.
+  const url = `${window.location.origin}${window.location.pathname}#join/${room.code}`;
+
   try {
-    const qrSvg = await generateQRDataUrl(url, { size: 200 });
+    // qrToDataUrl возвращает data:-URL — строку, а не разметку; innerHTML
+    // с ней остаётся пустым. На экран выводим сырой SVG.
+    const qrSvg = await generateQRSvg(url, { size: 200 });
     if (qrSvg) {
       qrWrapper.innerHTML = qrSvg;
+      const svg = qrWrapper.querySelector('svg');
+      if (svg) {
+        svg.setAttribute('width', '200');
+        svg.setAttribute('height', '200');
+      }
     }
   } catch (err) {
     console.error("QR generation failed:", err);
@@ -665,29 +674,26 @@ async function initRoomQR(room) {
   copyBtn.addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText(url);
-      messageEl.textContent = "Ссылка скопирована!";
-      messageEl.className = "form-hint";
-      setTimeout(() => {
-        messageEl.textContent = "";
-        messageEl.className = "form-hint";
-      }, 2000);
+      toast("Ссылка скопирована", "success");
     } catch (err) {
-      messageEl.textContent = "Не удалось скопировать.";
-      messageEl.className = "form-error";
+      toast("Не удалось скопировать ссылку", "error");
     }
   });
 
-  // Скачивание QR-кода.
+  // Скачивание QR-кода: из отрисованного SVG, а не из innerHTML-строки.
   downloadBtn.addEventListener('click', async (e) => {
     e.preventDefault();
-    const qrSvg = qrWrapper.innerHTML;
-    if (!qrSvg) return;
-    const blob = new Blob([qrSvg], { type: 'image/svg+xml' });
-    const url = URL.createObjectURL(blob);
-    downloadBtn.href = url;
+    const svg = qrWrapper.querySelector('svg');
+    if (!svg) {
+      toast("QR-код ещё не готов", "error");
+      return;
+    }
+    const blob = new Blob([svg.outerHTML], { type: 'image/svg+xml' });
+    const link = URL.createObjectURL(blob);
+    downloadBtn.href = link;
     downloadBtn.download = `room-${room.code}.svg`;
     downloadBtn.click();
-    URL.revokeObjectURL(url);
+    URL.revokeObjectURL(link);
   });
 }
 
