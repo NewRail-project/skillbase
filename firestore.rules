@@ -305,12 +305,16 @@ service cloud.firestore {
     // (маркер activeAttempts/{uid}) студентам материалы закрыты,
     // чтобы не подсматривать ответы; срок маркера (deadlineAt) отпускает.
     match /materials/{testId} {
+      // Отсутствующая книга: resource.data пуст, orgId сверить не с чем.
+      // Чтение вернёт «материала нет» (UI предложит создать его), а не
+      // отказ. Существующие книги чужой организации по-прежнему закрыты.
       allow read: if isStaffOf(resource.data.orgId)
         || (
           hasProfile()
           && role() == "student"
           && !exists(/databases/$(database)/documents/activeAttempts/$(request.auth.uid))
-        );
+        )
+        || (signedIn() && resource.data.keys().size() == 0);
 
       allow create, update: if isStaff()
         && request.resource.data.orgId == myOrg()
@@ -350,9 +354,15 @@ service cloud.firestore {
 
     // Прогресс чтения: один документ на пару «студент+тест».
     match /materialProgress/{progressId} {
+      // Прогресс может ещё не существовать (первое чтение материала):
+      // пустой документ читается как «прогресса нет», существующий —
+      // только его владельцем.
       allow read: if signedIn()
-        && progressId == resource.data.uid + "_" + resource.data.testId
-        && resource.data.uid == request.auth.uid;
+        && (
+          resource.data.keys().size() == 0
+          || (progressId == resource.data.uid + "_" + resource.data.testId
+            && resource.data.uid == request.auth.uid)
+        );
 
       allow create, update: if hasProfile()
         && role() == "student"

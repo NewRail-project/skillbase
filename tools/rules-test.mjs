@@ -969,6 +969,39 @@ function testCases() {
             functionMocks: profileMocks("student1", "student")
         },
         {
+            name: "Материалы: сотрудник читает отсутствующий материал (книги нет)",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/materials/t1`,
+                method: "get"
+            },
+            resource: { data: {} },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Материалы: материал чужой организации по-прежнему закрыт",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/materials/t1`,
+                method: "get"
+            },
+            resource: { data: { orgId: "other-org", authorId: "other-teacher", pageCount: 3 } },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Материалы: студент читает отсутствующий прогресс",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/materialProgress/student1_t1`,
+                method: "get"
+            },
+            resource: { data: {} },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
             name: "Материалы: студент читает материал до попытки",
             expectation: "ALLOW",
             request: {
