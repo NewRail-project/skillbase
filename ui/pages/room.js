@@ -642,6 +642,29 @@ function animateFlip(host, oldRects) {
 // ---------- Аватары ----------
 // ---------- QR-код комнаты ----------
 
+// Ссылка входа в комнату для участников: #join/<код> — гостевая форма
+// с подставленным кодом (авторизованным — обычный вход). #room требует
+// авторизации, по QR гость туда попасть не может.
+function joinUrl(code) {
+  return `${window.location.origin}${window.location.pathname}#join/${code}`;
+}
+
+// Рисует SVG QR-кода внутрь элемента. size — сторона в пикселях.
+// generateQRSvg/qrToSvg синхронны и локальны (shared/qrcode.js), без сети.
+function paintQR(box, code, size = 200) {
+  if (!box || !code) return;
+  try {
+    box.innerHTML = generateQRSvg(joinUrl(code), { size });
+    const svg = box.querySelector('svg');
+    if (svg) {
+      svg.setAttribute('width', String(size));
+      svg.setAttribute('height', String(size));
+    }
+  } catch (err) {
+    console.error("QR generation failed:", err);
+  }
+}
+
 async function initRoomQR(room) {
   const qrWrapper = document.querySelector('.qr-wrapper');
   const copyBtn = document.getElementById('copy-link');
@@ -649,23 +672,12 @@ async function initRoomQR(room) {
 
   if (!qrWrapper || !copyBtn || !downloadBtn) return;
 
-  // Ссылка для участников: #join/<код> — там гостевая форма с уже
-  // подставленным кодом (и обычный вход для авторизованных). #room
-  // требует авторизации, по QR гость туда попасть не может.
-  const url = `${window.location.origin}${window.location.pathname}#join/${room.code}`;
+  const url = joinUrl(room.code);
 
   try {
     // qrToDataUrl возвращает data:-URL — строку, а не разметку; innerHTML
     // с ней остаётся пустым. На экран выводим сырой SVG.
-    const qrSvg = await generateQRSvg(url, { size: 200 });
-    if (qrSvg) {
-      qrWrapper.innerHTML = qrSvg;
-      const svg = qrWrapper.querySelector('svg');
-      if (svg) {
-        svg.setAttribute('width', '200');
-        svg.setAttribute('height', '200');
-      }
-    }
+    paintQR(qrWrapper, room.code, 200);
   } catch (err) {
     console.error("QR generation failed:", err);
   }
@@ -1330,7 +1342,18 @@ function screenView() {
     const podium = podiumPanel();
     if (podium) wrap.appendChild(podium);
   } else if (!question) {
-    wrap.appendChild(h("div", { class: "screen-wait" }, "Ожидание вопроса…"));
+    // Ожидание первого вопроса — момент входа участников: крупный QR,
+    // чтобы каждый мог отсканировать его камерой телефона.
+    const qrBox = h("div", { class: "screen-qr-box" });
+    paintQR(qrBox, room?.code || local.code, 240);
+    wrap.appendChild(h("div", { class: "panel screen-wait-panel" },
+      h("div", { class: "empty-state" },
+        h("p", { class: "page-sub" }, "Отсканируйте камерой телефона, чтобы войти"),
+        qrBox,
+        h("p", { class: "screen-code-hint" },
+          `Или введите код: ${room?.code || local.code || ""}`)
+      )
+    ));
   } else {
     wrap.appendChild(h("div", { class: "screen-question panel" },
       h("h2", { class: "screen-question-text" }, question.text || "Вопрос без текста"),
@@ -1358,6 +1381,18 @@ function screenView() {
         h("span", { class: "screen-name" }, row.name || row.uid),
         h("span", { class: "screen-score" }, `${row.score ?? 0} б.`)
       ))
+    ));
+  }
+
+  // Комната активна, вопрос уже открыт: маленький QR под таблицей —
+  // опоздавшие всё ещё могут войти камерой.
+  if (room?.status === "active" && question) {
+    const mini = h("div", { class: "screen-qr-mini" });
+    paintQR(mini, room.code || local.code, 96);
+    wrap.appendChild(h("div", { class: "screen-join-late" },
+      mini,
+      h("span", { class: "screen-join-late-hint" },
+        `Войти: камерой или код ${room.code || local.code || ""}`)
     ));
   }
   return wrap;

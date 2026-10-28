@@ -581,8 +581,45 @@ body {
   justify-content: center;
 }
 
-/* Live Top-3 (наблюдатель) */
-.room-live-podium {
+/* QR на экране проектора: крупный в ожидании входа, компактный после */
+.screen-wait-panel {
+  max-width: 480px;
+  margin: 2rem auto;
+}
+.screen-qr-box {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 1rem 0;
+}
+.screen-qr-box svg,
+.screen-qr-mini svg {
+  background: #fff;
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+.screen-code-hint {
+  font-size: 1.25rem;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+.screen-join-late {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+}
+.screen-join-late-hint {
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+/* Live Top-3 (наблюдатель) */.room-live-podium {
   margin: 1rem 0;
   padding: 1rem;
   background: var(--surface-2);
