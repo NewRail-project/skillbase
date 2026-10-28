@@ -170,13 +170,17 @@ service cloud.firestore {
       // Тесты видны только внутри организации: опубликованные — любому
       // её участнику, черновики — автору, черновики и всё остальное —
       // администратору организации. Больше «любой вошедший» не читает.
-      allow read: if hasProfile()
+      // Гость в Live-комнате отвечает с телефона: текст вопросов берётся
+      // из опубликованного теста. Правильные ответы хранятся отдельно
+      // (testKeys) и гостям недоступны.
+      allow read: if (hasProfile()
         && myOrg() == resource.data.orgId
         && (
           resource.data.status == "published"
           || resource.data.authorId == request.auth.uid
           || role() == "admin"
-        );
+        ))
+        || (isGuest() && resource.data.status == "published");
 
       // Создание: teacher или admin, свой authorId, черновик,
       // вопросы — непустой список.

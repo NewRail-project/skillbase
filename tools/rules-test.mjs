@@ -301,6 +301,32 @@ function testCases() {
             functionMocks: profileMocks("student1", "student")
         },
         {
+            name: "Тесты: анонимный гость читает опубликованный тест",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "guest1", token: { firebase: { sign_in_provider: "anonymous" } } },
+                path: `${DB}/tests/t1`,
+                method: "get"
+            },
+            resource: {
+                data: testDoc({ status: "published" })
+            },
+            functionMocks: []
+        },
+        {
+            name: "Тесты: анонимный гость не читает черновик",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "guest1", token: { firebase: { sign_in_provider: "anonymous" } } },
+                path: `${DB}/tests/t1`,
+                method: "get"
+            },
+            resource: {
+                data: testDoc({ status: "draft" })
+            },
+            functionMocks: []
+        },
+        {
             name: "Преподаватель читает свой ключ теста",
             expectation: "ALLOW",
             request: {
