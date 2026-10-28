@@ -695,7 +695,8 @@ async function initRoomQR(room) {
 
 function avatarChip(entry) {
   const profile = local.profiles.get(entry.uid);
-  const preset = avatarPreset(profile?.avatar);
+  // Гость не имеет publicProfiles — аватар берём из его players-документа.
+  const preset = avatarPreset(profile?.avatar || entry.avatar);
   if (preset) {
     return h("span", {
       class: "avatar-chip",

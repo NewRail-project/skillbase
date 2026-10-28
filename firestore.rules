@@ -589,17 +589,13 @@ service cloud.firestore {
 
 
 // Проверка гостевого доступа (анонимная аутентификация).
+// Гость читает только публичные данные комнаты и пишет только свои
+// документы: players/{uid}, answers, reactions. Профиль users/{uid} у
+// гостя отсутствует, поэтому hasProfile() для него всегда false —
+// привилегированные правила (тесты, задания, пользователи, роли) на
+// гостей не распространяются.
 function isGuest() {
   return request.auth != null && request.auth.token.firebase.sign_in_provider == 'anonymous';
-}
-
-// Гость может создавать свой документ участника и отправлять реакции,
-// но не может читать чужие данные или выполнять привилегированные действия.
-function canGuestPlayer() {
-  return isGuest() && request.auth.uid == playerId
-    && roomDoc().status == 'active'
-    && roomDoc().get("playersCount", 0) < roomDoc().get("maxPlayers", 100)
-    && roomDoc().allowObservers == true;
 }
 
     match /rooms/{roomId} {
@@ -625,8 +621,11 @@ function canGuestPlayer() {
         );
       }
 
+      // Публичные данные комнаты видны и гостю: документ комнаты
+      // не содержит вопросов и ключей ответов.
       allow read: if isRoomHost() || inRoomAnyRole()
-        || (hasProfile() && isStaffOf(roomDoc().orgId));
+        || (hasProfile() && isStaffOf(roomDoc().orgId))
+        || isGuest();
 
       allow create: if isStaff()
         && request.resource.data.orgId == myOrg()
@@ -642,15 +641,20 @@ function canGuestPlayer() {
         && request.resource.data.hostId == resource.data.hostId;
 
       match /players/{playerId} {
-        // Чужие players не читаются: сам игрок или ведущий.
+        // Чужие players не читаются: сам игрок или ведущий. Гость
+        // читает только свой документ.
         allow read: if (hasProfile() && request.auth.uid == playerId)
+          || (isGuest() && request.auth.uid == playerId)
           || isRoomHost();
 
         // Войти в комнату может только сам участник; лимит — maxPlayers
         // (счётчик playersCount публикуется ведущим с задержкой — это
         // допустимая погрешность, см. docs/PROGRESS.md). Преподаватель,
         // не являющийся ведущим этой комнаты, входит только наблюдателем.
-        allow create: if hasProfile()
+        // Гость входит как обычный участник: только свой документ,
+        // только участник (не наблюдатель), активная комната и свободное
+        // место. Аватар гость выбирает сам — только пресет.
+        allow create: if (hasProfile()
           && request.auth.uid == playerId
           && request.resource.data.keys().hasOnly(
             ["uid", "playerId", "name", "observer", "joinedAt", "updatedAt"]
@@ -665,7 +669,21 @@ function canGuestPlayer() {
             || !isStaff()
             || request.resource.data.observer == true
             || roomDoc().allowObservers == true
-          );
+          )) || (isGuest()
+          && request.auth.uid == playerId
+          && request.resource.data.keys().hasOnly(
+            ["uid", "playerId", "name", "avatar", "observer", "joinedAt"]
+          )
+          && request.resource.data.uid == playerId
+          && request.resource.data.playerId == request.auth.uid
+          && request.resource.data.observer == false
+          && request.resource.data.name is string
+          && request.resource.data.name.size() >= 2
+          && request.resource.data.name.size() <= 120
+          && request.resource.data.avatar is string
+          && request.resource.data.avatar.matches('^preset:[a-z0-9-]{1,20}$')
+          && roomDoc().status == "active"
+          && roomDoc().get("playersCount", 0) < roomDoc().get("maxPlayers", 100));
 
         // Ответ на текущий вопрос — отдельным документом
         // players/{uid}/answers/{qid}: создать можно только если он ещё
@@ -685,10 +703,12 @@ function canGuestPlayer() {
         }
 
         // Чужие ответы участника не читаются: сам игрок или ведущий.
+        // Гость читает только свои ответы.
         allow read: if (hasProfile() && request.auth.uid == playerId)
+          || (isGuest() && request.auth.uid == playerId)
           || isRoomHost();
 
-        allow create: if hasProfile()
+        allow create: if (hasProfile()
           && request.auth.uid == playerId
           && playerDoc().observer != true
           && roomDoc().status == "active"
@@ -698,7 +718,17 @@ function canGuestPlayer() {
           && qid == roomDoc().currentQuestionId
           && request.resource.data.keys().hasOnly(["answer", "at"])
           // Время ответа — серверная метка request.time.
-          && request.resource.data.at == request.time;
+          && request.resource.data.at == request.time
+        ) || (isGuest()
+          && request.auth.uid == playerId
+          && playerDoc().observer != true
+          && roomDoc().status == "active"
+          && roomDoc().phase == "opened"
+          && roomDoc().currentQuestionId is string
+          && roomDoc().currentQuestionId != ""
+          && qid == roomDoc().currentQuestionId
+          && request.resource.data.keys().hasOnly(["answer", "at"])
+          && request.resource.data.at == request.time);
 
         // Перезаписать ответ нельзя: обновление — только ведущему
         // (на случай чистки комнаты).
@@ -736,7 +766,7 @@ function canGuestPlayer() {
 
         allow read: if isRoomHost() || inRoomAnyRole();
 
-        allow create: if hasProfile()
+        allow create: if (hasProfile() || isGuest())
           && request.auth.uid == reactorId
           && validReaction();
 

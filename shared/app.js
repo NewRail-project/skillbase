@@ -41,7 +41,7 @@ const routes = {
   "create-test":  { file: "ui/pages/create-test.js",       title: "Создать тест",         auth: true, roles: STAFF },
   "quiz":         { file: "ui/pages/quiz.js",              title: "Тест",                 auth: true },
   "launch":       { file: "ui/pages/launch.js",            title: "Как провести тест",    auth: true, roles: STAFF },
-  "join":         { file: "ui/pages/join.js",              title: "Вход по коду",         auth: true },
+  "join":         { file: "ui/pages/join.js",              title: "Вход по коду" },
   "room":         { file: "ui/pages/room.js",              title: "Live-комната",         auth: true },
   "material":     { file: "ui/pages/material.js",          title: "Материал",             auth: true },
   "results":      { file: "ui/pages/results.js",           title: "Результаты",           auth: true, roles: STAFF },

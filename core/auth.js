@@ -13,6 +13,7 @@ import {
   validateFullName
 } from "./registration.js";
 import { DEFAULT_ORG_ID } from "../configs/organization.js";
+import { isValidAvatarValue } from "../shared/avatars.js";
 
 export { DEFAULT_UI } from "./registration.js";
 
@@ -274,19 +275,34 @@ export async function register({ email, password, fullName, position, department
   }
 }
 
-// Вход анонимного гостя в комнату.
+// Вход анонимного гостя в комнату: имя и аватар вместо регистрации.
 export async function signInAsGuest(roomId, displayName, avatarId) {
-  // Анонимная аутентификация.
-  const cred = await signInWithEmailAndPassword(auth, "", "");
+  // Данные проверяем ДО входа: не плодим анонимные аккаунты
+  // из-за ошибок валидации.
+  const nameCheck = validateFullName(displayName);
+  if (!nameCheck.ok) throw new Error(nameCheck.error);
+  if (!isValidAvatarValue(avatarId)) throw new Error("Некорректный аватар.");
+
+  // Анонимная аутентификация Firebase. Требует включённого провайдера
+  // Anonymous в Firebase Console (Authentication → Sign-in method).
   await signInAnonymously(auth);
-  // Проверяем, что комната существует и активна.
+  const user = auth.currentUser;
+  if (!user?.uid) throw new Error("Не удалось войти как гость.");
+  // Ждём загрузку профиля явно: иначе переход на #room может случиться
+  // раньше, чем onAuthStateChanged заполнит State.user — и роутер
+  // увёл бы гостя на #login.
+  await loadProfile(user);
+
+  // Комната должна существовать и быть активной. Документ комнаты не
+  // содержит вопросов и ключей ответов, поэтому чтение безопасно.
   const roomRef = doc(db, "rooms", roomId);
   const roomSnap = await getDoc(roomRef);
   if (!roomSnap.exists() || roomSnap.data().status !== "active") {
     throw new Error("Комната не найдена или неактивна.");
   }
-  // Вызываем функцию для добавления гостя в комнату.
-  await joinRoomAsGuest(roomId, displayName, avatarId);
+
+  // Создаём документ участника.
+  await joinRoomAsGuest(roomId, nameCheck.value, avatarId);
 }
 
 // Добавление гостя в комнату.
@@ -303,11 +319,13 @@ export async function joinRoomAsGuest(roomId, displayName, avatarId) {
     throw new Error("Вы уже в этой комнате.");
   }
 
-  // Создание документа участника для гостя.
+  // Создание документа участника для гостя. Аватар — только пресет
+  // (isValidAvatarValue), ключи документа ограничены правилом.
   const playerData = {
     uid: auth.currentUser.uid,
     playerId: auth.currentUser.uid,
     name: displayName,
+    avatar: avatarId,
     observer: false,
     joinedAt: serverTimestamp()
   };
