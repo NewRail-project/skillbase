@@ -21,6 +21,7 @@ import { play, soundEnabled, setSoundEnabled, vibrate } from "../../shared/sound
 import { REACTIONS } from "../../shared/reactions.js";
 import { icons } from "../../shared/icons.js";
 import { toast } from "../components/toast.js";
+import { generateQRDataUrl } from "../../shared/qr.js";
 
 let unsubs = [];
 let autoTimer = null;   // автозакрытие у ведущего
@@ -639,6 +640,58 @@ function animateFlip(host, oldRects) {
 }
 
 // ---------- Аватары ----------
+// ---------- QR-код комнаты ----------
+
+async function initRoomQR(room) {
+  const qrWrapper = document.querySelector('.qr-wrapper');
+  const copyBtn = document.getElementById('copy-link');
+  const downloadBtn = document.getElementById('download-qr');
+  const messageEl = document.getElementById('qr-message');
+
+  if (!qrWrapper || !copyBtn || !downloadBtn) return;
+
+  // Генерация QR-кода.
+  const url = `${window.location.origin}${window.location.pathname}#room/${room.code}`;
+  try {
+    const qrSvg = await generateQRDataUrl(url, { size: 200 });
+    if (qrSvg) {
+      qrWrapper.innerHTML = qrSvg;
+    }
+  } catch (err) {
+    console.error("QR generation failed:", err);
+  }
+
+  // Копирование ссылки.
+  copyBtn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      messageEl.textContent = "Ссылка скопирована!";
+      messageEl.className = "form-hint";
+      setTimeout(() => {
+        messageEl.textContent = "";
+        messageEl.className = "form-hint";
+      }, 2000);
+    } catch (err) {
+      messageEl.textContent = "Не удалось скопировать.";
+      messageEl.className = "form-error";
+    }
+  });
+
+  // Скачивание QR-кода.
+  downloadBtn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    const qrSvg = qrWrapper.innerHTML;
+    if (!qrSvg) return;
+    const blob = new Blob([qrSvg], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    downloadBtn.href = url;
+    downloadBtn.download = `room-${room.code}.svg`;
+    downloadBtn.click();
+    URL.revokeObjectURL(url);
+  });
+}
+
+// ---------- Аватары ----------
 
 function avatarChip(entry) {
   const profile = local.profiles.get(entry.uid);
@@ -655,6 +708,33 @@ function avatarChip(entry) {
 }
 
 // ---------- Подиум и конфетти ----------
+
+function livePodium() {
+  const room = local.room;
+  if (!room || room.status !== "active") return null;
+  
+  // Показываем топ-3 в реальном времени для наблюдателей
+  // или если в настройках включена таблица лидеров
+  const roleHere = role();
+  if (roleHere !== "observer" && room.showLeaderboard !== true) return null;
+
+  const rows = boardRows().slice(0, 3);
+  if (!rows.length) return null;
+
+  const medals = ["🥇", "🥈", "🥉"];
+  return h("div", { class: "room-live-podium" },
+    h("div", { class: "podium-grid" },
+      rows.map((row, index) => h("div", { class: `podium-item podium-${index + 1}` },
+        h("div", { class: "podium-medal" }, medals[index]),
+        avatarChip(row),
+        h("div", { class: "podium-info" },
+          h("div", { class: "podium-name" }, row.name || "Участник"),
+          h("div", { class: "podium-score" }, `${row.score ?? 0} б.`)
+        )
+      ))
+    )
+  );
+}
 
 function podiumPanel() {
   const rows = boardRows().slice(0, 3);
@@ -811,6 +891,16 @@ function hostView() {
   ));
   // Код крупно, чтобы продемонстрировать на экране/камере.
   wrap.appendChild(h("div", { class: "room-code-badge" }, room.code || room.id));
+  // QR-код комнаты.
+  wrap.appendChild(h("div", { class: "room-qr-container" },
+    h("h3", {}, "Поделиться комнатой"),
+    h("div", { class: "qr-wrapper" }),
+    h("div", { class: "qr-actions" },
+      h("button", { type: "button", class: "btn secondary", id: "copy-link" }, "Копировать ссылку"),
+      h("a", { class: "btn secondary", id: "download-qr", download: `room-${room.code}.svg`, href: "#", "aria-label": "Скачать QR-код" }, "Скачать QR")
+    ),
+    h("p", { class: "form-hint", id: "qr-message" })
+  ));
 
   const playersCount = local.players.filter(p => !p.observer).length;
   const observersCount = local.players.length - playersCount;
@@ -895,6 +985,10 @@ function hostView() {
 
   const results = roomResults();
   if (results) wrap.appendChild(results);
+
+  // Инициализация QR-кода и копирования ссылки.
+  initRoomQR(room);
+
   return wrap;
 }
 
@@ -1154,10 +1248,16 @@ function observerView() {
 
   if (!question) {
     wrap.appendChild(waitPanel("Ведущий пока не задал вопрос."));
+    const podium = livePodium();
+    if (podium) wrap.appendChild(podium);
   } else if (reveal) {
     wrap.appendChild(revealPanel(reveal, question, { mine: null }));
+    const podium = livePodium();
+    if (podium) wrap.appendChild(podium);
   } else {
     wrap.appendChild(questionPanel(question, {}));
+    const podium = livePodium();
+    if (podium) wrap.appendChild(podium);
     wrap.appendChild(h("div", { class: "panel" },
       h("div", { class: "panel-head" },
         h("h2", {}, "Ответили"),

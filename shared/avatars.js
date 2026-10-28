@@ -5,6 +5,11 @@
 
 export const AVATAR_PATTERN = /^preset:[a-z0-9-]{1,20}$/;
 
+export const AVATAR_CATEGORIES = {
+  animals: { label: "Животные", ids: ["eagle", "wolf", "fox", "tiger", "owl", "turtle", "dolphin", "penguin", "parrot", "bee", "butterfly", "koala", "panda", "lion", "whale", "unicorn", "dragon"] },
+  nature: { label: "Природа и элементы", ids: ["bolt", "fire", "rocket", "dart", "clover", "sail", "sun"] }
+};
+
 export const AVATAR_PRESETS = [
   { id: "eagle", emoji: "🦅", bg: "#D84315" },
   { id: "wolf", emoji: "🐺", bg: "#455A64" },

@@ -1,8 +1,9 @@
 // ui/pages/join.js — вход в Live-комнату по коду: #join и #join/<код>.
 import { h } from "../../shared/dom.js";
-import { State } from "../../core/auth.js";
+import { State, signInAsGuest } from "../../core/auth.js";
 import { getRoom, joinRoom } from "../../core/rooms.js";
 import { normalizeRoomCode } from "../../core/rooms-logic.js";
+import { AVATAR_PRESETS } from "../../shared/avatars.js";
 import { toast } from "../components/toast.js";
 
 function errorBody(err) {
@@ -123,6 +124,7 @@ export default async function JoinPage() {
           )
         ),
         joinBtn,
+        guestEntry,
         message
       )
     )
@@ -133,7 +135,71 @@ export default async function JoinPage() {
     setTimeout(() => displayCodeInput.focus(), 50);
   }
 
+  page.append(
+    h("div", { class: "panel panel-narrow" },
+      h("div", { class: "panel-head" }, h("h2", {}, "Вход по коду")),
+      h("div", { class: "panel-body" },
+        h("div", { class: "field" },
+          h("label", { for: "room-code-input" }, "Код комнаты"),
+          displayCodeInput
+        ),
+        h("fieldset", { class: "role-picker" },
+          h("legend", { class: "muted" }, "Роль"),
+          h("label", { class: "role-option", for: "join-role-player" },
+            roleOpen,
+            h("span", { class: "role-option-body" },
+              h("b", {}, "Участник"),
+              h("span", { class: "muted" }, "Отвечает на вопросы")
+            )
+          ),
+          h("label", { class: "role-option", for: "join-role-observer" },
+            roleObserver,
+            h("span", { class: "role-option-body" },
+              h("b", {}, "Наблюдатель"),
+              h("span", { class: "muted" }, "Смотрит и не отвечает")
+            )
+          )
+        ),
+        guestEntry(),
+        joinBtn,
+        message
+      )
+    )
+  );
+
+  // Инициализация обработчика гостевого входа
+  handleGuestEntry();
+
+  // Автофокус: если код не пришёл из маршрута, сразу вводим.
+  if (!codeFromRoute) {
+    setTimeout(() => displayCodeInput.focus(), 50);
+  }
+
   return page;
+}
+
+// Обработчик гостевого входа
+function handleGuestEntry() {
+  const guestBtn = document.getElementById('guest-enter');
+  if (guestBtn) {
+    guestBtn.addEventListener('click', async () => {
+      const name = document.getElementById('guest-name').value;
+      const avatar = document.getElementById('guest-avatar').value;
+      if (!name || !avatar) {
+        message.textContent = "Укажите имя и выберите аватар.";
+        message.className = "form-error";
+        return;
+      }
+      try {
+        await signInAsGuest(code, name, avatar);
+        toast(`Вы вошли как гость «${name}»`, "success");
+        window.location.hash = `#room/${code}`;
+      } catch (err) {
+        message.textContent = errorBody(err);
+        message.className = "form-error";
+      }
+    });
+  }
 }
 
 function hero() {

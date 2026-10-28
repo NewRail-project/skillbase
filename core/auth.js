@@ -1,6 +1,6 @@
 import {
   auth, db, signInWithEmailAndPassword, createUserWithEmailAndPassword,
-  signOut, onAuthStateChanged, doc, getDoc, setDoc, updateDoc, serverTimestamp
+  signOut, onAuthStateChanged, signInAnonymously, doc, getDoc, setDoc, updateDoc, serverTimestamp
 } from "../shared/firebase.js";
 import { applyThemeMode, getThemeMode } from "../shared/theme.js";
 import {
@@ -272,6 +272,46 @@ export async function register({ email, password, fullName, position, department
   } finally {
     State.registering = false;
   }
+}
+
+// Вход анонимного гостя в комнату.
+export async function signInAsGuest(roomId, displayName, avatarId) {
+  // Анонимная аутентификация.
+  const cred = await signInWithEmailAndPassword(auth, "", "");
+  await signInAnonymously(auth);
+  // Проверяем, что комната существует и активна.
+  const roomRef = doc(db, "rooms", roomId);
+  const roomSnap = await getDoc(roomRef);
+  if (!roomSnap.exists() || roomSnap.data().status !== "active") {
+    throw new Error("Комната не найдена или неактивна.");
+  }
+  // Вызываем функцию для добавления гостя в комнату.
+  await joinRoomAsGuest(roomId, displayName, avatarId);
+}
+
+// Добавление гостя в комнату.
+export async function joinRoomAsGuest(roomId, displayName, avatarId) {
+  // Валидация данных.
+  const nameCheck = validateFullName(displayName);
+  if (!nameCheck.ok) throw new Error(nameCheck.error);
+  if (!isValidAvatarValue(avatarId)) throw new Error("Некорректный аватар.");
+
+  // Проверка, что гость может присоединиться.
+  const playerRef = doc(db, "rooms", roomId, "players", auth.currentUser.uid);
+  const playerSnap = await getDoc(playerRef);
+  if (playerSnap.exists()) {
+    throw new Error("Вы уже в этой комнате.");
+  }
+
+  // Создание документа участника для гостя.
+  const playerData = {
+    uid: auth.currentUser.uid,
+    playerId: auth.currentUser.uid,
+    name: displayName,
+    observer: false,
+    joinedAt: serverTimestamp()
+  };
+  await setDoc(playerRef, playerData);
 }
 
 export async function logout() {

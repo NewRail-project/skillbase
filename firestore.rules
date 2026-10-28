@@ -587,6 +587,21 @@ service cloud.firestore {
     // один раз per вопрос; наблюдатель ответ не пишет; чужие players
     // не читаются (таблица результатов приходит из scores).
 
+
+// Проверка гостевого доступа (анонимная аутентификация).
+function isGuest() {
+  return request.auth != null && request.auth.token.firebase.sign_in_provider == 'anonymous';
+}
+
+// Гость может создавать свой документ участника и отправлять реакции,
+// но не может читать чужие данные или выполнять привилегированные действия.
+function canGuestPlayer() {
+  return isGuest() && request.auth.uid == playerId
+    && roomDoc().status == 'active'
+    && roomDoc().get("playersCount", 0) < roomDoc().get("maxPlayers", 100)
+    && roomDoc().allowObservers == true;
+}
+
     match /rooms/{roomId} {
       function roomDoc() {
         return get(

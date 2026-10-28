@@ -553,4 +553,91 @@ body {
     transition: none !important;
     animation: none !important;
   }
+}/* QR-код комнаты */
+.room-qr-container {
+  margin-top: 1.5rem;
+  padding: 1.5rem;
+  background-color: var(--surface-2);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+}
+.room-qr-container h3 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+}
+.qr-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+.qr-wrapper svg {
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+.qr-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+/* Live Top-3 (наблюдатель) */
+.room-live-podium {
+  margin: 1rem 0;
+  padding: 1rem;
+  background: var(--surface-2);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+}
+
+.podium-grid {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.podium-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  background: var(--surface-3);
+  border-radius: var(--radius-md);
+  min-width: 120px;
+  flex: 1;
+  max-width: 160px;
+}
+
+.podium-medal {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.podium-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.podium-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.podium-score {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Полировка элементов и микроанимации */
+.podium-item {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.podium-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
