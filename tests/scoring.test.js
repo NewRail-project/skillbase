@@ -145,6 +145,21 @@ test("normalizeKeys принимает объект items и сортирует 
   assert.deepEqual(normalizeKeys("items"), []);
 });
 
+// Старые документы testKeys хранят массив keys: [{ type, answer }, ...]
+// вместо карты items. Читается через items ?? keys (attempts.js, editor.js),
+// дальше работает normalizeKeys и isCorrect (answer вместо correct).
+test("normalizeKeys принимает массив старого формата keys", () => {
+  const legacy = [
+    { type: "single", answer: 1 },
+    { type: "short", answer: "ответ" }
+  ];
+  assert.equal(normalizeKeys(legacy), legacy);
+  assert.deepEqual(
+    scoreAttempt(legacy, { 0: 1, 1: "ответ" }),
+    { score: 2, total: 2, percent: 100 }
+  );
+});
+
 test("sanitizeAnswers оставляет только допустимые ответы", () => {
   const clean = sanitizeAnswers({
     "0": 2,

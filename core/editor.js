@@ -279,7 +279,9 @@ export async function getTestForReview(testId, version = null) {
   if (!keys) {
     try {
       const keysSnap = await getDoc(doc(db, "testKeys", testId));
-      if (keysSnap.exists()) keys = keysSnap.data().items;
+      // Совместимость форматов: новые документы хранят карту items,
+      // старые — массив keys ([{ type, answer }, ...]).
+      if (keysSnap.exists()) keys = keysSnap.data().items ?? keysSnap.data().keys;
     } catch (error) {
       console.error("[Skillbase] Не удалось прочитать ключи версии:", error?.code || "unknown", error?.message || error);
       keys = null;
@@ -290,7 +292,7 @@ export async function getTestForReview(testId, version = null) {
     try {
       const keysSnap = await getDoc(doc(db, "testKeys", testId));
       if (keysSnap.exists()) {
-        keys = keysSnap.data().items;
+        keys = keysSnap.data().items ?? keysSnap.data().keys;
       } else {
         console.warn("[Skillbase] Документ testKeys отсутствует для теста:", testId);
       }
