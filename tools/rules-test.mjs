@@ -327,6 +327,30 @@ function testCases() {
             functionMocks: []
         },
         {
+            name: "Тесты: сотрудник читает отсутствующий тест",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/tests/t-none`,
+                method: "get"
+            },
+            resource: null,
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Тесты: преподаватель не читает тест чужой организации",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/tests/t-other`,
+                method: "get"
+            },
+            resource: {
+                data: testDoc({ orgId: "other-org" })
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
             name: "Преподаватель читает свой ключ теста",
             expectation: "ALLOW",
             request: {
@@ -454,6 +478,107 @@ function testCases() {
                 }
             },
             functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "testKeys: студент с активной попыткой и showCorrectAfterQuestion == true — ALLOW",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/testKeys/t1`,
+                method: "get"
+            },
+            resource: {
+                data: { orgId: ORG, authorId: "teacher1", items: { q1: "A" } }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: { data: { settings: { showCorrectAfterQuestion: true }, orgId: ORG, status: "published" } } }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/activeAttempts/student1` }],
+                    result: { value: { data: { testId: "t1" } } }
+                }
+            ]
+        },
+        {
+            name: "testKeys: студент с попыткой другого теста — DENY",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/testKeys/t1`,
+                method: "get"
+            },
+            resource: {
+                data: { orgId: ORG, authorId: "teacher1" }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: { data: { settings: { showCorrectAfterQuestion: true }, orgId: ORG, status: "published" } } }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/activeAttempts/student1` }],
+                    result: { value: { data: { testId: "t2" } } }
+                }
+            ]
+        },
+        {
+            name: "testKeys: студент при выключенном showCorrectAfterQuestion — DENY",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/testKeys/t1`,
+                method: "get"
+            },
+            resource: {
+                data: { orgId: ORG, authorId: "teacher1" }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: { data: { settings: { showCorrectAfterQuestion: false }, orgId: ORG, status: "published" } } }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/activeAttempts/student1` }],
+                    result: { value: { data: { testId: "t1" } } }
+                }
+            ]
+        },
+        {
+            name: "testKeys: анонимный гость — DENY",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "guest1", token: { firebase: { sign_in_provider: "anonymous" } } },
+                path: `${DB}/testKeys/t1`,
+                method: "get"
+            },
+            resource: {
+                data: { orgId: ORG, authorId: "teacher1" }
+            },
+            functionMocks: []
+        },
+        {
+            name: "testKeys: преподаватель другой организации — DENY",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher2" },
+                path: `${DB}/testKeys/t1`,
+                method: "get"
+            },
+            resource: {
+                data: { orgId: "other-org", authorId: "other-teacher" }
+            },
+            functionMocks: profileMocks("teacher2", "teacher")
         },
         {
             name: "Студент не читает версии теста",
@@ -1199,7 +1324,18 @@ function testCases() {
                 path: `${DB}/materials/t1`,
                 method: "get"
             },
-            resource: { data: {} },
+            resource: null,
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Материалы: преподаватель читает существующий материал своей организации",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/materials/t1`,
+                method: "get"
+            },
+            resource: { data: { orgId: ORG, authorId: "teacher1", pageCount: 3 } },
             functionMocks: profileMocks("teacher1", "teacher")
         },
         {
@@ -1214,6 +1350,17 @@ function testCases() {
             functionMocks: profileMocks("teacher1", "teacher")
         },
         {
+            name: "Материалы: существующий пустой документ без orgId — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/materials/t-empty`,
+                method: "get"
+            },
+            resource: { data: {} },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
             name: "Материалы: студент читает отсутствующий прогресс",
             expectation: "ALLOW",
             request: {
@@ -1221,7 +1368,7 @@ function testCases() {
                 path: `${DB}/materialProgress/student1_t1`,
                 method: "get"
             },
-            resource: { data: {} },
+            resource: null,
             functionMocks: profileMocks("student1", "student")
         },
         {
@@ -1233,6 +1380,24 @@ function testCases() {
                 method: "get"
             },
             resource: { data: { orgId: ORG, authorId: "teacher1", pageCount: 3 } },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/activeAttempts/student1` }],
+                    result: { value: false }
+                }
+            ]
+        },
+        {
+            name: "Материалы: студент другой организации не читает материал",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/materials/t-other`,
+                method: "get"
+            },
+            resource: { data: { orgId: "other-org", authorId: "other-teacher", pageCount: 3 } },
             functionMocks: [
                 ...profileMocks("student1", "student"),
                 {
@@ -1293,6 +1458,29 @@ function testCases() {
                     function: "get",
                     args: [{ exactValue: `${DB}/materials/t1` }],
                     result: { value: { data: { orgId: ORG, authorId: "teacher1", pageCount: 3 } } }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/activeAttempts/student1` }],
+                    result: { value: false }
+                }
+            ]
+        },
+        {
+            name: "Материалы: студент другой организации не читает страницу",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/materials/t1/pages/0`,
+                method: "get"
+            },
+            resource: { data: { blocks: [] } },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/materials/t1` }],
+                    result: { value: { data: { orgId: "other-org", authorId: "other-teacher", pageCount: 3 } } }
                 },
                 {
                     function: "exists",
@@ -1507,7 +1695,7 @@ async function main() {
             result.resource = { data: item.existingDoc };
         }
 
-        if (item.resource) {
+        if (item.hasOwnProperty("resource")) {
             result.resource = item.resource;
         }
 

@@ -26,7 +26,7 @@ service cloud.firestore {
     function hasProfile() {
       return signedIn()
         && exists(
-          /databases/$(database)/documents/users/$(uid())
+          /databases/$(database)/documents/users/$(request.auth.uid)
         );
     }
 
@@ -100,7 +100,7 @@ service cloud.firestore {
       // Читают: сам пользователь и сотрудники его организации
       // (иначе у преподавателя падает страница «Пользователи»).
       allow read: if signedIn()
-        && (request.auth.uid == id || isStaffOf(resource.data.orgId));
+        && (resource == null || request.auth.uid == id || isStaffOf(resource.data.orgId));
 
       // Пользователь меняет только личные поля: role, orgId, groupId,
       // teacherGroups ему недоступны.
@@ -145,7 +145,8 @@ service cloud.firestore {
 
     match /publicProfiles/{id} {
       allow read: if signedIn()
-        && (request.auth.uid == id
+        && (resource == null
+          || request.auth.uid == id
           || (hasProfile()
             && userDoc().orgId == resource.data.orgId));
 
@@ -173,7 +174,8 @@ service cloud.firestore {
       // Гость в Live-комнате отвечает с телефона: текст вопросов берётся
       // из опубликованного теста. Правильные ответы хранятся отдельно
       // (testKeys) и гостям недоступны.
-      allow read: if (hasProfile()
+      allow read: if (resource == null)
+        || (hasProfile()
         && myOrg() == resource.data.orgId
         && (
           resource.data.status == "published"
@@ -233,7 +235,8 @@ service cloud.firestore {
       // showCorrectAfterQuestion (правильный ответ после фиксации ответа).
       // Известная цена: правилу доступен весь документ keys, клиент
       // обязан показывать только текущий вопрос (см. tests/schema).
-      allow read: if isStaffOf(resource.data.orgId)
+      allow read: if (resource == null)
+        || isStaffOf(resource.data.orgId)
         || (
           role() == "student"
           && get(
@@ -312,13 +315,14 @@ service cloud.firestore {
       // Отсутствующая книга: resource.data пуст, orgId сверить не с чем.
       // Чтение вернёт «материала нет» (UI предложит создать его), а не
       // отказ. Существующие книги чужой организации по-прежнему закрыты.
-      allow read: if isStaffOf(resource.data.orgId)
+      allow read: if (resource == null)
+        || isStaffOf(resource.data.orgId)
         || (
           hasProfile()
           && role() == "student"
+          && myOrg() == resource.data.orgId
           && !exists(/databases/$(database)/documents/activeAttempts/$(request.auth.uid))
-        )
-        || (signedIn() && resource.data.keys().size() == 0);
+        );
 
       allow create, update: if isStaff()
         && request.resource.data.orgId == myOrg()
@@ -363,7 +367,7 @@ service cloud.firestore {
       // только его владельцем.
       allow read: if signedIn()
         && (
-          resource.data.keys().size() == 0
+          resource == null
           || (progressId == resource.data.uid + "_" + resource.data.testId
             && resource.data.uid == request.auth.uid)
         );
@@ -609,7 +613,7 @@ service cloud.firestore {
 // привилегированные правила (тесты, задания, пользователи, роли) на
 // гостей не распространяются.
 function isGuest() {
-  return request.auth != null && request.auth.token.firebase.sign_in_provider == 'anonymous';
+  return signedIn() && 'token' in request.auth && 'firebase' in request.auth.token && request.auth.token.firebase.sign_in_provider == 'anonymous';
 }
 
     match /rooms/{roomId} {
