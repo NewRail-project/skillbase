@@ -13,7 +13,7 @@ import {
   loadMaterial, saveMaterial
 } from "../../core/materials.js";
 import {
-  pageFillRatio, pageTextLength, IMAGE_MAX_BYTES, CALLOUT_KINDS
+  pageFillRatio, pageTextLength, IMAGE_MAX_BYTES, IMAGE_MAX_DIM, CALLOUT_KINDS
 } from "../../core/material-logic.js";
 
 const EXAMPLE = `1. Какой сигнал разрешает движение?

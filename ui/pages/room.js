@@ -892,6 +892,19 @@ function roomResults() {
   return podiumPanel();
 }
 
+function playersListWidget(players) {
+  const activePlayers = (players || []).filter(p => !p.observer);
+  if (!activePlayers.length) {
+    return h("div", { class: "form-hint", style: "text-align:center;margin-top:0.75rem" }, "Участники пока не подключились");
+  }
+  return h("div", { class: "lobby-players-grid", style: "display:flex;flex-wrap:wrap;gap:var(--space-2);justify-content:center;margin-top:1rem" },
+    activePlayers.map(p => h("div", {
+      class: "chip",
+      style: "display:flex;align-items:center;gap:6px;padding:4px 10px;background:var(--surface-2);border-radius:16px"
+    }, avatarChip(p), h("span", {}, p.name || "Участник")))
+  );
+}
+
 // ---------- Вид ведущего ----------
 
 function hostView() {
@@ -944,8 +957,22 @@ function hostView() {
   if (!question) {
     wrap.appendChild(h("div", { class: "panel" },
       h("div", { class: "empty-state" },
-        h("h2", {}, "Задайте первый вопрос"),
-        h("p", { class: "muted" }, `Всего вопросов: ${room.questionCount || questions.length}.`)
+        h("div", { class: "empty-state-icon", innerHTML: icons.clock }),
+        h("h2", {}, "Ожидание начала теста"),
+        h("p", { class: "muted" }, `Ведущий: ${room.hostName || "Преподаватель"} · Участников в лобби: ${playersCount} · Всего вопросов: ${room.questionCount || questions.length}.`),
+        playersListWidget(local.players),
+        h("div", { class: "btn-row", style: "margin-top: 1.5rem; justify-content: center;" },
+          h("button", {
+            type: "button",
+            class: "btn primary",
+            onclick: () => {
+              openQuestion(local.code, 0).catch(err => {
+                console.error("Не удалось начать тест:", err);
+                toast("Не удалось начать тест", "error");
+              });
+            }
+          }, "Начать первый вопрос")
+        )
       )
     ));
   } else {
@@ -1095,7 +1122,30 @@ function playerView() {
   }
 
   if (!question) {
-    wrap.appendChild(waitPanel("Ведущий скоро задаст вопрос, следите за экраном."));
+    const playersCount = local.players.filter(p => !p.observer).length;
+    const inviteBox = h("div", { class: "panel" },
+      h("div", { class: "empty-state" },
+        h("div", { class: "empty-state-icon", innerHTML: icons.clock }),
+        h("h2", {}, "Ожидание начала теста"),
+        h("p", { class: "muted" }, `Ведущий: ${room.hostName || "Преподаватель"} · Участников в лобби: ${playersCount}. Скоро запустится первый вопрос.`),
+        playersListWidget(local.players),
+        h("div", { class: "btn-row", style: "margin-top: 1.25rem; justify-content: center;" },
+          h("button", {
+            type: "button",
+            class: "btn secondary",
+            onclick: async () => {
+              try {
+                await navigator.clipboard.writeText(joinUrl(room.code || local.code));
+                toast("Ссылка для входа скопирована", "success");
+              } catch (e) {
+                toast(`Код комнаты: ${room.code || local.code}`, "info");
+              }
+            }
+          }, "Поделиться ссылкой")
+        )
+      )
+    );
+    wrap.appendChild(inviteBox);
     const m = materialButton();
     if (m) wrap.appendChild(m);
   } else if (myAnswer != null && reveal) {
@@ -1269,7 +1319,15 @@ function observerView() {
   }
 
   if (!question) {
-    wrap.appendChild(waitPanel("Ведущий пока не задал вопрос."));
+    const observerLobby = h("div", { class: "panel" },
+      h("div", { class: "empty-state" },
+        h("div", { class: "empty-state-icon", innerHTML: icons.clock }),
+        h("h2", {}, "Ожидание начала теста"),
+        h("p", { class: "muted" }, `Ведущий: ${room.hostName || "Преподаватель"} · Участников в лобби: ${playersCount}. Вы в режиме наблюдателя.`),
+        playersListWidget(local.players)
+      )
+    );
+    wrap.appendChild(observerLobby);
     const podium = livePodium();
     if (podium) wrap.appendChild(podium);
   } else if (reveal) {
