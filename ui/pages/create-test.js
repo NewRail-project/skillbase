@@ -115,6 +115,14 @@ function buildMaterialEditor(editing) {
     function rebuild() {
       subFields.textContent = "";
       const t = typeSelect.value;
+      
+      // Обновляем значение textInput при смене типа блока
+      if (block.text) {
+        textInput.value = block.text;
+      } else {
+        textInput.value = "";
+      }
+      
       if (t === "list") {
         const itemsInput = h("textarea", { rows: "3", placeholder: "Пункт 1\nПункт 2" });
         itemsInput.value = (block.items || []).join("\n");
@@ -168,11 +176,22 @@ function buildMaterialEditor(editing) {
 
     typeSelect.addEventListener("change", () => {
       const next = { type: typeSelect.value };
+      // Сохраняем содержимое при смене типа блока
+      if (block.text) next.text = block.text;
+      if (block.items) next.items = block.items;
+      if (block.kind && next.type === "callout") next.kind = block.kind;
+      if (block.src && next.type === "image") next.src = block.src;
+      if (block.caption) next.caption = block.caption;
       if (next.type === "callout") next.kind = "info";
-      if (next.type === "image") { next.src = ""; next.caption = block.caption || ""; }
+      if (next.type === "image") { 
+        if (!next.src) next.src = ""; 
+        if (!next.caption) next.caption = block.caption || ""; 
+      }
       onChange(next);
     });
-    textInput.addEventListener("input", () => onChange({ ...block, text: textInput.value }));
+    textInput.addEventListener("input", () => {
+      onChange({ ...block, text: textInput.value });
+    });
 
     subFields = h("div", {});
     rebuild();

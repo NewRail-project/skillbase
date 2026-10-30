@@ -1,5 +1,5 @@
 import { h } from "../../shared/dom.js";
-import { generateQRSvg } from "../../shared/qr.js";
+import { generateQRSvg, generateQRDataUrl } from "../../shared/qr.js";
 import { icons } from "../../shared/icons.js";
 
 export default function AboutPage() {
@@ -38,7 +38,12 @@ export default function AboutPage() {
             innerHTML: generateQRSvg(siteUrl, { size: 200 })
           }),
           h("div", { class: "btn-row", style: "justify-content: center; margin-top: 1rem;" },
-            h("a", { class: "btn primary", href: siteUrl, target: "_blank", rel: "noopener" }, "Открыть Skillbase")
+            h("a", { class: "btn primary", href: siteUrl, target: "_blank", rel: "noopener" }, "Открыть Skillbase"),
+            h("button", { 
+              class: "btn secondary", 
+              onclick: "downloadQR()", 
+              style: "margin-left: 0.5rem;" 
+            }, "Скачать QR")
           )
         )
       )
@@ -46,5 +51,27 @@ export default function AboutPage() {
   );
 
   page.appendChild(card);
+  
+  // Функция скачивания QR-кода
+  window.downloadQR = async function() {
+    try {
+      const dataUrl = await generateQRDataUrl(siteUrl, { size: 400 });
+      if (!dataUrl) {
+        alert("Не удалось сгенерировать QR-код для скачивания");
+        return;
+      }
+      
+      const link = document.createElement("a");
+      link.href = dataUrl;
+      link.download = "skillbase-qr.png";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (error) {
+      console.error("Ошибка скачивания QR-кода:", error);
+      alert("Не удалось скачать QR-код");
+    }
+  };
+  
   return page;
 }
