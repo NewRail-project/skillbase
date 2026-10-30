@@ -7,6 +7,12 @@ export default function AboutPage() {
 
   const siteUrl = "https://newrail-project.github.io/skillbase/";
 
+  const qrWrapper = h("div", {
+    class: "qr-wrapper",
+    style: "display: inline-block; background: white; padding: 1rem; border-radius: var(--radius); box-shadow: var(--shadow-sm);"
+  });
+  qrWrapper.innerHTML = generateQRSvg(siteUrl, { size: 280, dark: "#000000", light: "#ffffff" });
+
   const card = h("section", { class: "panel" },
     h("div", { class: "panel-head" },
       h("div", { class: "eyebrow" }, "О платформе"),
@@ -33,11 +39,7 @@ export default function AboutPage() {
         h("div", { class: "room-qr-container", style: "text-align: center; margin-top: 1rem; padding: 1.5rem; background: var(--surface-2); border-radius: var(--radius-lg); border: 1px solid var(--border-color);" },
           h("h3", {}, "Официальный сайт проекта"),
           h("p", { class: "muted", style: "margin-bottom: 1rem;" }, "Отсканируйте камерой телефона для перехода на основной сайт Skillbase:"),
-          h("div", {
-            class: "qr-wrapper",
-            style: "display: inline-block; background: white; padding: 1rem; border-radius: var(--radius); box-shadow: var(--shadow-sm);",
-            innerHTML: generateQRSvg(siteUrl, { size: 280, dark: "#000000", light: "#ffffff" })
-          }),
+          qrWrapper,
           h("div", { class: "btn-row", style: "justify-content: center; margin-top: 1rem;" },
             h("a", { class: "btn primary", href: siteUrl, target: "_blank", rel: "noopener" }, "Открыть Skillbase"),
             h("button", {
