@@ -161,6 +161,17 @@ export async function joinRoom(code, { displayName, observer = false, profile } 
   return roomCode;
 }
 
+// Проверка членства ДО входа: собственный players/{uid} документ
+// читается правилами любому вошедшему (request.auth.uid == playerId),
+// поэтому проверка безопасна и не требует прав на список участников.
+// Участник определяется id документа — без чтения поля uid.
+export async function isRoomMember(code) {
+  const roomCode = normalizeRoomCode(code);
+  if (!roomCode || !State.user?.uid) return false;
+  const snap = await getDoc(doc(db, "rooms", roomCode, "players", State.user.uid));
+  return snap.exists();
+}
+
 // Заменяет маркеры SERVER_TIMESTAMP на настоящую serverTimestamp().
 function replaceServerMarkers(fields) {
   const out = {};

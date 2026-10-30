@@ -7,7 +7,7 @@ import { h } from "../../shared/dom.js";
 import { State, isStaff } from "../../core/auth.js";
 import {
   subscribeRoom, openQuestion, closeQuestion, saveAnswer, closeRoom,
-  questionDurationSec, sendReaction, subscribeReactions, joinRoom
+  questionDurationSec, sendReaction, subscribeReactions, joinRoom, isRoomMember
 } from "../../core/rooms.js";
 import {
   questionTimeMs, answeredCount, myAnswerVerdict, roomGateStatus,
@@ -278,6 +278,54 @@ export default async function RoomPage() {
 
   // Подписки. Каждый снапшот обновляет состояние и дергает wake():
   // сначала события звуков, затем перерисовка по сигнатуре.
+  // ---------- Членство и автоподключение приглашённого ----------
+  // Собственный players/{uid} читается правилами напрямую (uid == playerId),
+  // поэтому факт членства и запись участника выполняются ДО подписок:
+  // слушатели открываются уже как участнику, и повторная проверка
+  // членства не запускается, пока запись не завершена.
+  let memberOfRoom = false;   // есть players/{uid}
+  let inviteError = null;     // провал автоподключения → карточка приглашения
+  const isHost = role() === "host";
+  const isGuestUser = State.user?.isAnonymous === true;
+
+  if (State.user?.uid && !isHost) {
+    try {
+      memberOfRoom = await isRoomMember(code);
+      if (!memberOfRoom && !isGuestUser && local.room?.status === "active") {
+        // Приглашённый без членства подключается сразу: тот же вызов
+        // joinRoom, что у кнопок входа. Повторный вход (обновление
+        // страницы, повторное сканирование) идемпотентен: документ
+        // players/{uid} обновляется, дубликата нет.
+        await joinRoom(code, {
+          displayName: joinDisplayName(),
+          observer: false,
+          profile: State.profile
+        });
+        memberOfRoom = true;
+      }
+    } catch (err) {
+      console.error("Автовход по приглашению:", err);
+      inviteError = err;
+    }
+  }
+
+  // Провал автоподключения (сеть, чужая организация, заполнена):
+  // понятная карточка приглашения; кнопка «Войти в комнату» выполняет
+  // полноценное подключение — без формы ввода кода.
+  if (inviteError) {
+    page.appendChild(inviteRoomPanel(code, inviteError));
+    return page;
+  }
+
+  // Закрытая комната без членства: слушатели участника запрещены
+  // правилами — честная статика вместо вечного «Подключаемся…».
+  if (local.room?.status !== "active" && !isHost && !memberOfRoom) {
+    page.appendChild(closedRoomPanel());
+    return page;
+  }
+
+  // Гость без членства: слушатели игрокам запрещены, перенаправление
+  // на форму гостя выполняет ensureGuestRedirect по снапшоту комнаты.
   const wake = () => { onStateUpdate(page, isScreen); };
   unsubs.push(subscribeRoom(code, {
     onRoom: room => {
@@ -1564,8 +1612,11 @@ function buildView() {
     guest: State.user?.isAnonymous === true
   });
   if (gate === "closed") return closedRoomPanel();
-  // waiting / confirm-join / guest-join: единая карточка с подключением.
-  return notMemberPanel();
+  // Первый снапшот players ещё не пришёл — честное ожидание загрузки.
+  // Карточки входа (confirm-join / guest-join) до подписок обрабатывает
+  // сама страница: автоподключение или гостевой редирект, поэтому
+  // здесь они недостижимы.
+  return connectingPanel();
 }
 
 // ---------- Карточки «роль ещё не определена» ----------
@@ -1607,46 +1658,29 @@ function closedRoomPanel() {
   );
 }
 
-// Не участник (и не гость): подтверждение входа одной кнопкой прямо
-// здесь, без похода через #join. После успешного joinPage пересобирается
-// через router() — подписки подключаются уже как участнику комнаты.
-function notMemberPanel() {
-  const code = local.room?.code || local.code || "";
-  const guest = State.user?.isAnonymous === true;
-  // Гостю нужна форма с именем и аватаром — редирект уже уйдёт из
-  // ensureGuestRedirect; карточка остаётся страховкой на миг перерисовки.
-  if (guest) {
-    return h("div", { class: "room-view" },
-      h("div", { class: "panel" },
-        h("div", { class: "empty-state" },
-          emptyIcon("users"),
-          h("h2", {}, "Подтвердите вход"),
-          h("p", { class: "muted" }, `Комната ${code}. Открываем гостевую форму.`),
-          h("a", { class: "btn primary", href: `#join/${code}` }, "Перейти к входу")
-        )
-      )
-    );
-  }
-
-  const msg = h("p", { class: "form-hint muted" },
-    "Вас нет в этой комнате. Одно нажатие — и вы участник.");
+// Автоподключение по приглашению не удалось (сеть, чужая организация,
+// комната заполнена): карточка «Вы приглашены в Live-комнату». Одна
+// кнопка выполняет полноценное подключение тем же вызовом joinRoom —
+// без перевода на форму ввода кода. Повторное нажатие безопасно:
+// документ участника players/{uid} един и обновляется идемпотентно.
+function inviteRoomPanel(code, err) {
+  const msg = h("p", { class: "form-error" }, roomJoinErrorBody(err));
   const btn = h("button", { type: "button", class: "btn primary btn-block" }, "Войти в комнату");
   btn.addEventListener("click", async () => {
     btn.disabled = true;
     btn.textContent = "Подключаемся…";
     try {
-      await joinRoom(local.code, {
+      await joinRoom(code, {
         displayName: joinDisplayName(),
         observer: false,
         profile: State.profile
       });
-      // Успех: пересобираем страницу — после отказавших подписок вне
-      // комнаты слушатели нужно открыть заново уже участником.
+      // Успех: пересобираем страницу — слушатели откроются уже
+      // участнику комнаты (отказавшие подписки не пересоздаются).
       await router();
-    } catch (err) {
-      console.error("Вход в комнату:", err);
-      // Ошибка: слушатели живы, обновляем карточку на месте.
-      msg.textContent = roomJoinErrorBody(err);
+    } catch (e) {
+      console.error("Вход в комнату по приглашению:", e);
+      msg.textContent = roomJoinErrorBody(e);
       msg.className = "form-error";
       btn.disabled = false;
       btn.textContent = "Войти в комнату";
@@ -1656,7 +1690,8 @@ function notMemberPanel() {
     h("div", { class: "panel" },
       h("div", { class: "empty-state" },
         emptyIcon("users"),
-        h("h2", {}, `Войти в комнату ${code}`),
+        h("h2", {}, "Вы приглашены в Live-комнату"),
+        h("p", { class: "muted" }, `Код комнаты: ${code}.`),
         msg,
         btn,
         h("a", { class: "btn secondary btn-block", href: `#join/${code}` }, "Другая роль или имя")

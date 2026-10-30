@@ -261,6 +261,10 @@ export function buildJoinUrl(code, locationLike = null) {
 // Возвращает "waiting" (подключаемся), "player"/"observer" (участник),
 // "confirm-join" (войти одной кнопкой), "guest-join" (форма гостя),
 // "closed" (комната закрыта) или "signIn" (нужна авторизация).
+// Страница комнаты не ждёт этого гейта для НЕ-участника: факт членства
+// определяется чтением своего players/{uid} (правило uid == playerId),
+// после чего НЕ-участник подключается напрямую до подписок — «Вас нет
+// в этой комнате» приглашённому не показывается никогда.
 export function roomGateStatus({ playersLoaded = false, players = [], uid = null, room = null, guest = false } = {}) {
   if (!room || !playersLoaded) return "waiting";
   const me = (players || []).find(p => p.uid === uid);
