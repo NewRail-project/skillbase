@@ -653,22 +653,18 @@ function joinUrl(code) {
 const roomQROptions = {
   width: 280,
   height: 280,
+  ecc: "H",
+  rounded: true,
   dark: "#172817",        // тёмно-зелёные модули
-  light: "#F5F7ED"        // светлый фон QR
+  light: "#F5F7ED",       // светлый фон QR
+  finderDark: "#101810"   // ещё более тёмные маркеры
 }
 
-// Рисует SVG QR-кода внутрь элемента. size — сторона в пикселях.
-// generateQRSvg/qrToSvg синхронны и локальны (shared/qrcode.js), без сети.
-function paintQR(box, code, size = 200) {
+// Рисует SVG QR-кода внутрь элемента.
+function paintQR(box, code) {
   if (!box || !code) return;
   try {
-    // Используем фирменные настройки QR
-    box.innerHTML = generateQRSvg(joinUrl(code), { ...roomQROptions, size: 280 });
-    const svg = box.querySelector('svg');
-    if (svg) {
-      svg.setAttribute('width', String(280));
-      svg.setAttribute('height', String(280));
-    }
+    box.innerHTML = generateQRSvg(joinUrl(code), roomQROptions);
   } catch (err) {
     console.error("QR generation failed:", err);
   }
@@ -682,14 +678,7 @@ async function initRoomQR(room) {
   if (!qrWrapper || !copyBtn || !downloadBtn) return;
 
   const url = joinUrl(room.code);
-
-  try {
-    // qrToDataUrl возвращает data:-URL — строку, а не разметку; innerHTML
-    // с ней остаётся пустым. На экран выводим сырой SVG.
-    paintQR(qrWrapper, room.code, 200);
-  } catch (err) {
-    console.error("QR generation failed:", err);
-  }
+  paintQR(qrWrapper, room.code);
 
   // Копирование ссылки.
   copyBtn.addEventListener('click', async () => {
@@ -701,20 +690,45 @@ async function initRoomQR(room) {
     }
   });
 
-  // Скачивание QR-кода: из отрисованного SVG, а не из innerHTML-строки.
-  downloadBtn.addEventListener('click', async (e) => {
+  // Скачивание QR-кода как PNG через Canvas (для соответствия дизайну и Android)
+  downloadBtn.addEventListener('click', (e) => {
     e.preventDefault();
     const svg = qrWrapper.querySelector('svg');
     if (!svg) {
       toast("QR-код ещё не готов", "error");
       return;
     }
-    const blob = new Blob([svg.outerHTML], { type: 'image/svg+xml' });
-    const link = URL.createObjectURL(blob);
-    downloadBtn.href = link;
-    downloadBtn.download = `room-${room.code}.svg`;
-    downloadBtn.click();
-    URL.revokeObjectURL(link);
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    const img = new Image();
+    const svgData = new XMLSerializer().serializeToString(svg);
+    const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
+    const blobUrl = URL.createObjectURL(svgBlob);
+
+    img.onload = () => {
+      const exportSize = 1024;
+      canvas.width = exportSize;
+      canvas.height = exportSize;
+      ctx.fillStyle = "#F5F7ED";
+      ctx.fillRect(0, 0, exportSize, exportSize);
+      ctx.drawImage(img, 0, 0, exportSize, exportSize);
+
+      try {
+        const pngUrl = canvas.toDataURL("image/png");
+        const link = document.createElement("a");
+        link.href = pngUrl;
+        link.download = `room-${room.code}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch (err) {
+        console.error("PNG export failed:", err);
+        toast("Не удалось сохранить PNG", "error");
+      }
+      URL.revokeObjectURL(blobUrl);
+    };
+    img.src = blobUrl;
   });
 }
 
@@ -932,17 +946,24 @@ function hostView() {
   ));
   // Код крупно, чтобы продемонстрировать на экране/камере.
   wrap.appendChild(h("div", { class: "room-code-badge" }, room.code || room.id));
-  // QR-код комнаты.
-  wrap.appendChild(h("div", { class: "room-qr-card" },
-    h("h3", {}, "Поделиться комнатой"),
-    h("div", { style: "font-family: var(--font-brand); font-weight: 800; font-size: 1.5rem; letter-spacing: 0.1em; color: #C5E747; margin-bottom: 1.5rem;" }, "SKILLBASE"),
-    h("div", { style: "font-size: 0.8rem; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 1.5rem;" }, "Официальная платформа"),
-    h("div", { class: "qr-wrapper", style: "background: #F5F7ED; padding: 1.25rem; border-radius: 1.5rem; box-shadow: 0 8px 24px rgba(0,0,0,0.2); line-height: 0; border: 2px solid #C5E747;" }),
-    h("div", { class: "qr-actions" },
-      h("button", { type: "button", class: "btn secondary", id: "copy-link" }, "Копировать ссылку"),
-      h("a", { class: "btn secondary", id: "download-qr", download: `room-${room.code}.svg`, href: "#", "aria-label": "Скачать QR-код" }, "Скачать QR")
+  // QR-код комнаты в фирменном стиле Skillbase.
+  wrap.appendChild(h("div", {
+    class: "room-qr-card brand-qr-card",
+    style: "text-align: center; margin-top: 1rem; padding: 2.5rem 1.5rem; background: linear-gradient(135deg, #101810 0%, #0a0f0a 100%); color: #fff; border-radius: 2rem; border: 1px solid #C5E747; box-shadow: var(--shadow-lg); position: relative; overflow: hidden;"
+  },
+    h("div", {
+      style: "position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, transparent, #C5E747, transparent);"
+    }),
+    h("div", { style: "margin-bottom: 1.5rem; position: relative;" },
+      h("div", { style: "font-family: var(--font-brand); font-weight: 800; font-size: 1.5rem; letter-spacing: 0.1em; color: #C5E747; text-shadow: 0 0 10px rgba(197, 231, 71, 0.3);" }, "SKILLBASE"),
+      h("div", { style: "font-size: 0.8rem; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.25rem;" }, "Официальная платформа")
     ),
-    h("p", { class: "form-hint", id: "qr-message", style: "margin: 1.5rem 0; font-size: 0.95rem; opacity: 0.9;" }, "Отсканируйте, чтобы открыть платформу")
+    h("div", { class: "qr-wrapper", style: "display: inline-block; background: #F5F7ED; padding: 1.25rem; border-radius: 1.5rem; box-shadow: 0 8px 24px rgba(0,0,0,0.2); line-height: 0; border: 2px solid #C5E747;" }),
+    h("p", { style: "margin: 1.5rem 0; font-size: 0.95rem; opacity: 0.9; position: relative;" }, "Отсканируйте, чтобы войти в комнату"),
+    h("div", { class: "btn-row", style: "justify-content: center; gap: 0.75rem; position: relative;" },
+      h("button", { type: "button", class: "btn secondary", id: "copy-link", style: "background: #C5E747; color: #101810; border: none; font-weight: 600; padding: 0.75rem 1.5rem;" }, "Ссылка"),
+      h("button", { type: "button", class: "btn", id: "download-qr", style: "background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); backdrop-filter: blur(10px); padding: 0.75rem 1.5rem;" }, "PNG")
+    )
   ));
 
   const playersCount = local.players.filter(p => !p.observer).length;

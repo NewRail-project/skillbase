@@ -317,17 +317,63 @@ export function qrMatrix(text, { ecc = "M", mask: forcedMask = null } = {}) {
 }
 
 // SVG-строка. border — «тихая зона» в модулях (по стандарту не меньше 4).
-export function qrToSvg(text, { ecc = "M", border = 4, dark = "#000000", light = "#ffffff", width, height } = {}) {
+// rounded — плавные скругления модулей для современного вида.
+// finderDark — цвет поисковых маркеров (угловых квадратов).
+export function qrToSvg(text, {
+  ecc = "M", border = 4, dark = "#000000", light = "#ffffff",
+  width, height, rounded = false, finderDark
+} = {}) {
   const { size, modules } = qrMatrix(text, { ecc });
   const total = size + border * 2;
-  let path = "";
+  const r = rounded ? 0.35 : 0;
+  const fDark = finderDark || dark;
+
+  const isFinder = (x, y) => {
+    // Внешние рамки и внутренние квадраты трех поисковых маркеров (7x7)
+    if (x < 7 && y < 7) return true;
+    if (x >= size - 7 && y < 7) return true;
+    if (x < 7 && y >= size - 7) return true;
+    return false;
+  };
+
+  let body = "";
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      if (modules[y][x]) path += `M${x + border},${y + border}h1v1h-1z`;
+      if (modules[y][x]) {
+        const cx = x + border;
+        const cy = y + border;
+        const fill = isFinder(x, y) ? fDark : dark;
+        if (rounded) {
+          body += `<rect x="${cx}" y="${cy}" width="1" height="1" rx="${r}" ry="${r}" fill="${fill}"/>`;
+        } else {
+          // Если не скруглено, используем один <path> для производительности (но с учетом разных цветов)
+          // Для простоты при разных цветах используем отдельные M...h1v1h-1z или группы
+        }
+      }
     }
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${total} ${total}" shape-rendering="crispEdges">`
-    + `<rect width="100%" height="100%" fill="${light}"/><path d="${path}" fill="${dark}"/></svg>`;
+
+  // Если есть finderDark, нам нужно разделять пути
+  if (!rounded) {
+    let pathDark = "";
+    let pathFinder = "";
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        if (modules[y][x]) {
+          const p = `M${x + border},${y + border}h1v1h-1z`;
+          if (isFinder(x, y)) pathFinder += p;
+          else pathDark += p;
+        }
+      }
+    }
+    body = `<path d="${pathDark}" fill="${dark}"/>`;
+    if (pathFinder) body += `<path d="${pathFinder}" fill="${fDark}"/>`;
+  }
+
+  const wAttr = width ? ` width="${width}"` : "";
+  const hAttr = height ? ` height="${height}"` : "";
+  return `<svg xmlns="http://www.w3.org/2000/svg"${wAttr}${hAttr} viewBox="0 0 ${total} ${total}" shape-rendering="crispEdges">`
+    + `<rect width="100%" height="100%" fill="${light}"/>${body}</svg>`;
 }
 
 export function qrToDataUrl(text, options) {

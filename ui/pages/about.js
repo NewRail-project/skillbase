@@ -11,8 +11,11 @@ export default function AboutPage() {
   const qrOptions = {
     width: 280,
     height: 280,
+    ecc: "H",
+    rounded: true,
     dark: "#172817",        // тёмно-зелёные модули
-    light: "#F5F7ED"        // светлый фон QR
+    light: "#F5F7ED",       // светлый фон QR
+    finderDark: "#101810"   // ещё более тёмные маркеры
   };
 
   const qrWrapper = h("div", {
@@ -44,28 +47,31 @@ export default function AboutPage() {
           h("h3", { style: "margin-top: 1.5rem;" }, "Live-занятия"),
           h("p", {}, "Интерактивные live-комнаты позволяют проводить тестирования в реальном времени. Ведущий задает вопросы, участники отвечают, а результаты отображаются на экране. Система поддерживает QR-код для быстрого входа, таймеры вопросов и таблицу лидеров.")
         ),
-        h("div", { 
-          class: "brand-qr-card", 
-          style: "text-align: center; margin-top: 1rem; padding: 2.5rem 1.5rem; background: #101810; color: #fff; border-radius: 2rem; border: 1px solid #C5E747; box-shadow: var(--shadow-lg);" 
+        h("div", {
+          class: "brand-qr-card",
+          style: "text-align: center; margin-top: 1rem; padding: 2.5rem 1.5rem; background: linear-gradient(135deg, #101810 0%, #0a0f0a 100%); color: #fff; border-radius: 2rem; border: 1px solid #C5E747; box-shadow: var(--shadow-lg); position: relative; overflow: hidden;"
         },
-          h("div", { style: "margin-bottom: 1.5rem;" },
-            h("div", { style: "font-family: var(--font-brand); font-weight: 800; font-size: 1.5rem; letter-spacing: 0.1em; color: #C5E747;" }, "SKILLBASE"),
-            h("div", { style: "font-size: 0.8rem; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.05em;" }, "Официальная платформа")
+          h("div", {
+            style: "position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, transparent, #C5E747, transparent);"
+          }),
+          h("div", { style: "margin-bottom: 1.5rem; position: relative;" },
+            h("div", { style: "font-family: var(--font-brand); font-weight: 800; font-size: 1.5rem; letter-spacing: 0.1em; color: #C5E747; text-shadow: 0 0 10px rgba(197, 231, 71, 0.3);" }, "SKILLBASE"),
+            h("div", { style: "font-size: 0.8rem; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.25rem;" }, "Официальная платформа")
           ),
           qrWrapper,
-          h("p", { style: "margin: 1.5rem 0; font-size: 0.95rem; opacity: 0.9;" }, "Отсканируйте, чтобы открыть платформу"),
-          h("div", { class: "btn-row", style: "justify-content: center; gap: 0.75rem;" },
-            h("a", { 
-              class: "btn", 
-              href: siteUrl, 
-              target: "_blank", 
+          h("p", { style: "margin: 1.5rem 0; font-size: 0.95rem; opacity: 0.9; position: relative;" }, "Отсканируйте, чтобы открыть платформу"),
+          h("div", { class: "btn-row", style: "justify-content: center; gap: 0.75rem; position: relative;" },
+            h("a", {
+              class: "btn",
+              href: siteUrl,
+              target: "_blank",
               rel: "noopener",
-              style: "background: #C5E747; color: #101810; border: none; font-weight: 600;"
+              style: "background: #C5E747; color: #101810; border: none; font-weight: 600; padding: 0.75rem 1.5rem;"
             }, "Открыть сайт"),
             h("button", {
               class: "btn",
               id: "download-qr-btn",
-              style: "background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2);"
+              style: "background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); backdrop-filter: blur(10px);"
             }, "PNG")
           )
         )
