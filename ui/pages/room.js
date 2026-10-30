@@ -649,16 +649,27 @@ function joinUrl(code) {
   return `${window.location.origin}${window.location.pathname}#join/${code}`;
 }
 
+// Настройки QR-кода для Live-комнат (фирменные цвета Skillbase)
+const roomQROptions = {
+  width: 280,
+  height: 280,
+  rounded: true,
+  dark: "#172817",        // тёмно-зелёные модули
+  light: "#F5F7ED",       // светлый фон QR
+  finderDark: "#101810"   // ещё более тёмные маркеры
+}
+
 // Рисует SVG QR-кода внутрь элемента. size — сторона в пикселях.
 // generateQRSvg/qrToSvg синхронны и локальны (shared/qrcode.js), без сети.
 function paintQR(box, code, size = 200) {
   if (!box || !code) return;
   try {
-    box.innerHTML = generateQRSvg(joinUrl(code), { size });
+    // Используем фирменные настройки QR
+    box.innerHTML = generateQRSvg(joinUrl(code), { ...roomQROptions, size: 280 });
     const svg = box.querySelector('svg');
     if (svg) {
-      svg.setAttribute('width', String(size));
-      svg.setAttribute('height', String(size));
+      svg.setAttribute('width', String(280));
+      svg.setAttribute('height', String(280));
     }
   } catch (err) {
     console.error("QR generation failed:", err);
@@ -924,14 +935,16 @@ function hostView() {
   // Код крупно, чтобы продемонстрировать на экране/камере.
   wrap.appendChild(h("div", { class: "room-code-badge" }, room.code || room.id));
   // QR-код комнаты.
-  wrap.appendChild(h("div", { class: "room-qr-container" },
+  wrap.appendChild(h("div", { class: "room-qr-card" },
     h("h3", {}, "Поделиться комнатой"),
-    h("div", { class: "qr-wrapper" }),
+    h("div", { style: "font-family: var(--font-brand); font-weight: 800; font-size: 1.5rem; letter-spacing: 0.1em; color: #C5E747; margin-bottom: 1.5rem;" }, "SKILLBASE"),
+    h("div", { style: "font-size: 0.8rem; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 1.5rem;" }, "Официальная платформа"),
+    h("div", { class: "qr-wrapper", style: "background: #F5F7ED; padding: 1.25rem; border-radius: 1.5rem; box-shadow: 0 8px 24px rgba(0,0,0,0.2); line-height: 0; border: 2px solid #C5E747;" }),
     h("div", { class: "qr-actions" },
       h("button", { type: "button", class: "btn secondary", id: "copy-link" }, "Копировать ссылку"),
       h("a", { class: "btn secondary", id: "download-qr", download: `room-${room.code}.svg`, href: "#", "aria-label": "Скачать QR-код" }, "Скачать QR")
     ),
-    h("p", { class: "form-hint", id: "qr-message" })
+    h("p", { class: "form-hint", id: "qr-message", style: "margin: 1.5rem 0; font-size: 0.95rem; opacity: 0.9;" }, "Отсканируйте, чтобы открыть платформу")
   ));
 
   const playersCount = local.players.filter(p => !p.observer).length;
