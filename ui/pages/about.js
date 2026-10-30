@@ -7,12 +7,22 @@ export default function AboutPage() {
 
   const siteUrl = "https://newrail-project.github.io/skillbase/";
 
+  // Дизайн QR-кода: фирменные цвета Skillbase
+  const qrOptions = {
+    width: 280,
+    height: 280,
+    ecc: "H",
+    rounded: true,
+    dark: "#172817",        // тёмно-зелёные модули
+    light: "#F5F7ED",       // светлый фон QR
+    finderDark: "#101810"   // ещё более тёмные маркеры
+  };
+
   const qrWrapper = h("div", {
     class: "qr-wrapper",
-    style: "display: inline-block; background: white; padding: 1rem; border-radius: var(--radius); box-shadow: var(--shadow-sm); line-height: 0;"
+    style: "display: inline-block; background: #F5F7ED; padding: 1.25rem; border-radius: 1.5rem; box-shadow: 0 8px 24px rgba(0,0,0,0.2); line-height: 0; border: 2px solid #C5E747;"
   });
-  // Явно задаем размеры для стабильного отображения на мобильных
-  qrWrapper.innerHTML = generateQRSvg(siteUrl, { width: 280, height: 280, dark: "#000000", light: "#ffffff" });
+  qrWrapper.innerHTML = generateQRSvg(siteUrl, qrOptions);
 
   const card = h("section", { class: "panel" },
     h("div", { class: "panel-head" },
@@ -37,17 +47,29 @@ export default function AboutPage() {
           h("h3", { style: "margin-top: 1.5rem;" }, "Live-занятия"),
           h("p", {}, "Интерактивные live-комнаты позволяют проводить тестирования в реальном времени. Ведущий задает вопросы, участники отвечают, а результаты отображаются на экране. Система поддерживает QR-код для быстрого входа, таймеры вопросов и таблицу лидеров.")
         ),
-        h("div", { class: "room-qr-container", style: "text-align: center; margin-top: 1rem; padding: 1.5rem; background: var(--surface-2); border-radius: var(--radius-lg); border: 1px solid var(--border-color);" },
-          h("h3", {}, "Официальный сайт проекта"),
-          h("p", { class: "muted", style: "margin-bottom: 1rem;" }, "Отсканируйте камерой телефона для перехода на основной сайт Skillbase:"),
+        h("div", { 
+          class: "brand-qr-card", 
+          style: "text-align: center; margin-top: 1rem; padding: 2.5rem 1.5rem; background: #101810; color: #fff; border-radius: 2rem; border: 1px solid #C5E747; box-shadow: var(--shadow-lg);" 
+        },
+          h("div", { style: "margin-bottom: 1.5rem;" },
+            h("div", { style: "font-family: var(--font-brand); font-weight: 800; font-size: 1.5rem; letter-spacing: 0.1em; color: #C5E747;" }, "SKILLBASE"),
+            h("div", { style: "font-size: 0.8rem; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.05em;" }, "Официальная платформа")
+          ),
           qrWrapper,
-          h("div", { class: "btn-row", style: "justify-content: center; margin-top: 1rem;" },
-            h("a", { class: "btn primary", href: siteUrl, target: "_blank", rel: "noopener" }, "Открыть Skillbase"),
+          h("p", { style: "margin: 1.5rem 0; font-size: 0.95rem; opacity: 0.9;" }, "Отсканируйте, чтобы открыть платформу"),
+          h("div", { class: "btn-row", style: "justify-content: center; gap: 0.75rem;" },
+            h("a", { 
+              class: "btn", 
+              href: siteUrl, 
+              target: "_blank", 
+              rel: "noopener",
+              style: "background: #C5E747; color: #101810; border: none; font-weight: 600;"
+            }, "Открыть сайт"),
             h("button", {
-              class: "btn secondary",
+              class: "btn",
               id: "download-qr-btn",
-              style: "margin-left: 0.5rem;"
-            }, "Скачать PNG")
+              style: "background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2);"
+            }, "PNG")
           )
         )
       )
@@ -75,7 +97,8 @@ export default function AboutPage() {
         const exportSize = 1024;
         canvas.width = exportSize;
         canvas.height = exportSize;
-        ctx.fillStyle = "#ffffff";
+        // Фон карточки: светлый цвет QR, чтобы сохранить дизайн при скачивании
+        ctx.fillStyle = "#F5F7ED";
         ctx.fillRect(0, 0, exportSize, exportSize);
         ctx.drawImage(img, 0, 0, exportSize, exportSize);
         
