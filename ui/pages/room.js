@@ -653,10 +653,8 @@ function joinUrl(code) {
 const roomQROptions = {
   width: 280,
   height: 280,
-  rounded: true,
   dark: "#172817",        // тёмно-зелёные модули
-  light: "#F5F7ED",       // светлый фон QR
-  finderDark: "#101810"   // ещё более тёмные маркеры
+  light: "#F5F7ED"        // светлый фон QR
 }
 
 // Рисует SVG QR-кода внутрь элемента. size — сторона в пикселях.

@@ -317,55 +317,17 @@ export function qrMatrix(text, { ecc = "M", mask: forcedMask = null } = {}) {
 }
 
 // SVG-строка. border — «тихая зона» в модулях (по стандарту не меньше 4).
-export function qrToSvg(text, {
-  ecc = "M", border = 4, dark = "#000000", light = "#ffffff",
-  width, height, rounded = false, finderDark, finderLight
-} = {}) {
+export function qrToSvg(text, { ecc = "M", border = 4, dark = "#000000", light = "#ffffff", width, height } = {}) {
   const { size, modules } = qrMatrix(text, { ecc });
   const total = size + border * 2;
-  const r = rounded ? 0.4 : 0;
-  const fDark = finderDark || dark;
-  const fLight = finderLight || light;
-
-  const isFinder = (x, y) => {
-    if (x < 7 && y < 7) return true;
-    if (x >= size - 7 && y < 7) return true;
-    if (x < 7 && y >= size - 7) return true;
-    return false;
-  };
-
-  let paths = { dark: "", finder: "" };
-  let rects = [];
-
+  let path = "";
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      if (modules[y][x]) {
-        const cx = x + border;
-        const cy = y + border;
-        if (rounded) {
-          rects.push(`<rect x="${cx}" y="${cy}" width="1" height="1" rx="${r}" fill="${isFinder(x, y) ? fDark : dark}"/>`);
-        } else {
-          const p = `M${cx},${cy}h1v1h-1z`;
-          if (isFinder(x, y)) paths.finder += p;
-          else paths.dark += p;
-        }
-      }
+      if (modules[y][x]) path += `M${x + border},${y + border}h1v1h-1z`;
     }
   }
-
-  const wAttr = width ? ` width="${width}"` : "";
-  const hAttr = height ? ` height="${height}"` : "";
-  let content = `<rect width="100%" height="100%" fill="${light}"/>`;
-  
-  if (rounded) {
-    content += rects.join("");
-  } else {
-    content += `<path d="${paths.dark}" fill="${dark}"/>`;
-    if (paths.finder) content += `<path d="${paths.finder}" fill="${fDark}"/>`;
-  }
-
-  return `<svg xmlns="http://www.w3.org/2000/svg"${wAttr}${hAttr} viewBox="0 0 ${total} ${total}" shape-rendering="crispEdges">`
-    + `${content}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${total} ${total}" shape-rendering="crispEdges">`
+    + `<rect width="100%" height="100%" fill="${light}"/><path d="${path}" fill="${dark}"/></svg>`;
 }
 
 export function qrToDataUrl(text, options) {

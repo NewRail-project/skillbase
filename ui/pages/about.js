@@ -7,15 +7,12 @@ export default function AboutPage() {
 
   const siteUrl = "https://newrail-project.github.io/skillbase/";
 
-  // Дизайн QR-кода: фирменные цвета Skillbase
+  // Настройки QR-кода: фирменные цвета Skillbase
   const qrOptions = {
     width: 280,
     height: 280,
-    ecc: "H",
-    rounded: true,
     dark: "#172817",        // тёмно-зелёные модули
-    light: "#F5F7ED",       // светлый фон QR
-    finderDark: "#101810"   // ещё более тёмные маркеры
+    light: "#F5F7ED"        // светлый фон QR
   };
 
   const qrWrapper = h("div", {
