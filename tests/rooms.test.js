@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {
   generateRoomCode, normalizeRoomCode, isValidRoomCode,
   questionTimeMs, roomSignature, answeredCount,
-  computeScores, buildReveal, joinPlayerFields, SERVER_TIMESTAMP
+  computeScores, buildReveal, joinPlayerFields, SERVER_TIMESTAMP,
+  roomGateStatus
 } from '../core/rooms-logic.js';
 
 test('generateRoomCode: 6 символов алфавита без 0/O/1/I', () => {
@@ -208,4 +209,65 @@ test('joinPlayerFields: аватар гостя — первый вход и п�
   const updated = joinPlayerFields(existing, { name: 'Гость', observer: false, avatar: 'preset:fox' });
   assert.equal(updated.avatar, 'preset:fox');
   assert.equal('joinedAt' in updated, false);
+});
+
+// ---------- Гейт страницы комнаты (жалоба «Вы не в этой комнате») ----------
+
+const ACTIVE_ROOM = { status: 'active', code: '9QNT86' };
+
+// Регрессия гонки: до первого снапшота players страница НЕ должна теме
+// «Вы не в этой комнате» — это «подключаемся».
+test('roomGateStatus: до снапшота players — waiting', () => {
+  assert.equal(roomGateStatus({
+    playersLoaded: false, players: [], uid: 'u1', room: ACTIVE_ROOM
+  }), 'waiting');
+  assert.equal(roomGateStatus({ uid: 'u1', room: ACTIVE_ROOM }), 'waiting',
+    'без playersLoaded тоже waiting');
+  assert.equal(roomGateStatus({ playersLoaded: true, uid: 'u1', room: null }),
+    'waiting', 'без комнаты waiting');
+});
+
+// Участник распознаётся по uid (uid всегда равен id документа).
+test('roomGateStatus: участник и наблюдатель распознаются', () => {
+  const players = [{ uid: 'u1', observer: false }, { uid: 'u2', observer: true }];
+  assert.equal(roomGateStatus({
+    playersLoaded: true, players, uid: 'u1', room: ACTIVE_ROOM
+  }), 'player');
+  assert.equal(roomGateStatus({
+    playersLoaded: true, players, uid: 'u2', room: ACTIVE_ROOM
+  }), 'observer');
+});
+
+// Регрессия: профильный пользователь видит подтверждение входа,
+// а не тупик «Вы не в этой комнате».
+test('roomGateStatus: не участник с профилем — confirm-join', () => {
+  assert.equal(roomGateStatus({
+    playersLoaded: true, players: [], uid: 'u1', room: ACTIVE_ROOM
+  }), 'confirm-join');
+});
+
+// Гость без членства — на гостевую форму (нужны имя и аватар), не автозапись.
+test('roomGateStatus: гость без членства — guest-join', () => {
+  assert.equal(roomGateStatus({
+    playersLoaded: true, players: [], uid: 'g1', room: ACTIVE_ROOM, guest: true
+  }), 'guest-join');
+});
+
+// Закрытая или завершённая комната не приглашает к входу.
+test('roomGateStatus: закрытая комната — closed', () => {
+  assert.equal(roomGateStatus({
+    playersLoaded: true, players: [], uid: 'u1',
+    room: { status: 'closed', code: '9QNT86' }
+  }), 'closed');
+  assert.equal(roomGateStatus({
+    playersLoaded: true, players: [], uid: 'u1',
+    room: { status: 'ended', code: '9QNT86' }
+  }), 'closed');
+});
+
+// Неавторизованный — на вход по коду.
+test('roomGateStatus: без uid — signIn', () => {
+  assert.equal(roomGateStatus({
+    playersLoaded: true, players: [], uid: null, room: ACTIVE_ROOM
+  }), 'signIn');
 });

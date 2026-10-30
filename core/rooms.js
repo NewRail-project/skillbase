@@ -317,7 +317,10 @@ export function subscribeRoom(code, { onRoom, onPlayers, onError }) {
   const unsubscribePlayers = onSnapshot(
     collection(db, "rooms", roomCode, "players"),
     snapshot => {
-      playersRaw = snapshot.docs.map(item => ({ uid: item.id, ...item.data() }));
+      // uid — это id документа (правила требуют players/{uid} == auth.uid).
+      // Поле uid в данных перекрывает id только мусорный legacy-документ,
+      // и тогда страница не узнаёт участника («Вы не в этой комнате»).
+      playersRaw = snapshot.docs.map(item => ({ ...item.data(), uid: item.id }));
       playersRaw.forEach(watchAnswers);
       unwatchGone();
       emitPlayers();

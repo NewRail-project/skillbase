@@ -229,6 +229,30 @@ export function buildReveal(key) {
   return base;
 }
 
+// ---------- Вход в комнату со страницы комнаты ----------
+
+// Гейт страницы комнаты: какому виду принадлежит открытый #room/CODE,
+// если роль ещё не определена. Раньше все эти случаи сводились к одной
+// надписи «Вы не в этой комнате» даже когда снапшот участников ещё
+// не пришёл, и без какого-либо пути подключиться на месте.
+// Свойства:
+//   playersLoaded — пришёл ли первый снапшот коллекции players;
+//   players      — загруженные участники ({ uid, observer });
+//   uid          — uid текущего пользователя (или null);
+//   room         — документ комнаты (или null);
+//   guest        — анонимный гость (нужна форма имя+аватар).
+// Возвращает "waiting" (подключаемся), "player"/"observer" (участник),
+// "confirm-join" (войти одной кнопкой), "guest-join" (форма гостя),
+// "closed" (комната закрыта) или "signIn" (нужна авторизация).
+export function roomGateStatus({ playersLoaded = false, players = [], uid = null, room = null, guest = false } = {}) {
+  if (!room || !playersLoaded) return "waiting";
+  const me = (players || []).find(p => p.uid === uid);
+  if (me) return me.observer ? "observer" : "player";
+  if (uid == null) return "signIn";
+  if (room.status === "active") return guest ? "guest-join" : "confirm-join";
+  return "closed";
+}
+
 // Поля players/{uid} для входа в комнату (joinRoom / joinRoomAsGuest).
 //
 // existing — данные существующего документа (или null при первом входе).

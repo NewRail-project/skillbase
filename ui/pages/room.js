@@ -7,11 +7,12 @@ import { h } from "../../shared/dom.js";
 import { State, isStaff } from "../../core/auth.js";
 import {
   subscribeRoom, openQuestion, closeQuestion, saveAnswer, closeRoom,
-  questionDurationSec, sendReaction, subscribeReactions
+  questionDurationSec, sendReaction, subscribeReactions, joinRoom
 } from "../../core/rooms.js";
 import {
-  questionTimeMs, answeredCount, myAnswerVerdict
+  questionTimeMs, answeredCount, myAnswerVerdict, roomGateStatus
 } from "../../core/rooms-logic.js";
+import { router, leaveWithHash } from "../../shared/app.js";
 import {
   db, doc, getDoc, onSnapshot, collection, updateDoc, serverTimestamp
 } from "../../shared/firebase.js";
@@ -45,7 +46,8 @@ let lastRanks = null;
 let lastScores = null; // uid → прошлый счёт (count-up)
 let lastReactionTs = 0; // локальный троттлинг отправки реакций
 let profilesLoaded = false;
-
+// Разовый гостевой редирект на форму входа (защита от зацикливания).
+let guestRedirected = false;
 function reset() {
   unsubs.forEach(fn => { try { fn(); } catch (e) { /* уже отписаны */ } });
   unsubs = [];
@@ -61,9 +63,10 @@ function reset() {
   prev = null;
   lastReactionTs = 0;
   profilesLoaded = false;
+  guestRedirected = false;
   pageRef = null;
   leaderRef = null;
-  local = { room: null, players: [], scores: [], reveals: {}, reactions: [], profiles: new Map(), test: null, keys: null, receivedMs: 0, code: "" };
+  local = { room: null, players: [], scores: [], reveals: {}, reactions: [], profiles: new Map(), test: null, keys: null, receivedMs: 0, code: "", playersLoaded: false };
 }
 reset();
 
@@ -283,6 +286,9 @@ export default async function RoomPage() {
     },
     onPlayers: players => {
       local.players = players;
+      // Первый снапшот пришёл: до этого роль неизвестна — это «подключение»,
+      // а не «вы не в этой комнате».
+      local.playersLoaded = true;
       loadProfiles().catch(err => console.error(err));
       wake();
       publishCounter();
@@ -293,7 +299,8 @@ export default async function RoomPage() {
   unsubs.push(onSnapshot(
     collection(db, "rooms", code, "scores"),
     snapshot => {
-      local.scores = snapshot.docs.map(item => ({ uid: item.id, ...item.data() }));
+      // uid — id документа (правила: scores/{uid}); поле в данных не доверяем.
+      local.scores = snapshot.docs.map(item => ({ ...item.data(), uid: item.id }));
       wake();
     },
     error => console.error("scores snapshot:", error)
@@ -352,6 +359,7 @@ function statusBar() {
 
 function scheduleRender(page) {
   if (page) pageRef = page;
+  ensureGuestRedirect();
   const target = page || pageRef;
   const sig = signature();
   if (sig !== lastSignature) {
@@ -363,6 +371,19 @@ function scheduleRender(page) {
   updateReactionBar();
   showFloats();
   ensureTickTimer();
+}
+
+// Гость на странице комнаты без членства: ведём на форму входа один
+// раз (там нужны имя и аватар — бесшумная автозапись недопустима).
+// Смена хеша пересоздаёт страницу, поэтому зацикливания нет.
+function ensureGuestRedirect() {
+  if (guestRedirected || isScreenRoute()) return;
+  if (!local.playersLoaded || (local.players || []).some(p => p.uid === State.user?.uid)) return;
+  const room = local.room;
+  if (!room || room.status !== "active") return;
+  if (State.user?.isAnonymous !== true) return;
+  guestRedirected = true;
+  leaveWithHash(`#join/${local.code || ""}`);
 }
 
 function renderPage(page) {
@@ -1501,15 +1522,127 @@ function buildView() {
   if (current === "host") return hostView();
   if (current === "observer") return observerView();
   if (current === "player") return playerView();
-  // Роль ещё не определена: вероятно, игрок не вошёл в комнату.
+  const gate = roomGateStatus({
+    playersLoaded: local.playersLoaded,
+    players: local.players,
+    uid: State.user?.uid || null,
+    room: local.room,
+    guest: State.user?.isAnonymous === true
+  });
+  if (gate === "closed") return closedRoomPanel();
+  // waiting / confirm-join / guest-join: единая карточка с подключением.
+  return notMemberPanel();
+}
+
+// ---------- Карточки «роль ещё не определена» ----------
+
+// h() не умеет innerHTML (сводится к setAttribute-атрибуту и не рендерит
+// разметку) — иконки статических пресетов вставляем напрямую.
+function emptyIcon(name) {
+  const el = document.createElement("div");
+  el.className = "empty-state-icon";
+  el.innerHTML = icons[name] || "";
+  return el;
+}
+
+// Снапшот участников ещё не пришёл: это не «вы не в комнате», а
+// честное ожидание — ошибочная надпись здесь и была причиной ложных
+// «Войдите по коду» и гонки перед загрузкой players.
+function connectingPanel() {
   return h("div", { class: "room-view" },
     h("div", { class: "panel" },
       h("div", { class: "empty-state" },
-        h("div", { class: "empty-state-icon", innerHTML: icons.users }),
-        h("h2", {}, "Вы не в этой комнате"),
-        h("p", { class: "muted" }, `Войдите по коду ${local.room?.code || local.code || ""}.`),
-        h("a", { class: "btn primary", href: `#join/${local.code || ""}` }, "Войти по коду")
+        emptyIcon("users"),
+        h("h2", {}, "Подключаемся к комнате…"),
+        h("p", { class: "muted" }, `Код ${local.room?.code || local.code || ""}. Загружаем список участников.`)
       )
     )
   );
+}
+
+function closedRoomPanel() {
+  return h("div", { class: "room-view" },
+    h("div", { class: "panel" },
+      h("div", { class: "empty-state" },
+        emptyIcon("users"),
+        h("h2", {}, "Комната закрыта"),
+        h("p", { class: "muted" }, "Ведущий завершил комнату; новые подключения не принимаются."),
+        h("a", { class: "btn secondary", href: "#/" }, "На главную")
+      )
+    )
+  );
+}
+
+// Не участник (и не гость): подтверждение входа одной кнопкой прямо
+// здесь, без похода через #join. После успешного joinPage пересобирается
+// через router() — подписки подключаются уже как участнику комнаты.
+function notMemberPanel() {
+  const code = local.room?.code || local.code || "";
+  const guest = State.user?.isAnonymous === true;
+  // Гостю нужна форма с именем и аватаром — редирект уже уйдёт из
+  // ensureGuestRedirect; карточка остаётся страховкой на миг перерисовки.
+  if (guest) {
+    return h("div", { class: "room-view" },
+      h("div", { class: "panel" },
+        h("div", { class: "empty-state" },
+          emptyIcon("users"),
+          h("h2", {}, "Подтвердите вход"),
+          h("p", { class: "muted" }, `Комната ${code}. Открываем гостевую форму.`),
+          h("a", { class: "btn primary", href: `#join/${code}` }, "Перейти к входу")
+        )
+      )
+    );
+  }
+
+  const msg = h("p", { class: "form-hint muted" },
+    "Вас нет в этой комнате. Одно нажатие — и вы участник.");
+  const btn = h("button", { type: "button", class: "btn primary btn-block" }, "Войти в комнату");
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    btn.textContent = "Подключаемся…";
+    try {
+      await joinRoom(local.code, {
+        displayName: joinDisplayName(),
+        observer: false,
+        profile: State.profile
+      });
+      // Успех: пересобираем страницу — после отказавших подписок вне
+      // комнаты слушатели нужно открыть заново уже участником.
+      await router();
+    } catch (err) {
+      console.error("Вход в комнату:", err);
+      // Ошибка: слушатели живы, обновляем карточку на месте.
+      msg.textContent = roomJoinErrorBody(err);
+      msg.className = "form-error";
+      btn.disabled = false;
+      btn.textContent = "Войти в комнату";
+    }
+  });
+  return h("div", { class: "room-view" },
+    h("div", { class: "panel" },
+      h("div", { class: "empty-state" },
+        emptyIcon("users"),
+        h("h2", {}, `Войти в комнату ${code}`),
+        msg,
+        btn,
+        h("a", { class: "btn secondary btn-block", href: `#join/${code}` }, "Другая роль или имя")
+      )
+    )
+  );
+}
+
+function joinDisplayName() {
+  const fullName = String(State.profile?.fullName || "").trim();
+  if (fullName) return fullName.split(/\s+/)[0] || fullName;
+  return State.user?.email || "";
+}
+
+function roomJoinErrorBody(err) {
+  if (err?.code === "permission-denied") {
+    return "Правила Firestore не разрешают вход в эту комнату.";
+  }
+  if (err?.code === "unavailable") {
+    return "Нет связи с сервером. Проверьте подключение к сети.";
+  }
+  return err?.message || "Не удалось войти в комнату.";
 }
