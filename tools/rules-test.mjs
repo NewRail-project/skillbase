@@ -1665,6 +1665,250 @@ function testCases() {
                     })
                 }
             }
+        },
+        // ---------- Live-комнаты: регрессия входа (Этап 4) ----------
+        {
+            name: "Комнаты: преподаватель своей организации создаёт комнату",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/rooms/live-1`,
+                method: "create",
+                resource: {
+                    data: {
+                        orgId: ORG,
+                        hostId: "teacher1",
+                        testId: "t1",
+                        testTitle: "Тест",
+                        status: "active",
+                        phase: "opened",
+                        maxPlayers: 100,
+                        playersCount: 0,
+                        createdAt: ISO
+                    }
+                }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Комнаты: преподаватель не создаёт комнату с чужим orgId",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/rooms/live-2`,
+                method: "create",
+                resource: {
+                    data: {
+                        orgId: "other-org",
+                        hostId: "teacher1",
+                        testId: "t1",
+                        status: "active",
+                        maxPlayers: 100
+                    }
+                }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Комнаты: студент другой организации не входит в комнату",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student-out" },
+                path: `${DB}/rooms/r1/players/student-out`,
+                method: "create",
+                resource: {
+                    data: {
+                        uid: "student-out", playerId: "student-out",
+                        name: "Test User", observer: false,
+                        joinedAt: ISO, updatedAt: ISO
+                    }
+                }
+            },
+            functionMocks: [
+                ...profileMocks("student-out", "student", "other-org"),
+                ...roomMocks("3")
+            ]
+        },
+        {
+            name: "Комнаты: студент не меняет настройки комнаты",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: { data: { hostId: "teacher1", orgId: ORG, maxPlayers: 100 } },
+            newDoc: { hostId: "teacher1", orgId: ORG, maxPlayers: 1 },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/rooms/r1` }],
+                    result: { value: { data: { hostId: "teacher1", orgId: ORG, maxPlayers: 100 } } }
+                }
+            ]
+        },
+        {
+            name: "Комнаты: студент не пишет reveal (не управляет тестированием)",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/reveals/3`,
+                method: "create",
+                resource: {
+                    data: { qid: "3", reveal: { type: "single", correct: [1] }, points: 1 }
+                }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...roomMocks("3")
+            ]
+        },
+        {
+            name: "Комнаты: студент не пишет таблицу очков",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/scores/student1`,
+                method: "create",
+                resource: {
+                    data: { uid: "student1", name: "Test User", score: 999, max: 0, correctCount: 0 }
+                }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...roomMocks("3")
+            ]
+        },
+        {
+            name: "Комнаты: нельзя подменить UID другого участника",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "stranger" },
+                path: `${DB}/rooms/r1/players/student1`,
+                method: "create",
+                resource: {
+                    data: {
+                        uid: "student1", playerId: "student1",
+                        name: "Test User", observer: false,
+                        joinedAt: ISO, updatedAt: ISO
+                    }
+                }
+            },
+            functionMocks: profileMocks("stranger", "student")
+        },
+        {
+            name: "Комнаты: нельзя подменить playerId при входе",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "stranger" },
+                path: `${DB}/rooms/r1/players/stranger`,
+                method: "create",
+                resource: {
+                    data: {
+                        uid: "student1", playerId: "stranger",
+                        name: "Test User", observer: false,
+                        joinedAt: ISO, updatedAt: ISO
+                    }
+                }
+            },
+            functionMocks: [
+                ...profileMocks("stranger", "student"),
+                ...roomMocks("3")
+            ]
+        },
+        {
+            name: "Комнаты: нельзя отправить ответ от имени другого пользователя",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "stranger" },
+                path: `${DB}/rooms/r1/players/student1/answers/3`,
+                method: "create",
+                resource: { data: { answer: "A", at: "2026-01-01T00:00:01Z" } },
+                time: "2026-01-01T00:00:01Z"
+            },
+            functionMocks: [
+                ...profileMocks("stranger", "student"),
+                ...roomMocks("3"),
+                ...playerMock("student1", false)
+            ]
+        },
+        {
+            name: "Комнаты: закрытая комната не принимает новые подключения",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student3" },
+                path: `${DB}/rooms/r1/players/student3`,
+                method: "create",
+                resource: {
+                    data: {
+                        uid: "student3", playerId: "student3",
+                        name: "Test User", observer: false,
+                        joinedAt: ISO, updatedAt: ISO
+                    }
+                }
+            },
+            functionMocks: [
+                ...profileMocks("student3", "student"),
+                ...roomMocks("3", "opened", { status: "closed" })
+            ]
+        },
+        {
+            name: "Комнаты: завершённая комната не принимает подключения",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student3" },
+                path: `${DB}/rooms/r1/players/student3`,
+                method: "create",
+                resource: {
+                    data: {
+                        uid: "student3", playerId: "student3",
+                        name: "Test User", observer: false,
+                        joinedAt: ISO, updatedAt: ISO
+                    }
+                }
+            },
+            functionMocks: [
+                ...profileMocks("student3", "student"),
+                ...roomMocks("3", "opened", { status: "ended" })
+            ]
+        },
+        {
+            name: "Комнаты: гость не обновляет комнату (не ведущий, нет профиля)",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "guest1", token: { firebase: { sign_in_provider: "anonymous" } } },
+                path: `${DB}/rooms/r1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: { data: { hostId: "teacher1", orgId: ORG } },
+            newDoc: { hostId: "guest1", orgId: ORG },
+            functionMocks: [
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/users/guest1` }],
+                    result: { value: false }
+                }
+            ]
+        },
+        {
+            name: "Комнаты: гость не читает пользователей организации",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "guest1", token: { firebase: { sign_in_provider: "anonymous" } } },
+                path: `${DB}/users/student1`,
+                method: "get"
+            },
+            resource: { data: userDoc("student1", "student") },
+            functionMocks: [
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/users/guest1` }],
+                    result: { value: false }
+                }
+            ]
         }
     ];
 }

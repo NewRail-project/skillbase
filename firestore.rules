@@ -672,6 +672,8 @@ function isGuest() {
         // (счётчик playersCount публикуется ведущим с задержкой — это
         // допустимая погрешность, см. docs/PROGRESS.md). Преподаватель,
         // не являющийся ведущим этой комнаты, входит только наблюдателем.
+        // Комната принадлежит организации создателя: участник с профилем
+        // другой организации не входит (ведущего проверка org не касается).
         // Гость входит как обычный участник: только свой документ,
         // только участник (не наблюдатель), активная комната и свободное
         // место. Аватар гость выбирает сам — только пресет.
@@ -687,9 +689,17 @@ function isGuest() {
           && roomDoc().get("playersCount", 0) < roomDoc().get("maxPlayers", 100)
           && (
             roomDoc().hostId == request.auth.uid
-            || !isStaff()
-            || request.resource.data.observer == true
-            || roomDoc().allowObservers == true
+            || (
+              (
+                roomDoc().get("orgId", null) == null
+                || roomDoc().get("orgId", "") == myOrg()
+              )
+              && (
+                !isStaff()
+                || request.resource.data.observer == true
+                || roomDoc().get("allowObservers", false) == true
+              )
+            )
           )) || (isGuest()
           && request.auth.uid == playerId
           && request.resource.data.keys().hasOnly(

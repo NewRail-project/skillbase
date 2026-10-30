@@ -147,6 +147,24 @@ test('joinPlayerFields: первый вход пишет joinedAt и роль', 
   assert.equal(fields.updatedAt, SERVER_TIMESTAMP);
 });
 
+// Регрессия P0: пустые uid/playerId нарушали правило create Firestore
+// (uid == playerId == request.auth.uid) — вход авторизованного пользователя
+// падал с permission-denied. Вызывающий обязан передать реальный uid.
+test('joinPlayerFields: реальный uid попадает в uid и playerId', () => {
+  const created = joinPlayerFields(null, {
+    uid: 'u1', playerId: 'u1', name: 'Иван Петров', observer: false
+  });
+  assert.equal(created.uid, 'u1');
+  assert.equal(created.playerId, 'u1');
+
+  const repeated = joinPlayerFields(
+    { uid: '', playerId: '', name: 'Иван', observer: false },
+    { uid: 'u1', playerId: 'u1', name: 'Иван', observer: false }
+  );
+  assert.equal(repeated.uid, 'u1');
+  assert.equal(repeated.playerId, 'u1');
+});
+
 // Повторный вход: joinedAt и observer не переписываются (правила update
 // запрещают их менять) — иначе permission-denied.
 test('joinPlayerFields: повторный вход не трогает joinedAt и observer', () => {

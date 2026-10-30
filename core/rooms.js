@@ -141,6 +141,8 @@ export async function joinRoom(code, { displayName, observer = false, profile } 
     ? (displayName || "").trim()
     : (displayName || profile?.fullName || "");
   const fields = joinPlayerFields(existing, {
+    uid,
+    playerId: uid,
     name,
     observer: effectiveObserver
   });

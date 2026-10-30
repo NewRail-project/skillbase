@@ -238,11 +238,11 @@ export function buildReveal(key) {
 // serverTimestamp() перед записью.
 export const SERVER_TIMESTAMP = Symbol("serverTimestamp");
 
-export function joinPlayerFields(existing, { name, observer = false, avatar = null } = {}) {
+export function joinPlayerFields(existing, { uid = "", playerId = "", name, observer = false, avatar = null } = {}) {
   if (!existing) {
     const fields = {
-      uid: "",
-      playerId: "",
+      uid: uid || "",
+      playerId: playerId || uid || "",
       name,
       observer: !!observer,
       joinedAt: SERVER_TIMESTAMP,
@@ -254,7 +254,7 @@ export function joinPlayerFields(existing, { name, observer = false, avatar = nu
 
   // Повторный вход: роль и время первого входа не трогаем, поле пишем
   // только если значение реально изменилось (merge не трогает остальное).
-  const fields = { uid: existing.uid, playerId: existing.playerId };
+  const fields = { uid: existing.uid || uid || "", playerId: existing.playerId || playerId || uid || "" };
   if (name && name !== existing.name) fields.name = name;
   if (avatar && avatar !== existing.avatar) fields.avatar = avatar;
   fields.updatedAt = SERVER_TIMESTAMP;
