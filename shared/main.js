@@ -48,7 +48,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   initTheme();
   initThemeToggle();
   initSidebar();
-  await initAuth();
+  // Если Firestore не отвечает, не оставляем пустой экран: через 8 с
+  // запускаем роутер, а профиль дозагрузится сам.
+  await Promise.race([
+    initAuth(),
+    new Promise(resolve => setTimeout(resolve, 8000))
+  ]);
 
   let key = renderKey();
   initRouter(); // вешает обработчик hashchange и рисует первую страницу

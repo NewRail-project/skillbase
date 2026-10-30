@@ -236,7 +236,18 @@ async function loadProfiles(orgId) {
   }
 }
 
+let snapshotErrorShown = false;
+function snapshotFailed(error) {
+  if (snapshotErrorShown) return;
+  snapshotErrorShown = true;
+  const text = error?.code === "permission-denied"
+    ? "Правила Firestore не пускают в комнату (permission-denied)."
+    : `Нет связи с комнатой (${error?.code || "ошибка"}).`;
+  toast(text, "error");
+}
+
 export default async function RoomPage() {
+  snapshotErrorShown = false;
   const rawRoute = decodeURIComponent((State.routeParam || ""));
   const parts = rawRoute.split("/");
   const codeRaw = parts[0] || "";
@@ -342,7 +353,7 @@ export default async function RoomPage() {
       wake();
       publishCounter();
     },
-    onError: error => console.error("Комната snapshot:", error)
+    onError: error => { console.error("Комната snapshot:", error); snapshotFailed(error); }
   }));
 
   unsubs.push(onSnapshot(
@@ -352,7 +363,7 @@ export default async function RoomPage() {
       local.scores = snapshot.docs.map(item => ({ ...item.data(), uid: item.id }));
       wake();
     },
-    error => console.error("scores snapshot:", error)
+    error => { console.error("scores snapshot:", error); snapshotFailed(error); }
   ));
 
   unsubs.push(onSnapshot(
@@ -362,14 +373,14 @@ export default async function RoomPage() {
       snapshot.docs.forEach(item => { local.reveals[item.id] = item.data(); });
       wake();
     },
-    error => console.error("reveals snapshot:", error)
+    error => { console.error("reveals snapshot:", error); snapshotFailed(error); }
   ));
 
   // Реакции: свои шлём кнопками, чужие показываем всплывающими эмодзи.
   unsubs.push(subscribeReactions(
     code,
     reactions => { local.reactions = reactions; wake(); },
-    error => console.error("reactions snapshot:", error)
+    error => { console.error("reactions snapshot:", error); snapshotFailed(error); }
   ));
 
   if (!isScreen) page.appendChild(statusBar());

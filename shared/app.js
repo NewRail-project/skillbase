@@ -158,14 +158,34 @@ export async function router() {
   try {
     message(container, "Загрузка...", false);
     const module = await import(`../${target.file}`);
-    const node = await module.default();
+    // Страница не должна висеть на «Загрузке» вечно: при зависшем запросе
+    // к Firestore показываем причину и кнопку повтора.
+    let timer;
+    const node = await Promise.race([
+      module.default(),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(Object.assign(new Error("timeout"), { code: "page-timeout" })), 20000);
+      })
+    ]).finally(() => clearTimeout(timer));
     if (id !== renderId) return;
     if (typeof module.cleanup === "function") currentCleanup = module.cleanup;
     container.textContent = "";
     container.appendChild(node);
   } catch (err) {
     console.error("Router error:", err);
-    if (id === renderId) message(container, "Не удалось открыть страницу. Обновите её и попробуйте снова.", true);
+    if (id === renderId) {
+      const text = err?.code === "page-timeout"
+        ? "Сервер не ответил за 20 секунд. Проверьте интернет и правила Firestore (консоль браузера, F12)."
+        : err?.code === "permission-denied"
+          ? "Правила Firestore не разрешили это действие (permission-denied)."
+          : "Не удалось открыть страницу. Обновите её и попробуйте снова.";
+      message(container, text, true);
+      const retry = document.createElement("button");
+      retry.className = "btn";
+      retry.textContent = "Повторить";
+      retry.addEventListener("click", () => router());
+      container.firstChild?.appendChild(retry);
+    }
   }
 }
 
