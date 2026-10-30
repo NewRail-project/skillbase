@@ -1,8 +1,12 @@
 // ui/pages/join.js — вход в Live-комнату по коду: #join и #join/<код>.
+// #join/<код> — это и есть ссылка приглашения из QR: для авторизованного
+// пользователя подключение выполняется автоматически, ручной ввод кода
+// не нужен. #join без параметра остаётся ручным входом по коду.
 import { h } from "../../shared/dom.js";
 import { State, signInAsGuest } from "../../core/auth.js";
 import { getRoom, joinRoom } from "../../core/rooms.js";
 import { normalizeRoomCode } from "../../core/rooms-logic.js";
+import { saveReturnTo } from "../../shared/return-to.js";
 import { AVATAR_PRESETS } from "../../shared/avatars.js";
 import { toast } from "../components/toast.js";
 
@@ -18,7 +22,8 @@ function errorBody(err) {
 
 export default async function JoinPage() {
   const page = h("div", { class: "page" });
-  const codeFromRoute = (State.routeParam || "").split("/")[0] || "";
+  const codeRaw = (State.routeParam || "").split("/")[0] || "";
+  const codeFromRoute = normalizeRoomCode(codeRaw) || "";
 
   const displayCodeInput = h("input", {
     id: "room-code-input",
@@ -134,12 +139,54 @@ export default async function JoinPage() {
     )
   );
 
+  // ---------- Приглашение из QR/ссылки (#join/<код>) ----------
+
+  // Неавторизованный: запоминаем приглашение — после входа/регистрации
+  // вернёмся на эту же страницу, и тогда авторизованный пользователь
+  // подключится автоматически. Код в форму не требуется вводить.
+  if (codeFromRoute && !State.user) {
+    saveReturnTo(`#join/${codeFromRoute}`);
+  }
+
+  // Авторизованный (не аноним) сканирует QR: подключаемся сразу —
+  // это ровно тот же вызов joinRoom, что и у кнопки «Войти в комнату»
+  // с ролью «Участник» по умолчанию. При ошибке форма остаётся
+  // с подставленным кодом: можно поправить роль или повторить вручную.
+  if (codeFromRoute && State.user && State.user.isAnonymous !== true) {
+    void joinInvite(codeFromRoute);
+  }
+
   // Автофокус: если код не пришёл из маршрута, сразу вводим.
   if (!codeFromRoute) {
     setTimeout(() => displayCodeInput.focus(), 50);
   }
 
   return page;
+
+  // Автоподключение по приглашению. Одна попытка на открытие страницы;
+  // дубль невозможен: Firestore идентифицирует участника документом
+  // players/{uid} (merge:true при повторном входе).
+  async function joinInvite(code) {
+    message.textContent = "Подключаемся к комнате…";
+    message.className = "form-hint";
+    joinBtn.disabled = true;
+    try {
+      await joinRoom(code, {
+        displayName: (State.profile?.fullName || "").split(/\s+/)[0] || State.user.email,
+        observer: false,
+        profile: State.profile
+      });
+      toast("Вы подключились к комнате", "success");
+      window.location.hash = `#room/${code}`;
+    } catch (err) {
+      console.error("Автовход по приглашению:", err);
+      message.textContent = errorBody(err);
+      message.className = "form-error";
+    } finally {
+      joinBtn.disabled = false;
+      joinBtn.textContent = "Войти в комнату";
+    }
+  }
 
   // Гостевой блок: имя и аватар вместо регистрации.
   // Замыкание над displayCodeInput и message — код читается из поля

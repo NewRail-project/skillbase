@@ -10,7 +10,8 @@ import {
   questionDurationSec, sendReaction, subscribeReactions, joinRoom
 } from "../../core/rooms.js";
 import {
-  questionTimeMs, answeredCount, myAnswerVerdict, roomGateStatus
+  questionTimeMs, answeredCount, myAnswerVerdict, roomGateStatus,
+  buildJoinUrl
 } from "../../core/rooms-logic.js";
 import { router, leaveWithHash } from "../../shared/app.js";
 import {
@@ -663,11 +664,13 @@ function animateFlip(host, oldRects) {
 // ---------- Аватары ----------
 // ---------- QR-код комнаты ----------
 
-// Ссылка входа в комнату для участников: #join/<код> — гостевая форма
-// с подставленным кодом (авторизованным — обычный вход). #room требует
-// авторизации, по QR гость туда попасть не может.
+// Ссылка входа в комнату для участников: #join/<код> — ссылка
+// приглашения из QR. Авторизованного пользователя она подключает
+// автоматически (join.js), гостя ведёт на форму имя+аватар.
+// Формирует buildJoinUrl в core/rooms-logic.js — единственный
+// механизм для карточки ведущего, проектора и мини-QR.
 function joinUrl(code) {
-  return `${window.location.origin}${window.location.pathname}#join/${code}`;
+  return buildJoinUrl(code);
 }
 
 // Настройки QR-кода для Live-комнат (фирменные цвета Skillbase)
@@ -681,25 +684,32 @@ const roomQROptions = {
   finderDark: "#101810"   // ещё более тёмные маркеры
 }
 
-// Рисует SVG QR-кода внутрь элемента.
-function paintQR(box, code) {
+// Рисует SVG QR-кода внутрь элемента. size — сторона в px: один механизм
+// генерации, разные размеры (карточка ведущего, проектор, мини-QR).
+function paintQR(box, code, size = 280) {
   if (!box || !code) return;
   try {
-    box.innerHTML = generateQRSvg(joinUrl(code), roomQROptions);
+    box.innerHTML = generateQRSvg(joinUrl(code), {
+      ...roomQROptions,
+      width: size,
+      height: size
+    });
   } catch (err) {
     console.error("QR generation failed:", err);
   }
 }
 
 async function initRoomQR(room) {
-  const qrWrapper = document.querySelector('.qr-wrapper');
+  const qrWrapper = document.querySelector('.room-qr-card .qr-wrapper');
   const copyBtn = document.getElementById('copy-link');
   const downloadBtn = document.getElementById('download-qr');
 
   if (!qrWrapper || !copyBtn || !downloadBtn) return;
 
   const url = joinUrl(room.code);
-  paintQR(qrWrapper, room.code);
+  // Размер задаёт карточка ведущего (компактный 160 / крупный 280);
+  // ссылка и генерация общие с режимом проектора.
+  paintQR(qrWrapper, room.code, Number(qrWrapper.dataset.qrSize || 280));
 
   // Копирование ссылки.
   copyBtn.addEventListener('click', async () => {
@@ -967,7 +977,9 @@ function hostView() {
   ));
   // Код крупно, чтобы продемонстрировать на экране/камере.
   wrap.appendChild(h("div", { class: "room-code-badge" }, room.code || room.id));
-  // QR-код комнаты в фирменном стиле Skillbase.
+  // QR-код комнаты в фирменном стиле Skillbase: компактный по умолчанию,
+  // кнопка «Показать крупнее» переключает на увеличенный для камер
+  // издалека. Ссылка и генерация — те же, что в режиме проектора.
   wrap.appendChild(h("div", {
     class: "room-qr-card brand-qr-card",
     style: "text-align: center; margin-top: 1rem; padding: 2.5rem 1.5rem; background: linear-gradient(135deg, #101810 0%, #0a0f0a 100%); color: #fff; border-radius: 2rem; border: 1px solid #C5E747; box-shadow: var(--shadow-lg); position: relative; overflow: hidden;"
@@ -986,6 +998,28 @@ function hostView() {
       h("button", { type: "button", class: "btn", id: "download-qr", style: "background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); backdrop-filter: blur(10px); padding: 0.75rem 1.5rem;" }, "PNG")
     )
   ));
+  // Компактный размер: initRoomQR читает data-qr-size, toggle перерисует
+  // через тот же paintQR (один код ссылки для всех вариантов).
+  (() => {
+    const wrapper = wrap.querySelector(".room-qr-card .qr-wrapper");
+    if (!wrapper) return;
+    wrapper.dataset.qrSize = "160";
+    let larger = false;
+    const toggle = h("button", {
+      type: "button",
+      class: "btn",
+      "aria-expanded": "false",
+      style: "margin-top: 0.75rem; background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); padding: 0.5rem 1.25rem; position: relative;"
+    }, "Показать крупнее");
+    toggle.addEventListener("click", () => {
+      larger = !larger;
+      wrapper.dataset.qrSize = larger ? "280" : "160";
+      paintQR(wrapper, room.code || room.id, larger ? 280 : 160);
+      toggle.textContent = larger ? "Уменьшить" : "Показать крупнее";
+      toggle.setAttribute("aria-expanded", String(larger));
+    });
+    wrap.querySelector(".room-qr-card").appendChild(toggle);
+  })();
 
   const playersCount = local.players.filter(p => !p.observer).length;
   const observersCount = local.players.length - playersCount;

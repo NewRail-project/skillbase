@@ -229,6 +229,23 @@ export function buildReveal(key) {
   return base;
 }
 
+// ---------- Ссылка приглашения в комнату ----------
+
+// Полная ссылка приглашения для QR и кнопки «Ссылка»: #join/<код>.
+// roomId комнаты равен коду (документ комнаты rooms/{код}), поэтому
+// ссылка индивидуальна для каждой комнаты. locationLike — подмена
+// window.location для тестов; в браузере берётся настоящий адрес.
+export function buildJoinUrl(code, locationLike = null) {
+  const normalized = normalizeRoomCode(code);
+  if (!normalized) return "";
+  const loc = locationLike
+    || (typeof window !== "undefined" && window.location ? window.location : null);
+  if (!loc) return "";
+  const origin = loc.origin || "";
+  const pathname = loc.pathname || "/";
+  return `${origin}${pathname}#join/${normalized}`;
+}
+
 // ---------- Вход в комнату со страницы комнаты ----------
 
 // Гейт страницы комнаты: какому виду принадлежит открытый #room/CODE,

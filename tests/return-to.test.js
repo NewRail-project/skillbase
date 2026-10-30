@@ -63,6 +63,29 @@ test("сохранение и получение ссылки в sessionStorage"
   }
 });
 
+// Регрессия QR-приглашения: неавторизованный пользователь сканирует QR
+// (#join/9QNT86) — страница сохраняет приглашение, после входа
+// пользователь возвращается в нужную комнату, а не на главную.
+test("приглашение в Live-комнату переживает вход", () => {
+  const store = new Map();
+  globalThis.sessionStorage = {
+    getItem: key => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => store.set(key, String(value)),
+    removeItem: key => store.delete(key)
+  };
+
+  try {
+    assert.equal(saveReturnTo("#join/9QNT86"), true,
+      "ссылка приглашения считается точкой возврата");
+    assert.equal(peekReturnTo(), "#join/9QNT86");
+    // Страница входа забирает pending: hash = saved, а не "#/".
+    assert.equal(consumeReturnTo("#/"), "#join/9QNT86");
+    assert.equal(peekReturnTo(), null, "приглашение не повторяется после возврата");
+  } finally {
+    delete globalThis.sessionStorage;
+  }
+});
+
 test("служебные ссылки не сохраняются", () => {
   const store = new Map();
   globalThis.sessionStorage = {

@@ -4,7 +4,7 @@ import {
   generateRoomCode, normalizeRoomCode, isValidRoomCode,
   questionTimeMs, roomSignature, answeredCount,
   computeScores, buildReveal, joinPlayerFields, SERVER_TIMESTAMP,
-  roomGateStatus
+  roomGateStatus, buildJoinUrl
 } from '../core/rooms-logic.js';
 
 test('generateRoomCode: 6 символов алфавита без 0/O/1/I', () => {
@@ -270,4 +270,31 @@ test('roomGateStatus: без uid — signIn', () => {
   assert.equal(roomGateStatus({
     playersLoaded: true, players: [], uid: null, room: ACTIVE_ROOM
   }), 'signIn');
+});
+
+// ---------- Ссылка приглашения из QR ----------
+
+const SITE = { origin: 'https://newrail-project.github.io', pathname: '/skillbase/' };
+
+// QR содержит правильную индивидуальную ссылку комнаты.
+test('buildJoinUrl: QR комнаты ведёт на её код без ручного ввода', () => {
+  assert.equal(
+    buildJoinUrl('9QNT86', SITE),
+    'https://newrail-project.github.io/skillbase/#join/9QNT86'
+  );
+});
+
+// QR разных комнат ведут в разные комнаты (roomId в ссылке).
+test('buildJoinUrl: разные комнаты — разные ссылки', () => {
+  const a = buildJoinUrl('ABC234', SITE);
+  const b = buildJoinUrl('XYZ98K', SITE);
+  assert.notEqual(a, b);
+  assert.ok(a.endsWith('#join/ABC234'));
+  assert.ok(b.endsWith('#join/XYZ98K'));
+});
+
+// Некорректный код не превращается в ссылку (не «какой-то» URL).
+test('buildJoinUrl: недопустимый код даёт пустую ссылку', () => {
+  assert.equal(buildJoinUrl('ABC0I1', SITE), '');
+  assert.equal(buildJoinUrl('', SITE), '');
 });
