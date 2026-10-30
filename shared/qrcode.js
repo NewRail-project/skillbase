@@ -317,7 +317,7 @@ export function qrMatrix(text, { ecc = "M", mask: forcedMask = null } = {}) {
 }
 
 // SVG-строка. border — «тихая зона» в модулях (по стандарту не меньше 4).
-export function qrToSvg(text, { ecc = "M", border = 4, dark = "#000000", light = "#ffffff" } = {}) {
+export function qrToSvg(text, { ecc = "M", border = 4, dark = "#000000", light = "#ffffff", width, height } = {}) {
   const { size, modules } = qrMatrix(text, { ecc });
   const total = size + border * 2;
   let path = "";
@@ -326,7 +326,9 @@ export function qrToSvg(text, { ecc = "M", border = 4, dark = "#000000", light =
       if (modules[y][x]) path += `M${x + border},${y + border}h1v1h-1z`;
     }
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${total} ${total}" shape-rendering="crispEdges">`
+  const wAttr = width ? ` width="${width}"` : "";
+  const hAttr = height ? ` height="${height}"` : "";
+  return `<svg xmlns="http://www.w3.org/2000/svg"${wAttr}${hAttr} viewBox="0 0 ${total} ${total}" shape-rendering="crispEdges">`
     + `<rect width="100%" height="100%" fill="${light}"/><path d="${path}" fill="${dark}"/></svg>`;
 }
 

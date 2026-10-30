@@ -9,9 +9,10 @@ export default function AboutPage() {
 
   const qrWrapper = h("div", {
     class: "qr-wrapper",
-    style: "display: inline-block; background: white; padding: 1rem; border-radius: var(--radius); box-shadow: var(--shadow-sm);"
+    style: "display: inline-block; background: white; padding: 1rem; border-radius: var(--radius); box-shadow: var(--shadow-sm); line-height: 0;"
   });
-  qrWrapper.innerHTML = generateQRSvg(siteUrl, { size: 280, dark: "#000000", light: "#ffffff" });
+  // Явно задаем размеры для стабильного отображения на мобильных
+  qrWrapper.innerHTML = generateQRSvg(siteUrl, { width: 280, height: 280, dark: "#000000", light: "#ffffff" });
 
   const card = h("section", { class: "panel" },
     h("div", { class: "panel-head" },
@@ -44,7 +45,7 @@ export default function AboutPage() {
             h("a", { class: "btn primary", href: siteUrl, target: "_blank", rel: "noopener" }, "Открыть Skillbase"),
             h("button", {
               class: "btn secondary",
-              onclick: "downloadQR()",
+              id: "download-qr-btn",
               style: "margin-left: 0.5rem;"
             }, "Скачать PNG")
           )
@@ -54,27 +55,52 @@ export default function AboutPage() {
   );
 
   page.appendChild(card);
-  
-  // Функция скачивания QR-кода
-  window.downloadQR = async function() {
-    try {
-      const dataUrl = await generateQRDataUrl(siteUrl, { size: 400 });
-      if (!dataUrl) {
-        alert("Не удалось сгенерировать QR-код для скачивания");
-        return;
-      }
-      
-      const link = document.createElement("a");
-      link.href = dataUrl;
-      link.download = "skillbase-qr.png";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } catch (error) {
-      console.error("Ошибка скачивания QR-кода:", error);
-      alert("Не удалось скачать QR-код");
-    }
-  };
-  
+
+  // Функция скачивания QR-кода как настоящего PNG через Canvas
+  const downloadBtn = page.querySelector("#download-qr-btn");
+  if (downloadBtn) {
+    downloadBtn.addEventListener("click", () => {
+      const svg = qrWrapper.querySelector("svg");
+      if (!svg) return;
+
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      const img = new Image();
+      const svgData = new XMLSerializer().serializeToString(svg);
+      const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
+      const url = URL.createObjectURL(svgBlob);
+
+      img.onload = () => {
+        // Увеличиваем размер для качественной печати (например, 1024x1024)
+        const exportSize = 1024;
+        canvas.width = exportSize;
+        canvas.height = exportSize;
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, exportSize, exportSize);
+        ctx.drawImage(img, 0, 0, exportSize, exportSize);
+        
+        try {
+          const pngUrl = canvas.toDataURL("image/png");
+          const link = document.createElement("a");
+          link.href = pngUrl;
+          link.download = "skillbase-qr.png";
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        } catch (err) {
+          console.error("PNG export failed:", err);
+          alert("Не удалось сохранить PNG. Попробуйте сделать скриншот.");
+        }
+        URL.revokeObjectURL(url);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        alert("Ошибка при подготовке изображения.");
+      };
+      img.src = url;
+    });
+  }
+
   return page;
+}
 }
