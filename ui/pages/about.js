@@ -35,15 +35,16 @@ export default function AboutPage() {
           h("p", { class: "muted", style: "margin-bottom: 1rem;" }, "Отсканируйте камерой телефона для перехода на основной сайт Skillbase:"),
           h("div", {
             class: "qr-wrapper",
-            innerHTML: generateQRSvg(siteUrl, { size: 200 })
+            style: "display: inline-block; background: white; padding: 1rem; border-radius: var(--radius); box-shadow: var(--shadow-sm);",
+            innerHTML: generateQRSvg(siteUrl, { size: 280, dark: "#000000", light: "#ffffff" })
           }),
           h("div", { class: "btn-row", style: "justify-content: center; margin-top: 1rem;" },
             h("a", { class: "btn primary", href: siteUrl, target: "_blank", rel: "noopener" }, "Открыть Skillbase"),
-            h("button", { 
-              class: "btn secondary", 
-              onclick: "downloadQR()", 
-              style: "margin-left: 0.5rem;" 
-            }, "Скачать QR")
+            h("button", {
+              class: "btn secondary",
+              onclick: "downloadQR()",
+              style: "margin-left: 0.5rem;"
+            }, "Скачать PNG")
           )
         )
       )
