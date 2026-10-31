@@ -715,6 +715,64 @@ function isGuest() {
         );
       }
 
+      // Роль в создаваемом players/{uid}: поле role необязательно (старые
+      // клиенты), но если задано — «player» или «observer» и строго
+      // согласовано с флагом observer. После создания роль не меняется
+      // (update ниже разрешает менять только name/avatar/updatedAt).
+      function validRole() {
+        return !("role" in request.resource.data)
+          || (
+            request.resource.data.role in ["player", "observer"]
+            && (request.resource.data.role == "observer") == request.resource.data.observer
+          );
+      }
+
+      // ---------- Автономный режим: расписание от серверного времени ----------
+      // Те же формулы считает клиент (core/live-auto.js, autoPosition /
+      // answerAllowed), поэтому «текущий вопрос» одинаков у всех устройств
+      // и не зависит от того, нажал ли ведущий кнопку.
+      //   слот   = questionSec + gapSec (мс), gap ≥ 2 с;
+      //   позиция = floor((request.time − autoStartedAt) / слот);
+      //   ответ принимается только на текущую позицию, в первые
+      //   questionSec секунд слота + допуск 1 с на сеть.
+      function isAutoRoom() {
+        return roomDoc().get("mode", "manual") == "auto";
+      }
+
+      function autoSlotMs() {
+        return (roomDoc().questionSec + roomDoc().gapSec) * 1000;
+      }
+
+      function autoElapsedMs() {
+        return request.time.toMillis() - roomDoc().autoStartedAt.toMillis();
+      }
+
+      function autoAnswerWindowOpen(qid) {
+        return isAutoRoom()
+          && roomDoc().status == "active"
+          && roomDoc().get("liveState", "waiting") == "in_progress"
+          && roomDoc().get("autoStartedAt", null) != null
+          && roomDoc().get("autoEndedAt", null) == null
+          && roomDoc().questionSec is int
+          && roomDoc().gapSec is int
+          && roomDoc().gapSec >= 2
+          && autoElapsedMs() >= 0
+          && qid.matches("^[0-9]{1,4}$")
+          && int(qid) == math.floor(autoElapsedMs() / autoSlotMs())
+          && int(qid) < roomDoc().questionCount
+          && (autoElapsedMs() - int(qid) * autoSlotMs())
+            < roomDoc().questionSec * 1000 + 1000;
+      }
+
+      function manualAnswerWindowOpen(qid) {
+        return !isAutoRoom()
+          && roomDoc().status == "active"
+          && roomDoc().phase == "opened"
+          && roomDoc().currentQuestionId is string
+          && roomDoc().currentQuestionId != ""
+          && qid == roomDoc().currentQuestionId;
+      }
+
       // Публичные данные комнаты: документ не содержит вопросов и ключей
       // ответов. Читать комнату до входа необходимо, чтобы войти по коду
       // (проверка статуса и лимита), поэтому её видят все с профилем
@@ -756,12 +814,14 @@ function isGuest() {
         allow create: if (hasProfile()
           && request.auth.uid == playerId
           && request.resource.data.keys().hasOnly(
-            ["uid", "playerId", "name", "observer", "joinedAt", "updatedAt"]
+            ["uid", "playerId", "name", "observer", "role", "joinedAt", "updatedAt"]
           )
           && request.resource.data.uid == playerId
           && request.resource.data.playerId == request.auth.uid
           && request.resource.data.observer is bool
+          && validRole()
           && roomDoc().status == "active"
+          && roomDoc().get("registrationOpen", true) == true
           && roomDoc().get("playersCount", 0) < roomDoc().get("maxPlayers", 100)
           && (
             roomDoc().hostId == request.auth.uid
@@ -779,17 +839,19 @@ function isGuest() {
           )) || (isGuest()
           && request.auth.uid == playerId
           && request.resource.data.keys().hasOnly(
-            ["uid", "playerId", "name", "avatar", "observer", "joinedAt"]
+            ["uid", "playerId", "name", "avatar", "observer", "role", "joinedAt"]
           )
           && request.resource.data.uid == playerId
           && request.resource.data.playerId == request.auth.uid
-          && request.resource.data.observer == false
+          && request.resource.data.observer is bool
+          && validRole()
           && request.resource.data.name is string
           && request.resource.data.name.size() >= 2
           && request.resource.data.name.size() <= 120
           && request.resource.data.avatar is string
           && request.resource.data.avatar.matches('^preset:[a-z0-9-]{1,20}$')
           && roomDoc().status == "active"
+          && roomDoc().get("registrationOpen", true) == true
           && roomDoc().get("playersCount", 0) < roomDoc().get("maxPlayers", 100));
 
         // Повторный вход (update при merge:true) разрешён только самому
@@ -842,27 +904,18 @@ function isGuest() {
         allow read: if request.auth.uid == playerId
           || isRoomHost();
 
-        allow create: if (hasProfile()
+        // Ответ создаётся только участником (не наблюдателем) в открытом
+        // окне вопроса: ручной режим — пока ведущий держит вопрос открытым
+        // (currentQuestionId), автономный — по расписанию от серверного
+        // времени. Роль «observer» (поле role или флаг observer) ответ
+        // не пишет. at == request.time — серверная метка.
+        allow create: if (hasProfile() || isGuest())
           && request.auth.uid == playerId
           && playerDoc().observer != true
-          && roomDoc().status == "active"
-          && roomDoc().phase == "opened"
-          && roomDoc().currentQuestionId is string
-          && roomDoc().currentQuestionId != ""
-          && qid == roomDoc().currentQuestionId
+          && playerDoc().get("role", "player") != "observer"
+          && (manualAnswerWindowOpen(qid) || autoAnswerWindowOpen(qid))
           && request.resource.data.keys().hasOnly(["answer", "at"])
-          // Время ответа — серверная метка request.time.
-          && request.resource.data.at == request.time
-        ) || (isGuest()
-          && request.auth.uid == playerId
-          && playerDoc().observer != true
-          && roomDoc().status == "active"
-          && roomDoc().phase == "opened"
-          && roomDoc().currentQuestionId is string
-          && roomDoc().currentQuestionId != ""
-          && qid == roomDoc().currentQuestionId
-          && request.resource.data.keys().hasOnly(["answer", "at"])
-          && request.resource.data.at == request.time);
+          && request.resource.data.at == request.time;
 
         // Перезаписать ответ нельзя: обновление — только ведущему
         // (на случай чистки комнаты).

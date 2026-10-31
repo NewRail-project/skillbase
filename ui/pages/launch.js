@@ -6,6 +6,10 @@ import { State } from "../../core/auth.js";
 import { loadTest } from "../../core/editor.js";
 import { assignTest } from "../../core/assign.js";
 import { createRoom } from "../../core/rooms.js";
+import {
+  LIVE_MODE_AUTO, LIVE_MODE_MANUAL, questionSecFor,
+  QUESTION_SEC_MIN, QUESTION_SEC_MAX
+} from "../../core/live-auto.js";
 import { KIND_TRAINING, validateAssignmentDraft } from "../../core/assignment-logic.js";
 import { icons } from "../../shared/icons.js";
 import { toast } from "../components/toast.js";
@@ -81,16 +85,59 @@ export default async function LaunchPage() {
   page.appendChild(grid);
 
   // ---------- Режим 1: Live-комната ----------
+  // По умолчанию — автономный тест: ведущий запускает его один раз, вопросы
+  // выдаются автоматически. Ручной режим (ведущий открывает каждый вопрос)
+  // сохранён как отдельный вариант.
   const roomMessage = h("div", { class: "form-hint", role: "status" });
   const roomBtn = h("button", { type: "button", class: "btn primary btn-block" }, "Открыть Live-комнату");
+
+  const modeAuto = h("input", { type: "radio", name: "live-mode", id: "live-mode-auto", value: LIVE_MODE_AUTO });
+  const modeManual = h("input", { type: "radio", name: "live-mode", id: "live-mode-manual", value: LIVE_MODE_MANUAL });
+  modeAuto.checked = true;
+  const secInput = h("input", {
+    type: "number", id: "live-q-sec", inputmode: "numeric",
+    min: String(QUESTION_SEC_MIN), max: String(QUESTION_SEC_MAX),
+    value: String(questionSecFor(test))
+  });
+  const shuffleInput = h("input", { type: "checkbox", id: "live-shuffle" });
+  const speedInput = h("input", { type: "checkbox", id: "live-speed" });
+  speedInput.checked = true;
+  const boardInput = h("input", { type: "checkbox", id: "live-board" });
+  boardInput.checked = test?.settings?.showLeaderboard === true;
+  const autoFields = h("div", { class: "live-auto-fields" },
+    h("div", { class: "field" },
+      h("label", { for: "live-q-sec" }, "Время на вопрос, сек"),
+      secInput),
+    h("label", { class: "option", for: "live-shuffle" }, shuffleInput, "Случайный порядок вопросов"),
+    h("label", { class: "option", for: "live-speed" }, speedInput, "Дополнительные баллы за скорость"),
+    h("label", { class: "option", for: "live-board" }, boardInput, "Показывать рейтинг участникам во время теста")
+  );
+  const modeForm = h("fieldset", { class: "role-picker" },
+    h("legend", { class: "muted" }, "Режим"),
+    h("label", { class: "role-option", for: "live-mode-auto" }, modeAuto,
+      h("span", { class: "role-option-body" },
+        h("b", {}, "Автономный тест"),
+        h("span", { class: "muted" }, "Запускаете один раз — вопросы идут сами"))),
+    h("label", { class: "role-option", for: "live-mode-manual" }, modeManual,
+      h("span", { class: "role-option-body" },
+        h("b", {}, "Ручной режим"),
+        h("span", { class: "muted" }, "Вы открываете и закрываете каждый вопрос"))),
+    autoFields
+  );
+  const syncMode = () => { autoFields.hidden = !modeAuto.checked; };
+  modeAuto.addEventListener("change", syncMode);
+  modeManual.addEventListener("change", syncMode);
+  syncMode();
+
   grid.appendChild(modeCard({
     title: "Live-комната",
-    lead: "Вы задаёте вопросы в прямом эфире, участники отвечают со своих телефонов, наблюдатель видит ход и результаты.",
+    lead: "Участники входят по QR или коду и выбирают роль: участник проходит тест на своём телефоне, наблюдатель видит рейтинг и ход теста.",
     bullets: [
       "Код комнаты вместо ссылки — 6 символов",
-      "Очки считаются при закрытии вопроса",
-      "Правильные ответы раскрываются после закрытия"
+      "Автономный режим: «Начать тест» нажимается один раз",
+      "Общий рейтинг обновляется в реальном времени"
     ],
+    form: modeForm,
     button: roomBtn,
     extra: roomMessage,
     onclick: async () => {
@@ -99,7 +146,18 @@ export default async function LaunchPage() {
       roomBtn.disabled = true;
       roomBtn.textContent = "Создаём…";
       try {
-        const code = await createRoom({ test, profile: State.profile });
+        const auto = modeAuto.checked;
+        const code = await createRoom({
+          test,
+          profile: State.profile,
+          mode: auto ? LIVE_MODE_AUTO : LIVE_MODE_MANUAL,
+          options: auto ? {
+            questionSec: secInput.value,
+            shuffleQuestions: shuffleInput.checked,
+            speedBonus: speedInput.checked,
+            showLeaderboard: boardInput.checked
+          } : {}
+        });
         toast(`Комната открыта. Код: ${code}`, "success");
         window.location.hash = `#room/${code}`;
       } catch (err) {

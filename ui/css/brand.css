@@ -683,39 +683,6 @@ body.sidebar-open { overflow: hidden; }
 .role-option input { width: 18px; height: 18px; flex: none; }
 .role-option-body { display: grid; line-height: 1.3; }
 
-/* Карточки выбора роли */
-.role-picker-cards { gap: var(--space-3); margin-top: var(--space-4); }
-.role-card {
-  padding: var(--space-4);
-  transition: all 0.2s ease;
-  background: var(--surface-2);
-  align-items: flex-start;
-  border-width: 2px;
-}
-.role-card:hover { border-color: var(--accent-light, var(--accent)); background: var(--surface); }
-.role-card:has(input:checked) {
-  border-color: var(--accent);
-  background: var(--surface);
-  box-shadow: var(--shadow-sm);
-}
-.role-card-icon {
-  font-size: 1.5rem;
-  width: 48px;
-  height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--surface);
-  border-radius: 12px;
-  margin-right: var(--space-1);
-  flex: none;
-  border: 1px solid var(--border);
-}
-.role-card:has(input:checked) .role-card-icon {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
 /* #launch: три режима рядом на широком экране. */
 .launch-grid { display: grid; gap: var(--space-4); }
 @media (min-width: 900px) {
@@ -1125,3 +1092,46 @@ body.sidebar-open { overflow: hidden; }
   background: var(--surface-bg-alt, rgba(255, 255, 255, 0.03));
   border-radius: var(--radius-md);
 }
+
+/* ---------- Live 2.0: выбор роли, автономный тест, рейтинг ---------- */
+.role-cards { display: grid; gap: var(--space-3); margin: var(--space-3) 0; }
+.role-card {
+  display: grid; gap: var(--space-2); text-align: left; width: 100%;
+  padding: var(--space-4); min-height: 44px; cursor: pointer;
+  border: 2px solid var(--line, #cfd6c0); border-radius: 1rem;
+  background: var(--surface, #fff); color: inherit; font: inherit;
+}
+.role-card:hover:not(:disabled) { border-color: var(--accent); }
+.role-card.is-selected { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent); }
+.role-card:disabled { opacity: .55; cursor: not-allowed; }
+.role-card-title { font-weight: 700; font-size: 1.1rem; }
+.role-card-list { margin: 0; padding-left: 1.1rem; display: grid; gap: 2px; color: var(--muted, #555); font-size: .9rem; }
+.role-card-note { font-size: .85rem; color: var(--signal); }
+@media (min-width: 640px) { .role-cards { grid-template-columns: 1fr 1fr; } }
+
+.live-auto-fields { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
+.live-auto-fields[hidden] { display: none; }
+
+.live-progress .live-bar { height: 8px; border-radius: 4px; background: var(--surface-2, #e8ecdc); overflow: hidden; margin: 0 var(--space-4) var(--space-3); }
+.live-bar-fill { height: 100%; width: 0; background: var(--accent); transition: width .5s linear; }
+
+.live-people { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: center; margin: var(--space-2) 0; }
+.live-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: var(--surface-2, #eef1e4); border-radius: 16px; }
+
+.live-rating-list { list-style: none; margin: 0; padding: var(--space-2) var(--space-3) var(--space-3); display: grid; gap: var(--space-2); }
+.live-rating-row {
+  display: grid; grid-template-columns: 2rem auto 1fr auto; align-items: center;
+  column-gap: var(--space-2); row-gap: 2px; padding: var(--space-2) var(--space-3);
+  border-radius: .75rem; background: var(--surface-2, #f1f4e8);
+}
+.live-rating-row.is-me { outline: 2px solid var(--accent); }
+.lr-place { font-weight: 800; text-align: center; }
+.lr-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.lr-score { font-weight: 800; white-space: nowrap; }
+.lr-meta { grid-column: 2 / -1; font-size: .8rem; color: var(--muted, #555); }
+.lr-completed { color: var(--accent-ink, #2d5a12); }
+.lr-in_progress { color: var(--muted, #555); }
+.live-ok { color: #2e7d32; }
+.live-bad { color: var(--signal); }
+.live-accuracy { padding-left: 1.2rem; display: grid; gap: 2px; font-size: .9rem; }
+@media (max-width: 380px) { .live-rating-row { grid-template-columns: 1.6rem auto 1fr auto; padding: var(--space-2); } }
