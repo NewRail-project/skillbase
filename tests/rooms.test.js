@@ -4,7 +4,7 @@ import {
   generateRoomCode, normalizeRoomCode, isValidRoomCode,
   questionTimeMs, roomSignature, answeredCount,
   computeScores, buildReveal, joinPlayerFields, SERVER_TIMESTAMP,
-  roomGateStatus, computeRoomState, buildJoinUrl
+  roomGateStatus, buildJoinUrl
 } from '../core/rooms-logic.js';
 
 test('generateRoomCode: 6 символов алфавита без 0/O/1/I', () => {
@@ -225,22 +225,6 @@ test('roomGateStatus: до снапшота players — waiting', () => {
     'без playersLoaded тоже waiting');
   assert.equal(roomGateStatus({ playersLoaded: true, uid: 'u1', room: null }),
     'waiting', 'без комнаты waiting');
-  assert.equal(roomGateStatus({
-    playersLoaded: false, players: [], uid: 'u1', room: ACTIVE_ROOM, myDoc: { uid: 'u1', observer: false }
-  }), 'player', 'при наличии myDoc мгновенно возвращает player без ожидания списка всех игроков');
-  assert.equal(roomGateStatus({
-    playersLoaded: false, players: [], uid: 'u1', room: ACTIVE_ROOM, myDoc: { uid: 'u1', observer: true }
-  }), 'observer', 'при наличии myDoc мгновенно возвращает observer');
-});
-
-test('computeRoomState: независимые состояния комнаты', () => {
-  assert.equal(computeRoomState({ connectionError: 'net' }), 'connection_error');
-  assert.equal(computeRoomState({ room: null }), 'connecting');
-  assert.equal(computeRoomState({ room: { status: 'closed' } }), 'completed');
-  assert.equal(computeRoomState({ room: { status: 'active' }, myDoc: null, isHost: false, playersLoaded: false }), 'connecting');
-  assert.equal(computeRoomState({ room: { status: 'active' }, myDoc: null, isHost: false, playersLoaded: true }), 'role_select');
-  assert.equal(computeRoomState({ room: { status: 'active', phase: 'idle' }, myDoc: { uid: 'u1' } }), 'waiting');
-  assert.equal(computeRoomState({ room: { status: 'active', phase: 'opened', currentQuestion: 0 }, myDoc: { uid: 'u1' } }), 'in_progress');
 });
 
 // Участник распознаётся по uid (uid всегда равен id документа).

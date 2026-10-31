@@ -362,7 +362,7 @@ export async function register({ email, password, fullName, position, department
 }
 
 // Вход анонимного гостя в комнату: имя и аватар вместо регистрации.
-export async function signInAsGuest(roomId, displayName, avatarId) {
+export async function signInAsGuest(roomId, displayName, avatarId, role = "player") {
   // Данные проверяем ДО входа: не плодим анонимные аккаунты
   // из-за ошибок валидации.
   const nameCheck = validateFullName(displayName);
@@ -388,14 +388,14 @@ export async function signInAsGuest(roomId, displayName, avatarId) {
   }
 
   // Создаём документ участника.
-  await joinRoomAsGuest(roomId, nameCheck.value, avatarId);
+  await joinRoomAsGuest(roomId, nameCheck.value, avatarId, role);
 }
 
 // Добавление гостя в комнату. Повторный вход (восстановление страницы,
 // повторное сканирование QR) не отклоняется: существующий документ
 // обновляется по правилам update (имя, аватар, updatedAt — без joinedAt
 // и без смены роли observer).
-export async function joinRoomAsGuest(roomId, displayName, avatarId) {
+export async function joinRoomAsGuest(roomId, displayName, avatarId, role = "player") {
   // Валидация данных.
   const nameCheck = validateFullName(displayName);
   if (!nameCheck.ok) throw new Error(nameCheck.error);
@@ -407,6 +407,16 @@ export async function joinRoomAsGuest(roomId, displayName, avatarId) {
   const playerRef = doc(db, "rooms", roomId, "players", uid);
   const playerSnap = await getDoc(playerRef);
   const existing = playerSnap.exists() ? playerSnap.data() : null;
+
+  // Новых гостей при закрытой регистрации не пускаем (правила Firestore
+  // дублируют проверку); вернувшийся гость входит без ограничений.
+  if (!existing) {
+    const roomSnap = await getDoc(doc(db, "rooms", roomId));
+    if (roomSnap.exists() && roomSnap.data().registrationOpen === false) {
+      throw new Error("Регистрация участников закрыта.");
+    }
+  }
+  const asObserver = role === "observer";
 
   // Создание документа участника для гостя. Аватар — только пресет
   // (isValidAvatarValue), ключи документа ограничены правилом.
@@ -425,10 +435,13 @@ export async function joinRoomAsGuest(roomId, displayName, avatarId) {
         playerId: uid,
         name: nameCheck.value,
         avatar: avatarId,
-        observer: false,
+        observer: asObserver,
+        role: asObserver ? "observer" : "player",
         joinedAt: serverTimestamp()
       };
   await setDoc(playerRef, playerData, { merge: true });
+  // Наблюдателю-гостю отдельный документ observers/{uid} не нужен:
+  // членом комнаты его делает players/{uid} (inRoomAnyRole в правилах).
 }
 
 // Гостевой вход для прохождения теста по прямой ссылке.

@@ -177,14 +177,18 @@ export function computeScores(players, keys, openedIndexes = [], speed = null) {
     let score = 0;
     let max = 0;
     let correctCount = 0;
+    let answered = 0;
+    let finished = 0;
     let streak = 0;
     openedIndexes.forEach(index => {
       const qid = String(index);
       const key = normalized[qid];
       if (!key) return;
       max += key.points || 1;
+      finished += 1;
       const answer = player.answers?.[qid];
       if (answer == null) { streak = 0; return; } // пропуск сбрасывает серию
+      answered += 1;
       const { correct, points } = scoreForQuestion(key, answer);
       if (correct) {
         correctCount += 1;
@@ -203,7 +207,11 @@ export function computeScores(players, keys, openedIndexes = [], speed = null) {
       name: player.name || "Участник",
       score,
       max,
-      correctCount
+      correctCount,
+      // Сколько ответов дано и сколько вопросов уже завершено — для
+      // рейтинга (процент верных, число завершённых вопросов).
+      answered,
+      finished
     };
   });
   return perPlayer.sort((a, b) => b.score - a.score
@@ -249,28 +257,29 @@ export function buildJoinUrl(code, locationLike = null) {
 // ---------- Вход в комнату со страницы комнаты ----------
 
 // Гейт страницы комнаты: какому виду принадлежит открытый #room/CODE,
-// если роль ещё не определена.
-export function roomGateStatus({ playersLoaded = false, players = [], uid = null, room = null, guest = false, myDoc = null } = {}) {
-  if (!room) return "waiting";
-  const me = myDoc || (players || []).find(p => p.uid === uid);
+// если роль ещё не определена. Раньше все эти случаи сводились к одной
+// надписи «Вы не в этой комнате» даже когда снапшот участников ещё
+// не пришёл, и без какого-либо пути подключиться на месте.
+// Свойства:
+//   playersLoaded — пришёл ли первый снапшот коллекции players;
+//   players      — загруженные участники ({ uid, observer });
+//   uid          — uid текущего пользователя (или null);
+//   room         — документ комнаты (или null);
+//   guest        — анонимный гость (нужна форма имя+аватар).
+// Возвращает "waiting" (подключаемся), "player"/"observer" (участник),
+// "confirm-join" (войти одной кнопкой), "guest-join" (форма гостя),
+// "closed" (комната закрыта) или "signIn" (нужна авторизация).
+// Страница комнаты не ждёт этого гейта для НЕ-участника: факт членства
+// определяется чтением своего players/{uid} (правило uid == playerId),
+// после чего НЕ-участник подключается напрямую до подписок — «Вас нет
+// в этой комнате» приглашённому не показывается никогда.
+export function roomGateStatus({ playersLoaded = false, players = [], uid = null, room = null, guest = false } = {}) {
+  if (!room || !playersLoaded) return "waiting";
+  const me = (players || []).find(p => p.uid === uid);
   if (me) return me.observer ? "observer" : "player";
-  if (!playersLoaded) return "waiting";
   if (uid == null) return "signIn";
   if (room.status === "active") return guest ? "guest-join" : "confirm-join";
   return "closed";
-}
-
-// Независимые состояния жизненного цикла комнаты
-export function computeRoomState({ room = null, myDoc = null, isHost = false, connectionError = null, playersLoaded = false } = {}) {
-  if (connectionError) return "connection_error";
-  if (!room) return "connecting";
-  if (room.status === "closed" || room.status === "ended") return "completed";
-  if (!myDoc && !isHost) {
-    return playersLoaded ? "role_select" : "connecting";
-  }
-  if (room.phase === "idle" || room.currentQuestion === -1 || room.currentQuestion == null) return "waiting";
-  if (room.phase === "opened" || room.phase === "closed") return "in_progress";
-  return "waiting";
 }
 
 // Поля players/{uid} для входа в комнату (joinRoom / joinRoomAsGuest).
@@ -282,7 +291,7 @@ export function computeRoomState({ room = null, myDoc = null, isHost = false, co
 // serverTimestamp() перед записью.
 export const SERVER_TIMESTAMP = Symbol("serverTimestamp");
 
-export function joinPlayerFields(existing, { uid = "", playerId = "", name, observer = false, avatar = null } = {}) {
+export function joinPlayerFields(existing, { uid = "", playerId = "", name, observer = false, avatar = null, role = null } = {}) {
   if (!existing) {
     const fields = {
       uid: uid || "",
@@ -292,6 +301,9 @@ export function joinPlayerFields(existing, { uid = "", playerId = "", name, obse
       joinedAt: SERVER_TIMESTAMP,
       updatedAt: SERVER_TIMESTAMP
     };
+    // Явная роль («player» / «observer») хранится рядом с флагом observer
+    // и после создания документа не меняется (правила Firestore).
+    if (role) fields.role = observer ? "observer" : "player";
     if (avatar) fields.avatar = avatar;
     return fields;
   }

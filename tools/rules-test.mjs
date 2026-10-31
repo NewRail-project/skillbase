@@ -244,6 +244,235 @@ function testDoc(overrides = {}) {
     };
 }
 
+// Моки автономной комнаты r1: старт 00:00:00, вопрос 20 с + пауза 3 с
+// (слот 23 с), 2 вопроса. overrides меняют поля комнаты.
+const AUTO_START = "2026-01-01T00:00:00Z";
+function autoRoomMocks(overrides = {}) {
+    return roomMocks("", "idle", {
+        mode: "auto",
+        liveState: "in_progress",
+        questionSec: 20,
+        gapSec: 3,
+        questionCount: 2,
+        autoStartedAt: AUTO_START,
+        autoEndedAt: null,
+        ...overrides
+    });
+}
+
+// Ответ в автономной комнате в момент at (секунды от старта).
+function autoAnswerCase(name, expectation, { uid = "student1", qid = "0", atSec, observer = false, role, roomOverrides = {} }) {
+    const time = new Date(Date.parse(AUTO_START) + atSec * 1000).toISOString();
+    const playerData = { uid, playerId: uid, observer, name: "Test User" };
+    if (role) playerData.role = role;
+    const path = `${DB}/rooms/r1/players/${uid}`;
+    return {
+        name,
+        expectation,
+        request: {
+            auth: { uid },
+            path: `${DB}/rooms/r1/players/${uid}/answers/${qid}`,
+            method: "create",
+            resource: { data: { answer: "A", at: time } },
+            time
+        },
+        functionMocks: [
+            ...profileMocks(uid, "student"),
+            ...autoRoomMocks(roomOverrides),
+            { function: "exists", args: [{ exactValue: path }], result: { value: true } },
+            { function: "get", args: [{ exactValue: path }], result: { value: { data: playerData } } }
+        ]
+    };
+}
+
+function joinCase(name, expectation, data, roomOverrides = {}) {
+    return {
+        name,
+        expectation,
+        request: {
+            auth: { uid: "student3" },
+            path: `${DB}/rooms/r1/players/student3`,
+            method: "create",
+            resource: {
+                data: {
+                    uid: "student3", playerId: "student3", name: "Иванов Иван",
+                    joinedAt: ISO, updatedAt: ISO, ...data
+                }
+            }
+        },
+        functionMocks: [
+            ...profileMocks("student3", "student"),
+            ...roomMocks("", "idle", { mode: "auto", liveState: "waiting", ...roomOverrides })
+        ]
+    };
+}
+
+function liveAutoCases() {
+    return [
+        autoAnswerCase("Авто: ответ на текущий вопрос 0 внутри окна", "ALLOW", { qid: "0", atSec: 10 }),
+        autoAnswerCase("Авто: допуск 1 с на сеть после окончания окна", "ALLOW", { qid: "0", atSec: 20.8 }),
+        autoAnswerCase("Авто: ответ после окна и допуска (пауза) — отказ", "DENY", { qid: "0", atSec: 21.5 }),
+        autoAnswerCase("Авто: вопрос 1 до его начала — отказ", "DENY", { qid: "1", atSec: 10 }),
+        autoAnswerCase("Авто: вопрос 1 в своём слоте — разрешён", "ALLOW", { qid: "1", atSec: 28 }),
+        autoAnswerCase("Авто: вопрос 0 в слоте вопроса 1 — отказ", "DENY", { qid: "0", atSec: 28 }),
+        autoAnswerCase("Авто: несуществующий вопрос 2 — отказ", "DENY", { qid: "2", atSec: 47 }),
+        autoAnswerCase("Авто: тест не запущен (waiting) — отказ", "DENY", {
+            qid: "0", atSec: 5, roomOverrides: { liveState: "waiting", autoStartedAt: null }
+        }),
+        autoAnswerCase("Авто: после досрочного завершения — отказ", "DENY", {
+            qid: "0", atSec: 10, roomOverrides: { autoEndedAt: "2026-01-01T00:00:05Z" }
+        }),
+        autoAnswerCase("Авто: комната закрыта — отказ", "DENY", {
+            qid: "0", atSec: 10, roomOverrides: { status: "closed" }
+        }),
+        autoAnswerCase("Авто: наблюдатель (флаг observer) не отвечает", "DENY", {
+            uid: "student2", qid: "0", atSec: 10, observer: true
+        }),
+        autoAnswerCase("Авто: наблюдатель (role=observer) не отвечает", "DENY", {
+            uid: "student2", qid: "0", atSec: 10, observer: false, role: "observer"
+        }),
+        autoAnswerCase("Авто: участник (role=player) отвечает", "ALLOW", {
+            qid: "0", atSec: 10, role: "player"
+        }),
+        {
+            name: "Авто: чужой ответ от имени другого участника — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/players/student2/answers/0`,
+                method: "create",
+                resource: { data: { answer: "A", at: "2026-01-01T00:00:10Z" } },
+                time: "2026-01-01T00:00:10Z"
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...autoRoomMocks(),
+                ...playerMock("student2", false)
+            ]
+        },
+        joinCase("Роли: вход участником с role=player", "ALLOW", { observer: false, role: "player" }),
+        joinCase("Роли: role=observer при observer=false (рассогласование) — отказ", "DENY", { observer: false, role: "observer" }),
+        joinCase("Роли: студент входит наблюдателем (role=observer, observer=true)", "ALLOW", { observer: true, role: "observer" }),
+        joinCase("Роли: произвольное значение role — отказ", "DENY", { observer: false, role: "admin" }),
+        joinCase("Регистрация закрыта — новый участник не входит", "DENY",
+            { observer: false, role: "player" }, { registrationOpen: false }),
+        joinCase("Регистрация открыта — новый участник входит", "ALLOW",
+            { observer: false, role: "player" }, { registrationOpen: true }),
+        joinCase("Комната закрыта — вход запрещён", "DENY",
+            { observer: false, role: "player" }, { status: "closed" }),
+        {
+            name: "Роли: участник не меняет роль после входа",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/players/student1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: {
+                data: { uid: "student1", playerId: "student1", name: "Иван", observer: true, role: "observer", joinedAt: ISO }
+            },
+            newDoc: {
+                uid: "student1", playerId: "student1", name: "Иван", observer: false, role: "player",
+                joinedAt: ISO, updatedAt: ISO
+            },
+            functionMocks: []
+        },
+        {
+            name: "Роли: повторный вход обновляет только updatedAt (проба часов)",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/players/student1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: {
+                data: { uid: "student1", playerId: "student1", name: "Иван", observer: false, role: "player", joinedAt: ISO }
+            },
+            newDoc: {
+                uid: "student1", playerId: "student1", name: "Иван", observer: false, role: "player",
+                joinedAt: ISO, updatedAt: "2026-01-01T00:05:00Z"
+            },
+            functionMocks: []
+        },
+        {
+            name: "Авто: участник не пишет очки (scores)",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/scores/student1`,
+                method: "create",
+                resource: { data: { uid: "student1", score: 9999 } }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...autoRoomMocks()
+            ]
+        },
+        {
+            name: "Авто: участник не запускает тест (update комнаты)",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: { data: { hostId: "teacher1", orgId: ORG, status: "active", mode: "auto", liveState: "waiting" } },
+            newDoc: { hostId: "teacher1", orgId: ORG, status: "active", mode: "auto", liveState: "in_progress" },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...autoRoomMocks()
+            ]
+        },
+        {
+            name: "Авто: ведущий запускает тест один раз (update комнаты)",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/rooms/r1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: { data: { hostId: "teacher1", orgId: ORG, status: "active", mode: "auto", liveState: "waiting" } },
+            newDoc: { hostId: "teacher1", orgId: ORG, status: "active", mode: "auto", liveState: "in_progress", autoStartedAt: AUTO_START },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                ...autoRoomMocks()
+            ]
+        },
+        {
+            name: "Авто: ведущий пишет рейтинг (scores)",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/rooms/r1/scores/student1`,
+                method: "create",
+                resource: { data: { uid: "student1", score: 3, max: 4, correctCount: 2 } }
+            },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                ...autoRoomMocks()
+            ]
+        },
+        {
+            name: "Авто: участник не читает чужие ответы",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/players/student2/answers/0`,
+                method: "get"
+            },
+            resource: { data: { answer: "A" } },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...autoRoomMocks()
+            ]
+        }
+    ];
+}
+
 function testCases() {
     return [
         {
@@ -2361,6 +2590,8 @@ function testCases() {
                 }
             ]
         }
+        ,
+        ...liveAutoCases()
     ];
 }
 
