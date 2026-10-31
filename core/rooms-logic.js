@@ -249,29 +249,28 @@ export function buildJoinUrl(code, locationLike = null) {
 // ---------- Вход в комнату со страницы комнаты ----------
 
 // Гейт страницы комнаты: какому виду принадлежит открытый #room/CODE,
-// если роль ещё не определена. Раньше все эти случаи сводились к одной
-// надписи «Вы не в этой комнате» даже когда снапшот участников ещё
-// не пришёл, и без какого-либо пути подключиться на месте.
-// Свойства:
-//   playersLoaded — пришёл ли первый снапшот коллекции players;
-//   players      — загруженные участники ({ uid, observer });
-//   uid          — uid текущего пользователя (или null);
-//   room         — документ комнаты (или null);
-//   guest        — анонимный гость (нужна форма имя+аватар).
-// Возвращает "waiting" (подключаемся), "player"/"observer" (участник),
-// "confirm-join" (войти одной кнопкой), "guest-join" (форма гостя),
-// "closed" (комната закрыта) или "signIn" (нужна авторизация).
-// Страница комнаты не ждёт этого гейта для НЕ-участника: факт членства
-// определяется чтением своего players/{uid} (правило uid == playerId),
-// после чего НЕ-участник подключается напрямую до подписок — «Вас нет
-// в этой комнате» приглашённому не показывается никогда.
-export function roomGateStatus({ playersLoaded = false, players = [], uid = null, room = null, guest = false } = {}) {
-  if (!room || !playersLoaded) return "waiting";
-  const me = (players || []).find(p => p.uid === uid);
+// если роль ещё не определена.
+export function roomGateStatus({ playersLoaded = false, players = [], uid = null, room = null, guest = false, myDoc = null } = {}) {
+  if (!room) return "waiting";
+  const me = myDoc || (players || []).find(p => p.uid === uid);
   if (me) return me.observer ? "observer" : "player";
+  if (!playersLoaded) return "waiting";
   if (uid == null) return "signIn";
   if (room.status === "active") return guest ? "guest-join" : "confirm-join";
   return "closed";
+}
+
+// Независимые состояния жизненного цикла комнаты
+export function computeRoomState({ room = null, myDoc = null, isHost = false, connectionError = null, playersLoaded = false } = {}) {
+  if (connectionError) return "connection_error";
+  if (!room) return "connecting";
+  if (room.status === "closed" || room.status === "ended") return "completed";
+  if (!myDoc && !isHost) {
+    return playersLoaded ? "role_select" : "connecting";
+  }
+  if (room.phase === "idle" || room.currentQuestion === -1 || room.currentQuestion == null) return "waiting";
+  if (room.phase === "opened" || room.phase === "closed") return "in_progress";
+  return "waiting";
 }
 
 // Поля players/{uid} для входа в комнату (joinRoom / joinRoomAsGuest).

@@ -84,6 +84,11 @@ export default async function JoinPage() {
         message.className = "form-error";
         return;
       }
+      try {
+        if (typeof sessionStorage !== "undefined") {
+          sessionStorage.setItem(`room_role_${code}`, observer ? "observer" : "player");
+        }
+      } catch (e) { /* fallback if restricted */ }
       await joinRoom(code, {
         displayName: (State.profile?.fullName || "").split(" ")[0] || State.user.email,
         observer,
@@ -110,26 +115,28 @@ export default async function JoinPage() {
 
   page.append(
     h("div", { class: "panel panel-narrow" },
-      h("div", { class: "panel-head" }, h("h2", {}, "Вход по коду")),
+      h("div", { class: "panel-head" }, h("h2", {}, "Вход в Live-комнату")),
       h("div", { class: "panel-body" },
         h("div", { class: "field" },
           h("label", { for: "room-code-input" }, "Код комнаты"),
           displayCodeInput
         ),
-        guestMode ? guestEntry() : h("fieldset", { class: "role-picker" },
-          h("legend", { class: "muted" }, "Роль"),
-          h("label", { class: "role-option", for: "join-role-player" },
+        guestMode ? guestEntry() : h("fieldset", { class: "role-picker role-picker-cards" },
+          h("legend", { class: "form-label" }, "Как вы хотите войти?"),
+          h("label", { class: "role-option role-card", for: "join-role-player" },
             roleOpen,
+            h("span", { class: "role-card-icon" }, "🎯"),
             h("span", { class: "role-option-body" },
               h("b", {}, "Участник"),
-              h("span", { class: "muted" }, "Отвечает на вопросы")
+              h("span", { class: "muted" }, "Отвечает на вопросы, набирает баллы и участвует в рейтинге")
             )
           ),
-          h("label", { class: "role-option", for: "join-role-observer" },
+          h("label", { class: "role-option role-card", for: "join-role-observer" },
             roleObserver,
+            h("span", { class: "role-card-icon" }, "👁️"),
             h("span", { class: "role-option-body" },
               h("b", {}, "Наблюдатель"),
-              h("span", { class: "muted" }, "Смотрит и не отвечает")
+              h("span", { class: "muted" }, "Смотрит за ходом теста и очками в реальном времени, не отвечает")
             )
           )
         ),
@@ -164,17 +171,18 @@ export default async function JoinPage() {
     );
   }
 
-  // Авторизованный (не аноним) сканирует QR: подключаемся сразу — это
-  // тот же вызов joinRoom, что у кнопки «Войти в комнату» с ролью
-  // «Участник». При техническом сбое показываем экран приглашения
-  // с одной кнопкой полноценного подключения, а не форму ввода кода.
+  // Авторизованный (не аноним) сканирует QR / заходит по ссылке приглашения:
+  // Если пользователь уже подключался ранее — переходим сразу в комнату.
+  // Если ещё не подключался — оставляем форму с предзаполненным кодом
+  // и явными карточками выбора роли («Участник» / «Наблюдатель»).
   if (codeFromRoute && State.user && State.user.isAnonymous !== true) {
     try {
-      await inviteJoin(codeFromRoute);
-      return page;
+      if (await isRoomMember(codeFromRoute)) {
+        window.location.hash = `#room/${codeFromRoute}`;
+        return page;
+      }
     } catch (err) {
-      console.error("Автовход по приглашению:", err);
-      return inviteFallbackPage(codeFromRoute, err);
+      console.error("Проверка членства по приглашению:", err);
     }
   }
 

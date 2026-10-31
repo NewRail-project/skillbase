@@ -49,13 +49,35 @@ let lastReactionTs = 0; // локальный троттлинг отправк�
 let profilesLoaded = false;
 // Разовый гостевой редирект на форму входа (защита от зацикливания).
 let guestRedirected = false;
+let advanceTimer = null;
+const autoClosed = new Set();
+const autoAdvanced = new Set();
+let lastSignature = null;
+let lastBoardSig = null;
+let local = null;
+let isAutoMode = true; // Автономный режим по умолчанию
+
+// Обратный замеченный предыдущее «событийное» состояние комнаты.
+let prev = null;
+// Задержки показанных реакций: uid → atMs последней показанной.
+let shownReactions = new Map();
+// Ранг строки (uid → индекс прошлого кадра) для значков «↑2/↓1».
+let lastRanks = null;
+let lastScores = null; // uid → прошлый счёт (count-up)
+let lastReactionTs = 0; // локальный троттлинг отправки реакций
+let profilesLoaded = false;
+// Разовый гостевой редирект на форму входа (защита от зацикливания).
+let guestRedirected = false;
+
 function reset() {
   unsubs.forEach(fn => { try { fn(); } catch (e) { /* уже отписаны */ } });
   unsubs = [];
   stopInterval(autoTimer); autoTimer = null;
   stopInterval(tickTimer); tickTimer = null;
+  if (advanceTimer) { clearTimeout(advanceTimer); advanceTimer = null; }
   if (confettiTimer) { clearTimeout(confettiTimer); confettiTimer = null; }
   autoClosed.clear();
+  autoAdvanced.clear();
   lastSignature = null;
   lastBoardSig = null;
   lastRanks = null;
@@ -65,9 +87,10 @@ function reset() {
   lastReactionTs = 0;
   profilesLoaded = false;
   guestRedirected = false;
+  isAutoMode = true;
   pageRef = null;
   leaderRef = null;
-  local = { room: null, players: [], scores: [], reveals: {}, reactions: [], profiles: new Map(), test: null, keys: null, receivedMs: 0, code: "", playersLoaded: false };
+  local = { room: null, players: [], scores: [], reveals: {}, reactions: [], profiles: new Map(), test: null, keys: null, receivedMs: 0, code: "", playersLoaded: false, myDoc: null, connectionError: null };
 }
 reset();
 
@@ -126,22 +149,22 @@ function publishCounter() {
 function role() {
   if (!local.room) return null;
   if (isStaff() && local.room.hostId === State.user?.uid) return "host";
-  const me = local.players.find(p => p.uid === State.user?.uid);
+  const me = myPlayer();
   if (me) return me.observer ? "observer" : "player";
   return null;
 }
 
 function myPlayer() {
-  return local.players.find(p => p.uid === State.user?.uid) || null;
+  return local.myDoc || (local.players || []).find(p => p.uid === State.user?.uid) || null;
 }
 
 function signature() {
   const room = local.room;
   const my = myPlayer();
-  const myAnswer = room?.phase === "opened" && room?.currentQuestionId
+  const myAnswer = room?.phase === "opened" && room?.currentQuestionId != null
     ? my?.answers?.[String(room.currentQuestionId)]
     : null;
-  const revealId = room?.phase === "closed" && room?.currentQuestionId
+  const revealId = room?.phase === "closed" && room?.currentQuestionId != null
     ? (local.reveals?.[String(room.currentQuestionId)] ? "on" : "off")
     : "-";
   const answers = (local.players || [])
@@ -160,8 +183,10 @@ function signature() {
     `answers=${answers}`,
     `reveal=${revealId}`,
     `me=${myAnswer != null ? 1 : 0}`,
+    `myDoc=${my ? (my.observer ? "obs" : "ply") : "none"}`,
     `role=${role()}`,
-    `test=${local.test ? 1 : 0}`
+    `test=${local.test ? 1 : 0}`,
+    `err=${local.connectionError ? 1 : 0}`
   ].join("~");
 }
 
@@ -290,10 +315,6 @@ export default async function RoomPage() {
   // Подписки. Каждый снапшот обновляет состояние и дергает wake():
   // сначала события звуков, затем перерисовка по сигнатуре.
   // ---------- Членство и автоподключение приглашённого ----------
-  // Собственный players/{uid} читается правилами напрямую (uid == playerId),
-  // поэтому факт членства и запись участника выполняются ДО подписок:
-  // слушатели открываются уже как участнику, и повторная проверка
-  // членства не запускается, пока запись не завершена.
   let memberOfRoom = false;   // есть players/{uid}
   let inviteError = null;     // провал автоподключения → карточка приглашения
   const isHost = role() === "host";
@@ -301,60 +322,81 @@ export default async function RoomPage() {
 
   if (State.user?.uid && !isHost) {
     try {
-      memberOfRoom = await isRoomMember(code);
-      if (!memberOfRoom && !isGuestUser && local.room?.status === "active") {
-        // Приглашённый без членства подключается сразу: тот же вызов
-        // joinRoom, что у кнопок входа. Повторный вход (обновление
-        // страницы, повторное сканирование) идемпотентен: документ
-        // players/{uid} обновляется, дубликата нет.
-        await joinRoom(code, {
-          displayName: joinDisplayName(),
-          observer: false,
-          profile: State.profile
-        });
+      // 1. Прямая подписка и чтение собственного документа players/{uid}:
+      // Позволяет за миллисекунды определить роль (player / observer) без
+      // ожидания полной коллекции всех игроков.
+      const playerSnap = await getDoc(doc(db, "rooms", code, "players", State.user.uid));
+      if (playerSnap.exists()) {
         memberOfRoom = true;
+        local.myDoc = playerSnap.data();
+      } else {
+        // Проверяем выбранную роль в сессии
+        let savedRole = null;
+        try {
+          if (typeof sessionStorage !== "undefined") {
+            savedRole = sessionStorage.getItem(`room_role_${code}`);
+          }
+        } catch (_) {}
+
+        if (savedRole && local.room?.status === "active" && !isGuestUser) {
+          await joinRoom(code, {
+            displayName: joinDisplayName(),
+            observer: savedRole === "observer",
+            profile: State.profile
+          });
+          memberOfRoom = true;
+          const newSnap = await getDoc(doc(db, "rooms", code, "players", State.user.uid));
+          if (newSnap.exists()) local.myDoc = newSnap.data();
+        }
       }
+
+      // Слушаем изменения собственного документа участника
+      unsubs.push(onSnapshot(
+        doc(db, "rooms", code, "players", State.user.uid),
+        snap => {
+          if (snap.exists()) {
+            local.myDoc = snap.data();
+            wake();
+          }
+        },
+        err => { console.error("myDoc snapshot:", err); }
+      ));
     } catch (err) {
-      console.error("Автовход по приглашению:", err);
+      console.error("Автовход и проверка роли:", err);
       inviteError = err;
     }
   }
 
   // Провал автоподключения (сеть, чужая организация, заполнена):
-  // понятная карточка приглашения; кнопка «Войти в комнату» выполняет
-  // полноценное подключение — без формы ввода кода.
   if (inviteError) {
     page.appendChild(inviteRoomPanel(code, inviteError));
     return page;
   }
 
-  // Закрытая комната без членства: слушатели участника запрещены
-  // правилами — честная статика вместо вечного «Подключаемся…».
+  // Закрытая комната без членства
   if (local.room?.status !== "active" && !isHost && !memberOfRoom) {
     page.appendChild(closedRoomPanel());
     return page;
   }
 
-  // Гость без членства: слушатели игрокам запрещены, перенаправление
-  // на форму гостя выполняет ensureGuestRedirect по снапшоту комнаты.
   const wake = () => { onStateUpdate(page, isScreen); };
-  
-  // Защита от бесконечной загрузки: добавляем таймаут для подписки
+
+  // Защита от бесконечной загрузки списка игроков
   let playersLoadedTimeout = null;
   const setupPlayersTimeout = () => {
     playersLoadedTimeout = setTimeout(() => {
       if (!local.playersLoaded) {
-        console.error("Таймаут загрузки участников комната:", code);
-        local.playersLoaded = true; // Принудительно завершаем загрузку
+        console.error("Таймаут загрузки списка участников в комнате:", code);
+        local.playersLoaded = true;
         wake();
         if (playersLoadedTimeout) {
           clearTimeout(playersLoadedTimeout);
           playersLoadedTimeout = null;
         }
       }
-    }, 15000); // 15 секунд таймаут
+    }, 15000);
   };
-  
+
   setupPlayersTimeout();
 
   unsubs.push(subscribeRoom(code, {
@@ -365,8 +407,6 @@ export default async function RoomPage() {
     },
     onPlayers: players => {
       local.players = players;
-      // Первый снапшот пришёл: до этого роль неизвестна — это «подключение»,
-      // а не «вы не в этой комнате».
       local.playersLoaded = true;
       if (playersLoadedTimeout) {
         clearTimeout(playersLoadedTimeout);
@@ -378,8 +418,8 @@ export default async function RoomPage() {
     },
     onError: error => { 
       console.error("Комната snapshot:", error); 
+      local.connectionError = error;
       snapshotFailed(error);
-      // При ошибке подписки также завершаем загрузку чтобы не зависать
       if (!local.playersLoaded && playersLoadedTimeout) {
         clearTimeout(playersLoadedTimeout);
         playersLoadedTimeout = null;
@@ -667,8 +707,12 @@ function updateLeaderboard() {
   host.textContent = "";
   const table = h("table", { class: "table room-leader-table" },
     h("thead", {}, h("tr", {},
-      h("th", {}, "#"), h("th", {}, "Участник"),
-      h("th", {}, "Верно"), h("th", {}, "Баллы"))),
+      h("th", {}, "#"),
+      h("th", {}, "Участник"),
+      h("th", {}, "Баллы"),
+      h("th", {}, "Верно %"),
+      h("th", {}, "Отвечено"),
+      h("th", {}, "Статус"))),
     h("tbody", {})
   );
   const newRanks = new Map();
@@ -676,7 +720,8 @@ function updateLeaderboard() {
     newRanks.set(row.uid, index + 1);
     table.querySelector("tbody").appendChild(leaderRow(row, index, oldRanks, oldScores));
   });
-  host.appendChild(table);
+  const container = h("div", { class: "table-responsive", style: "overflow-x: auto; -webkit-overflow-scrolling: touch;" }, table);
+  host.appendChild(container);
   lastBoardSig = sig;
   lastRanks = newRanks;
   lastScores = new Map(rows.map(row => [row.uid, row.score ?? 0]));
@@ -701,11 +746,30 @@ function leaderRow(entry, index, oldRanks, oldScores) {
   } else {
     scoreCell.textContent = `${targetScore} из ${entry.max ?? 0}`;
   }
+
+  const maxPoints = entry.max ?? 1;
+  const percentVal = maxPoints > 0 ? Math.min(100, Math.round(((entry.score ?? 0) / maxPoints) * 100)) : 0;
+  const percentCell = h("td", {}, `${percentVal}%`);
+
+  const playerObj = (local.players || []).find(p => p.uid === entry.uid);
+  const answeredCountVal = playerObj?.answers ? Object.keys(playerObj.answers).length : (entry.correctCount ?? 0);
+  const totalQuestions = local.room?.questionCount || (local.test?.questions || []).length || "?";
+  const progressCell = h("td", {}, `${answeredCountVal} / ${totalQuestions}`);
+
+  const isCompleted = local.room?.status === "closed" || (typeof totalQuestions === "number" && answeredCountVal >= totalQuestions && totalQuestions > 0);
+  const statusCell = h("td", {},
+    isCompleted
+      ? h("span", { class: "badge badge-success" }, "Завершил")
+      : h("span", { class: "badge badge-neutral" }, "Проходит")
+  );
+
   return h("tr", { "data-uid": entry.uid },
     rankCell,
     h("td", {}, avatarChip(entry), h("b", {}, entry.name || "Участник")),
-    h("td", {}, `${entry.correctCount ?? 0}`),
-    scoreCell
+    scoreCell,
+    percentCell,
+    progressCell,
+    statusCell
   );
 }
 
@@ -1133,6 +1197,24 @@ function hostView() {
   const question = currentId !== null ? questions[Number(currentId)] : null;
   const reveal = room.phase === "closed" ? local.reveals?.[currentId] : null;
 
+  // Контроль режима автономности
+  const autoToggle = h("label", { class: "toggle-field", style: "margin: 1rem 0; justify-content: center; opacity: 0.8;" },
+    h("input", {
+      type: "checkbox",
+      checked: isAutoMode,
+      onchange: (e) => {
+        isAutoMode = e.target.checked;
+        if (!isAutoMode && advanceTimer) {
+          clearTimeout(advanceTimer);
+          advanceTimer = null;
+        }
+        toast(isAutoMode ? "Автономный режим включён" : "Автономный режим выключен", "info");
+        scheduleRender(null);
+      }
+    }),
+    h("span", {}, "Автономный режим")
+  );
+
   if (!question) {
     wrap.appendChild(h("div", { class: "panel" },
       h("div", { class: "empty-state" },
@@ -1140,6 +1222,7 @@ function hostView() {
         h("h2", {}, "Ожидание начала теста"),
         h("p", { class: "muted" }, `Ведущий: ${room.hostName || "Преподаватель"} · Участников в лобби: ${playersCount} · Всего вопросов: ${room.questionCount || questions.length}.`),
         playersListWidget(local.players),
+        autoToggle,
         h("div", { class: "btn-row", style: "margin-top: 1.5rem; justify-content: center;" },
           h("button", {
             type: "button",
@@ -1150,7 +1233,7 @@ function hostView() {
                 toast("Не удалось начать тест", "error");
               });
             }
-          }, "Начать первый вопрос")
+          }, "Начать тест")
         )
       )
     ));
@@ -1172,11 +1255,9 @@ function hostView() {
               class: "btn primary",
               onclick: () => manualClose(room)
             }, "Закрыть вопрос"),
-            !left ? h("span", { class: "muted" }, "Без ограничения времени: закрытие вручную") : null
+            !left ? h("span", { class: "muted" }, "Без ограничения времени") : null
           ),
-          left && left > 0
-            ? h("p", { class: "form-hint" }, "Автозакрытие сработает по таймеру, кнопка останется рабочей.")
-            : null
+          isAutoMode ? h("p", { class: "form-hint", style: "color: var(--accent)" }, "✨ Автономный режим: вопрос закроется автоматически.") : null
         )
       );
       wrap.appendChild(controls);
@@ -1203,9 +1284,11 @@ function hostView() {
                 }
               }, "Завершить комнату")
             : null
-        )
+        ),
+        isAutoMode ? h("p", { class: "form-hint", style: "color: var(--accent); text-align:center" }, "✨ Автономный режим: следующий вопрос откроется через 3 секунды.") : null
       ));
     }
+    wrap.appendChild(h("div", { style: "text-align:center" }, autoToggle));
   }
 
   const results = roomResults();
@@ -1218,6 +1301,10 @@ function hostView() {
 }
 
 async function manualClose(room) {
+  const qid = room.currentQuestionId != null ? String(room.currentQuestionId) : "";
+  if (qid && autoClosed.has(qid)) return; // Уже закрывается или закрыт
+  if (qid) autoClosed.add(qid);
+
   try {
     await closeQuestion({
       code: local.code,
@@ -1236,6 +1323,7 @@ async function manualClose(room) {
     scheduleRender(null);
   } catch (err) {
     console.error("Закрытие вопроса:", err);
+    if (qid) autoClosed.delete(qid); // Разрешаем повторную попытку при ошибке
     toast("Не удалось закрыть вопрос (нет сети?) — кнопка останется активной.", "error");
   }
 }
@@ -1246,24 +1334,58 @@ function manageAutoClose() {
   if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
   if (role() !== "host") return;
   const room = local.room;
-  if (!room || room.phase !== "opened" || !room.currentQuestionId) return;
-  const questionId = String(room.currentQuestionId);
-  if (autoClosed.has(questionId)) return;
+  if (!room || room.status !== "active") return;
 
-  const tick = () => {
-    const left = openMsLeft();
-    if (left === null) return;
-    if (left <= 0 && !autoClosed.has(questionId)) {
-      autoClosed.add(questionId);
-      manualClose(room);
-    }
-  };
-  tick();
-  if (openMsLeft() !== null) {
+  const questionId = room.currentQuestionId != null ? String(room.currentQuestionId) : null;
+  const totalQuestions = room.questionCount || (local.test?.questions || []).length || 0;
+
+  // Phase: opened -> Автозакрытие вопроса по таймеру или если все ответили
+  if (room.phase === "opened" && questionId !== null) {
+    if (advanceTimer) { clearTimeout(advanceTimer); advanceTimer = null; }
+
+    const tick = () => {
+      const activePlayers = (local.players || []).filter(p => !p.observer);
+      const answered = answeredCount(activePlayers, questionId);
+      const allAnswered = activePlayers.length > 0 && answered >= activePlayers.length;
+      const left = openMsLeft();
+
+      if (isAutoMode && (allAnswered || (left !== null && left <= 0)) && !autoClosed.has(questionId)) {
+        autoClosed.add(questionId);
+        manualClose(room);
+      }
+    };
+    tick();
     autoTimer = setInterval(() => {
-      if (!local.room || local.room.phase !== "opened") { clearInterval(autoTimer); autoTimer = null; return; }
+      if (!local.room || local.room.phase !== "opened") { stopInterval(autoTimer); autoTimer = null; return; }
       tick();
     }, 1000);
+  }
+
+  // Phase: closed -> Автопереход к следующему вопросу или завершение
+  if (isAutoMode && room.phase === "closed" && questionId !== null) {
+    if (autoAdvanced.has(questionId)) return;
+    autoAdvanced.add(questionId);
+
+    const nextIndex = Number(questionId) + 1;
+    const delay = 3500; // Пауза 3.5 секунды, чтобы игроки увидели результат вопроса
+
+    if (advanceTimer) clearTimeout(advanceTimer);
+    advanceTimer = setTimeout(() => {
+      advanceTimer = null;
+      if (!local.room || local.room.status !== "active") return;
+      if (nextIndex < totalQuestions) {
+        openQuestion(local.code, nextIndex).catch(err => {
+          console.error("Автопереход не удался:", err);
+          autoAdvanced.delete(questionId);
+        });
+      } else {
+        closeRoom(local.code).then(() => toast("Тест завершён автоматически", "success"))
+          .catch(err => {
+            console.error("Автозавершение не удалось:", err);
+            autoAdvanced.delete(questionId);
+          });
+      }
+    }, delay);
   }
 }
 
@@ -1644,23 +1766,46 @@ function buildView() {
   // Проектор рисуется всё тем же buildView: разбор через локальную метку.
   const rawRoute = decodeURIComponent((State.routeParam || ""));
   if (rawRoute.split("/")[1] === "screen") return screenView();
+
+  if (local.connectionError) return errorPanel(local.connectionError);
+
   const current = role();
   if (current === "host") return hostView();
   if (current === "observer") return observerView();
   if (current === "player") return playerView();
+
   const gate = roomGateStatus({
     playersLoaded: local.playersLoaded,
     players: local.players,
     uid: State.user?.uid || null,
     room: local.room,
-    guest: State.user?.isAnonymous === true
+    guest: State.user?.isAnonymous === true,
+    myDoc: local.myDoc
   });
+
   if (gate === "closed") return closedRoomPanel();
-  // Первый снапшот players ещё не пришёл — честное ожидание загрузки.
-  // Карточки входа (confirm-join / guest-join) до подписок обрабатывает
-  // сама страница: автоподключение или гостевой редирект, поэтому
-  // здесь они недостижимы.
+  if (gate === "signIn") return signInPanel();
+  if (gate === "guest-join" || gate === "confirm-join") {
+     // Если мы здесь, значит автовход не сработал или роль не выбрана.
+     // Ведём на страницу входа.
+     setTimeout(() => leaveWithHash(`#join/${local.code}`), 10);
+     return connectingPanel();
+  }
+
   return connectingPanel();
+}
+
+function signInPanel() {
+  return h("div", { class: "room-view" },
+    h("div", { class: "panel" },
+      h("div", { class: "empty-state" },
+        emptyIcon("users"),
+        h("h2", {}, "Требуется вход"),
+        h("p", { class: "muted" }, "Для участия в этой комнате необходимо войти в аккаунт."),
+        h("a", { class: "btn primary", href: "#login" }, "Войти")
+      )
+    )
+  );
 }
 
 // ---------- Карточки «роль ещё не определена» ----------
