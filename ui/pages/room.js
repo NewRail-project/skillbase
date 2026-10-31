@@ -338,6 +338,25 @@ export default async function RoomPage() {
   // Гость без членства: слушатели игрокам запрещены, перенаправление
   // на форму гостя выполняет ensureGuestRedirect по снапшоту комнаты.
   const wake = () => { onStateUpdate(page, isScreen); };
+  
+  // Защита от бесконечной загрузки: добавляем таймаут для подписки
+  let playersLoadedTimeout = null;
+  const setupPlayersTimeout = () => {
+    playersLoadedTimeout = setTimeout(() => {
+      if (!local.playersLoaded) {
+        console.error("Таймаут загрузки участников комната:", code);
+        local.playersLoaded = true; // Принудительно завершаем загрузку
+        wake();
+        if (playersLoadedTimeout) {
+          clearTimeout(playersLoadedTimeout);
+          playersLoadedTimeout = null;
+        }
+      }
+    }, 15000); // 15 секунд таймаут
+  };
+  
+  setupPlayersTimeout();
+
   unsubs.push(subscribeRoom(code, {
     onRoom: room => {
       local.room = room ? { ...room, qStartedMs: toMs(room.qStartedAt) } : null;
@@ -349,11 +368,25 @@ export default async function RoomPage() {
       // Первый снапшот пришёл: до этого роль неизвестна — это «подключение»,
       // а не «вы не в этой комнате».
       local.playersLoaded = true;
+      if (playersLoadedTimeout) {
+        clearTimeout(playersLoadedTimeout);
+        playersLoadedTimeout = null;
+      }
       loadProfiles().catch(err => console.error(err));
       wake();
       publishCounter();
     },
-    onError: error => { console.error("Комната snapshot:", error); snapshotFailed(error); }
+    onError: error => { 
+      console.error("Комната snapshot:", error); 
+      snapshotFailed(error);
+      // При ошибке подписки также завершаем загрузку чтобы не зависать
+      if (!local.playersLoaded && playersLoadedTimeout) {
+        clearTimeout(playersLoadedTimeout);
+        playersLoadedTimeout = null;
+        local.playersLoaded = true;
+        wake();
+      }
+    }
   }));
 
   unsubs.push(onSnapshot(
