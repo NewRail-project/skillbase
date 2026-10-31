@@ -122,7 +122,10 @@ export default async function ResultsPage() {
           : "badge-info";
       tbody.appendChild(h("tr", {},
         h("td", {},
-          h("div", { class: "list-row-title" }, r.student),
+          h("div", { class: "list-row-title" },
+            r.student,
+            r.guest ? h("span", { class: "badge badge-neutral", style: "margin-left:6px" }, "Гость") : null
+          ),
           h("div", { class: "list-row-sub" }, r.email || "—")
         ),
         h("td", {}, r.test || "—"),
@@ -164,22 +167,32 @@ export default async function ResultsPage() {
       console.warn("Не удалось загрузить имена участников:", nameErr);
     }
 
-    rows = attempts.map(a => ({
-      id: a.id,
-      student: names.get(a.userId)
-        || a.userName
-        || (a.userEmail ? a.userEmail.split("@")[0] : "Участник"),
-      email: a.userEmail || "",
-      test: a.testTitle || a.testId || "—",
-      score: a.score ?? 0,
-      total: a.total ?? 0,
-      percent: a.status === "graded" && a.total
-        ? (Number.isFinite(a.percent) ? a.percent : Math.round((a.score / a.total) * 100))
-        : null,
-      status: a.status || "submitted",
-      submitted: formatDate(a.submittedAt || a.startedAt),
-      raw: a
-    }));
+    rows = attempts.map(a => {
+      // Гостевая попытка: ФИО хранится в самой попытке (userName),
+      // публичного профиля и аккаунта у гостя нет.
+      const guestAttempt = a.guest === true;
+      const name = guestAttempt
+        ? (a.userName || "Гость")
+        : (names.get(a.userId)
+          || a.userName
+          || (a.userEmail ? a.userEmail.split("@")[0] : "Участник"));
+      return {
+        id: a.id,
+        student: name,
+        // Дословная пометка вместо почты: гостю аккаунт не создавался.
+        email: guestAttempt ? "гостевая попытка" : (a.userEmail || ""),
+        guest: guestAttempt,
+        test: a.testTitle || a.testId || "—",
+        score: a.score ?? 0,
+        total: a.total ?? 0,
+        percent: a.status === "graded" && a.total
+          ? (Number.isFinite(a.percent) ? a.percent : Math.round((a.score / a.total) * 100))
+          : null,
+        status: a.status || "submitted",
+        submitted: formatDate(a.submittedAt || a.startedAt),
+        raw: a
+      };
+    });
 
     const graded = rows.filter(r => r.percent !== null);
     const avg = graded.length

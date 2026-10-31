@@ -8,6 +8,7 @@
 // 404: ui/pages/404.js. Очистка страницы при уходе. Один вызов router() при старте.
 
 import { State, applyTheme, logout } from "../core/auth.js";
+import { profileSetupIncomplete } from "../core/registration.js";
 import { saveReturnTo, consumeReturnTo } from "./return-to.js";
 
 // Хеш-страж: пока открыта читалка материала, hashchange откатывается,
@@ -36,10 +37,15 @@ const routes = {
   "":             { file: "ui/pages/home.js",              title: "Главная" },
   "login":        { file: "ui/pages/login.js",             title: "Вход",                 guestOnly: true },
   "register":     { file: "ui/pages/register.js",          title: "Регистрация",          guestOnly: true },
+  // Гостевое прохождение теста по прямой ссылке: ФИО вместо регистрации.
+  // Страница сама разбирается с вошедшими (аккаунт ≠ гость) пользователями.
+  "guest":        { file: "ui/pages/guest-start.js",       title: "Гостевой тест" },
+  // Первоначальная настройка профиля после первого входа через Google.
+  "setup":        { file: "ui/pages/setup-profile.js",     title: "Настройка профиля",    auth: true },
   "profile":      { file: "ui/pages/profile.js",           title: "Профиль",              auth: true },
   "tests":        { file: "ui/pages/tests.js",             title: "Каталог тестов",       auth: true },
   "create-test":  { file: "ui/pages/create-test.js",       title: "Создать тест",         auth: true, roles: STAFF },
-  "quiz":         { file: "ui/pages/quiz.js",              title: "Тест",                 auth: true },
+  "quiz":         { file: "ui/pages/quiz.js",              title: "Тест",                 auth: true, guest: true },
   "launch":       { file: "ui/pages/launch.js",            title: "Как провести тест",    auth: true, roles: STAFF },
   "join":         { file: "ui/pages/join.js",              title: "Вход по коду" },
   "about":        { file: "ui/pages/about.js",             title: "О проекте" },
@@ -126,21 +132,38 @@ export async function router() {
     return;
   }
 
+  // Незавершённый профиль (документа нет или ФИО пустое — типично для
+  // первого входа через Google): сначала настройка, основному интерфейсу
+  // проход закрыт. Гостям настройка не нужна; сам экран #setup не
+  // перенаправляем — иначе цикл. После завершения setup вернёт на
+  // сохранённый маршрут (consumeReturnTo), поэтому приглашение не теряется.
+  if (route && route.auth && name !== "setup"
+      && State.user?.isAnonymous !== true && State.profileStatus !== "error"
+      && profileSetupIncomplete(
+        State.profileStatus,
+        State.profile,
+        State.user?.isAnonymous === true)) {
+    saveReturnTo(window.location.hash || "#/");
+    window.location.hash = "#setup";
+    return;
+  }
+
   const target = route || { file: "ui/pages/404.js", title: "Не найдено" };
   document.title = `${target.title} — Skillbase`;
 
   const container = document.getElementById("app");
   if (!container) return;
 
-  // Гостевой режим: анонимный пользователь допущен только в live-комнату
-  // (и на вход по коду — маршруты без auth). Задания, каталог, профиль
-  // и прочее требуют полноценной регистрации. Скрытие интерфейса —
-  // удобство; защиту данных по-прежнему несут правила Firestore.
+  // Гостевой режим: анонимный пользователь допущен только к прохождению
+  // теста по прямой ссылке (guest: true) и к входу в live-комнату по коду
+  // (маршруты без auth). Задания, каталог, профиль и прочее требуют
+  // полноценной регистрации. Скрытие интерфейса — удобство; защиту данных
+  // по-прежнему несут правила Firestore.
   if (route && route.auth && State.user?.isAnonymous && !route.guest) {
     updateHeaderNav();
     message(container,
-      "Гостевой режим: доступен только вход в Live-комнату по коду. "
-      + "Задания, каталог и профиль доступны после полноценной регистрации.",
+      "Гостевой режим: доступно прохождение теста по прямой ссылке и вход в Live-комнату по коду. "
+      + "Задания, каталог, результаты и профиль доступны после полноценной регистрации.",
       false);
     return;
   }

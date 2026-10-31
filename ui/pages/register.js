@@ -4,6 +4,7 @@ import { validateRegistration } from "../../core/registration.js";
 import { toast } from "../../ui/components/toast.js";
 import { authErrorMessage } from "../../shared/errors.js";
 import { peekReturnTo, safeReturnTo, clearReturnTo, isReturnableHash } from "../../shared/return-to.js";
+import { createGoogleButton, handleIncomingGoogleRedirect, googleDivider } from "../components/google-button.js";
 
 const initialState = {
   fullName: "",
@@ -29,6 +30,28 @@ export default function RegisterPage() {
     }
   }
 
+  // Google-вход покрывает и регистрацию, и существующие аккаунты. Профиль
+  // создаётся на экране #setup (маршрутизатор сам закрыл к нему проход).
+  function onGoogleEvent(res) {
+    if (res?.user) {
+      const pending = peekReturnTo();
+      clearReturnTo();
+      window.location.hash = safeReturnTo(pending, "#/");
+      return;
+    }
+    if (res?.needsLink) {
+      // Такой email занят password-аккаунтом: связывание выполняется
+      // на странице входа (там есть пароль) — не на регистрации.
+      state.errors.general = "Аккаунт с этим email уже есть. Войдите по паролю на #login — Google привяжется к нему автоматически.";
+      render();
+      return;
+    }
+    if (res?.error) {
+      state.errors.general = authErrorMessage(res.error);
+      render();
+    }
+  }
+
   function render() {
     div.textContent = "";
     const pending = peekReturnTo();
@@ -39,6 +62,8 @@ export default function RegisterPage() {
         ? h("p", { class: "form-hint", role: "status" }, "После регистрации вернём вас к выбранному тесту.")
         : null,
       state.errors.general ? h("div", { class: "form-error", role: "alert" }, state.errors.general) : null,
+      createGoogleButton({ onSuccess: onGoogleEvent, onError: onGoogleEvent }),
+      googleDivider(),
       h("form", { id: "register-form", novalidate: "novalidate" },
         h("div", { class: "form-field" },
           h("label", { for: "fullName" }, "ФИО"),
@@ -187,5 +212,11 @@ export default function RegisterPage() {
   });
 
   render();
+
+  // Возврат с redirect-экрана Google (fallback popup-blocked на мобильных):
+  // страница загрузилась уже авторизованной — ведём дальше по возвращённому
+  // маршруту (роутер сам решит: настройка профиля или приложение).
+  void handleIncomingGoogleRedirect({ onSuccess: onGoogleEvent, onError: onGoogleEvent });
+
   return div;
 }

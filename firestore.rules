@@ -268,28 +268,56 @@ service cloud.firestore {
 
       // Создать или перезаписать маркер может только владелец и только
       // под свою попытку в этой же организации.
-      allow create, update: if hasProfile()
-        && role() == "student"
-        && request.auth.uid == ownerId
-        && request.resource.data.keys().hasOnly(
-          ["uid", "attemptId", "testId", "deadlineAt", "startedAt"]
+      allow create, update: if
+        (
+          hasProfile()
+          && role() == "student"
+          && request.auth.uid == ownerId
+          && request.resource.data.keys().hasOnly(
+            ["uid", "attemptId", "testId", "deadlineAt", "startedAt"]
+          )
+          && request.resource.data.uid == ownerId
+          && exists(/databases/$(database)/documents/tests/$(request.resource.data.testId))
+          && get(
+            /databases/$(database)/documents/tests/$(request.resource.data.testId)
+          ).data.orgId == myOrg()
+          && get(
+            /databases/$(database)/documents/tests/$(request.resource.data.testId)
+          ).data.status == "published"
+          // Попытка создаётся в том же batch — смотрим в пост-состояние.
+          && existsAfter(/databases/$(database)/documents/attempts/$(request.resource.data.attemptId))
+          && getAfter(
+            /databases/$(database)/documents/attempts/$(request.resource.data.attemptId)
+          ).data.userId == request.auth.uid
+          && getAfter(
+            /databases/$(database)/documents/attempts/$(request.resource.data.attemptId)
+          ).data.status == "in_progress"
         )
-        && request.resource.data.uid == ownerId
-        && exists(/databases/$(database)/documents/tests/$(request.resource.data.testId))
-        && get(
-          /databases/$(database)/documents/tests/$(request.resource.data.testId)
-        ).data.orgId == myOrg()
-        && get(
-          /databases/$(database)/documents/tests/$(request.resource.data.testId)
-        ).data.status == "published"
-        // Попытка создаётся в том же batch — смотрим в пост-состояние.
-        && existsAfter(/databases/$(database)/documents/attempts/$(request.resource.data.attemptId))
-        && getAfter(
-          /databases/$(database)/documents/attempts/$(request.resource.data.attemptId)
-        ).data.userId == request.auth.uid
-        && getAfter(
-          /databases/$(database)/documents/attempts/$(request.resource.data.attemptId)
-        ).data.status == "in_progress";
+        || (
+          // Гостевой маркер: та же схема без профиля. Тест обязан быть
+          // опубликованным, попытка из того же batch — гостевой,
+          // своей и в работе.
+          isGuest()
+          && request.auth.uid == ownerId
+          && request.resource.data.keys().hasOnly(
+            ["uid", "attemptId", "testId", "deadlineAt", "startedAt"]
+          )
+          && request.resource.data.uid == ownerId
+          && exists(/databases/$(database)/documents/tests/$(request.resource.data.testId))
+          && get(
+            /databases/$(database)/documents/tests/$(request.resource.data.testId)
+          ).data.status == "published"
+          && existsAfter(/databases/$(database)/documents/attempts/$(request.resource.data.attemptId))
+          && getAfter(
+            /databases/$(database)/documents/attempts/$(request.resource.data.attemptId)
+          ).data.userId == request.auth.uid
+          && getAfter(
+            /databases/$(database)/documents/attempts/$(request.resource.data.attemptId)
+          ).data.status == "in_progress"
+          && getAfter(
+            /databases/$(database)/documents/attempts/$(request.resource.data.attemptId)
+          ).data.guest == true
+        );
 
       // Удалить маркер можно, только если соответствующая попытка больше
       // не в работе (пост-состояние batch: отправка и снятие маркера
@@ -406,6 +434,18 @@ service cloud.firestore {
           && (!("groupId" in d.keys()) || d.groupId == userDoc().groupId);
       }
 
+      // Тест должен существовать и быть опубликованным. Для гостевой
+      // попытки профиль отсутствует, поэтому организация не сверяется:
+      // гость имеет право только на published тест (orgId проверки в
+      // отдельном условии — организация попытки обязана совпадать
+      // с организацией теста).
+      function attemptTestPublished(d) {
+        return exists(/databases/$(database)/documents/tests/$(d.testId))
+          && get(
+            /databases/$(database)/documents/tests/$(d.testId)
+          ).data.status == "published";
+      }
+
       // Тест должен существовать, быть опубликованным и из организации
       // студента. get() на несуществующий документ даёт отказ.
       function attemptTestOk(d) {
@@ -467,19 +507,55 @@ service cloud.firestore {
           )
         );
 
-      allow create: if hasProfile()
-        && role() == "student"
-        && request.resource.data.userId == request.auth.uid
-        && request.resource.data.orgId == myOrg()
-        && request.resource.data.status == "in_progress"
-        && request.resource.data.answers is map
-        && attemptMaterialReadOk(request.resource.data)
-        && !request.resource.data.keys().hasAny([
-          "score", "total", "percent", "review", "gradedBy", "gradedAt"
-        ])
-        && attemptProfileMatches(request.resource.data)
-        && attemptTestOk(request.resource.data)
-        && attemptAssignmentOk(request.resource.data);
+      allow create: if
+        (
+          hasProfile()
+          && role() == "student"
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.orgId == myOrg()
+          && request.resource.data.status == "in_progress"
+          && request.resource.data.answers is map
+          && attemptMaterialReadOk(request.resource.data)
+          && !request.resource.data.keys().hasAny([
+            "score", "total", "percent", "review", "gradedBy", "gradedAt"
+          ])
+          && attemptProfileMatches(request.resource.data)
+          && attemptTestOk(request.resource.data)
+          && attemptAssignmentOk(request.resource.data)
+        )
+        || (
+          // ---------- Гостевая попытка по прямой ссылке ----------
+          // Анонимная сессия (как в Live-комнатах) проходит опубликованный
+          // тест без профиля. Гость владельцем считается только своей
+          // попытки: userId обязан совпадать с uid. Задания гостям
+          // недоступны (assignmentId == ""), материалы не участвуют,
+          // оценка клиенту не положена — score/total/percent/review
+          // запрещены, её выставляет сотрудник. ФИО — единственная
+          // идентификация гостя для преподавателя: обязательная строка
+          // разумной длины, записанная в собственную попытку.
+          isGuest()
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.orgId == get(
+            /databases/$(database)/documents/tests/$(request.resource.data.testId)
+          ).data.orgId
+          && request.resource.data.status == "in_progress"
+          && request.resource.data.answers is map
+          && request.resource.data.assignmentId == ""
+          && request.resource.data.userName is string
+          && request.resource.data.userName.trim().size() >= 2
+          && request.resource.data.userName.trim().size() <= 120
+          && request.resource.data.keys().hasOnly(
+            ["userId", "userEmail", "orgId", "testId", "testTitle",
+             "assignmentId", "answers", "startedAt", "status", "attemptNo",
+             "deadlineAt", "testVersion", "userName", "guest",
+             "testAuthorId", "createdAt", "updatedAt"]
+          )
+          && request.resource.data.guest == true
+          && attemptTestPublished(request.resource.data)
+          && !request.resource.data.keys().hasAny([
+            "score", "total", "percent", "review", "gradedBy", "gradedAt"
+          ])
+        );
 
       // Студент сохраняет ответы и отправляет попытку, пока она не завершена.
       allow update: if signedIn()

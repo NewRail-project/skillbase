@@ -1,6 +1,7 @@
 import { h } from "../../shared/dom.js";
 import { buildAttemptOrder } from "../../core/shuffle.js";
 import { State, isStaff } from "../../core/auth.js";
+import { getGuestName } from "../../core/guest.js";
 import { loadTest } from "../../core/editor.js";
 import {
   startAttempt,
@@ -13,8 +14,12 @@ import { effectiveSettings } from "../../core/settings.js";
 import { materialCompleted } from "../../core/materials.js";
 import { isDeadlinePassed, attemptDeadlineMs as calcAttemptDeadlineMs } from "../../core/timing.js";
 import { db, doc, getDoc } from "../../shared/firebase.js";
+import { saveReturnTo } from "../../shared/return-to.js";
 import { icons } from "../../shared/icons.js";
 import { toast } from "../components/toast.js";
+
+// Флаг свежей гостевой попытки (#guest ставит, quiz снимает).
+const AUTO_RESUME_KEY = "sb:quizAutoResume";
 
 const TYPE_LABEL = {
   single: "Один ответ",
@@ -163,6 +168,18 @@ export default async function QuizPage() {
     return page;
   }
 
+  // Гость (анонимная сессия) проходит тест по прямой ссылке. Без ФИО
+  // попытка не начнётся — отправляем на гостевую форму и возвращаем сюда
+  // после ввода. ФИО уже сохранённое (localStorage) запрашивать повторно
+  // не нужно: продолжаем сразу.
+  const guest = State.user?.isAnonymous === true;
+  const guestName = guest ? getGuestName() : "";
+  if (guest && !guestName) {
+    saveReturnTo(window.location.hash || `#quiz/${encodeURIComponent(testId)}`);
+    window.location.hash = `#guest/${encodeURIComponent(testId)}`;
+    return page;
+  }
+
   let test = null;
   let loadError = null;
   try {
@@ -191,7 +208,10 @@ export default async function QuizPage() {
     return page;
   }
 
-  if (test.orgId && profile.orgId && test.orgId !== profile.orgId) {
+  // Проверка организации — только для пользователей с профилем. У гостя
+  // профиля нет (fallback подставляет организацию по умолчанию), допуск
+  // гостя проверяют правила Firestore: только published тесты.
+  if (!guest && test.orgId && profile.orgId && test.orgId !== profile.orgId) {
     page.append(errorPanel("Тест недоступен", "Тест принадлежит другой организации.", back));
     return page;
   }
@@ -204,7 +224,11 @@ export default async function QuizPage() {
   // Задание читаем по ссылке или ищем активное назначение группы из каталога.
   let assignment = null;
   let assignmentError = null;
-  if (assignmentId) {
+  if (guest && assignmentId) {
+    // Гость проходит по прямой ссылке: задания гостям недоступны
+    // и по правилам Firestore, и по сценарию.
+    assignmentError = "Задания доступны только после входа. Гость проходит тест по прямой ссылке.";
+  } else if (assignmentId) {
     try {
       assignment = await getAssignment(assignmentId);
       if (!assignment) assignmentError = "Задание не найдено.";
@@ -343,6 +367,22 @@ export default async function QuizPage() {
     renderStaffIntro();
   } else {
     renderStudentIntro();
+  }
+
+  // Только что начатая гостевая попытка (флаг ставит страница ввода ФИО)
+  // открывается сразу, без интро-экрана: пользователь уже нажал
+  // «Начать тест». Флаг снимается, повторное открытие ссылки уже идёт
+  // по обычной схеме («Продолжить попытку» / история).
+  if (!staff) {
+    let pendingResume = null;
+    try {
+      pendingResume = sessionStorage.getItem(AUTO_RESUME_KEY);
+      if (pendingResume) sessionStorage.removeItem(AUTO_RESUME_KEY);
+    } catch (_) {
+      // sessionStorage недоступен — обычный запуск через интро.
+    }
+    const resumed = pendingResume ? activeAttempt() : null;
+    if (resumed && resumed.id === pendingResume) openRunner(resumed);
   }
 
   return page;
@@ -665,10 +705,13 @@ export default async function QuizPage() {
       }
 
       const attemptNo = scopedAttempts().length + 1;
+      // Гость: профиль отсутствует — orgId берётся из теста, ФИО из
+      // гостевой формы (сохранено в localStorage). Заданий у гостя нет.
       const id = await startAttempt({
         test,
         user: State.user,
-        profile,
+        profile: guest ? null : profile,
+        guest: guest ? { fullName: guestName } : null,
         assignmentId: assignment?.id || "",
         attemptNo,
         deadlineAt: assignment?.deadline || null
@@ -677,10 +720,11 @@ export default async function QuizPage() {
       const attempt = {
         id,
         userId: State.user.uid,
-        userEmail: State.user.email || "",
-        userName: String(profile.fullName || "").trim(),
-        groupId: profile.groupId || "",
-        orgId: profile.orgId,
+        userEmail: guest ? "" : (State.user.email || ""),
+        userName: guest ? guestName : String(profile.fullName || "").trim(),
+        ...((!guest && profile.groupId) ? { groupId: profile.groupId } : { groupId: "" }),
+        orgId: guest ? (test.orgId || "") : profile.orgId,
+        guest: guest ? true : undefined,
         testId: test.id,
         testTitle: test.title || "",
         assignmentId: assignment?.id || "",

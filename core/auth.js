@@ -1,6 +1,8 @@
 import {
   auth, db, signInWithEmailAndPassword, createUserWithEmailAndPassword,
-  signOut, onAuthStateChanged, signInAnonymously, doc, getDoc, setDoc, updateDoc, serverTimestamp
+  signOut, onAuthStateChanged, signInAnonymously, doc, getDoc, setDoc, updateDoc, serverTimestamp,
+  GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
+  linkWithCredential
 } from "../shared/firebase.js";
 import { applyThemeMode, getThemeMode } from "../shared/theme.js";
 import {
@@ -14,6 +16,7 @@ import {
 } from "./registration.js";
 import { DEFAULT_ORG_ID } from "../configs/organization.js";
 import { isValidAvatarValue } from "../shared/avatars.js";
+import { validateGuestName, saveGuestName, clearGuestName } from "./guest.js";
 
 export { DEFAULT_UI } from "./registration.js";
 
@@ -211,6 +214,89 @@ export async function login(email, password) {
   return cred.user;
 }
 
+// ---------- Вход через Google ----------
+
+// Имя и фото Google находятся в Firebase Authentication (user.displayName,
+// user.photoURL, metadata.lastSignInTime) и переживают перезагрузку страницы.
+// Firestore их не хранит: правило users create зафиксировано строгим
+// hasOnly-списком, а расширять его ради копии данных, уже живущих в Auth,
+// не требуется — параллельная система профилей не создаётся.
+
+// Вход через Google одним потоком. Конфликт email (адрес уже занят
+// password-аккаунтом) НЕ ошибка: возвращаем needsLink, чтобы страница
+// входа предложила связать провайдеры без дубликата пользователя.
+export async function loginWithGoogle() {
+  const provider = new GoogleAuthProvider();
+  try {
+    const result = await signInWithPopup(auth, provider);
+    await loadProfile(result.user);
+    return { user: result.user };
+  } catch (err) {
+    if (err?.code === "auth/account-exists-with-different-credential") {
+      const credential = err?.credential
+        || GoogleAuthProvider.credentialFromError?.(err)
+        || null;
+      return {
+        needsLink: true,
+        email: err?.customData?.email || err?.credential?.email || credential?.email || "",
+        credential
+      };
+    }
+    // Окно Google заблокировано браузером или расширением — переключаемся
+    // на redirect: надёжнее на мобильных. Возвращение обрабатывает
+    // finishGoogleRedirect после перезагрузки страницы.
+    if (err?.code === "auth/popup-blocked") {
+      await signInWithRedirect(auth, provider);
+      return { redirected: true };
+    }
+    throw err;
+  }
+}
+
+// Обработка возврата с redirect-экрана Google (после reload страницы входа).
+// null — обычный визит без redirect; прочие результаты как у loginWithGoogle.
+export async function finishGoogleRedirect() {
+  let result = null;
+  try {
+    result = await getRedirectResult(auth);
+  } catch (err) {
+    if (err?.code === "auth/account-exists-with-different-credential") {
+      const credential = err?.credential
+        || GoogleAuthProvider.credentialFromError?.(err)
+        || null;
+      return {
+        needsLink: true,
+        email: err?.customData?.email || err?.credential?.email || credential?.email || "",
+        credential
+      };
+    }
+    throw err;
+  }
+  if (result?.user) {
+    await loadProfile(result.user);
+    return { user: result.user };
+  }
+  return null;
+}
+
+// Связывание Google с существующим password-аккаунтом того же email:
+// вход по паролю даёт прежний uid, linkWithCredential добавляет Google.
+// Документ users/{uid} не изменяется — профиль, тесты и результаты остаются.
+export async function linkGoogleAfterPasswordLogin(email, password, pendingCredential) {
+  if (!pendingCredential) throw new Error("Приглашение Google не активно. Повторите вход через Google.");
+  const cred = await signInWithEmailAndPassword(auth, email, password);
+  try {
+    if (!cred.user.providerData.some(p => p.providerId === "google.com")) {
+      await linkWithCredential(cred.user, pendingCredential);
+    }
+  } catch (err) {
+    // Google уже связан (или конфликт) — вход всё равно выполнен: не роняем.
+    if (err?.code !== "auth/credential-already-in-use") throw err;
+  }
+  await loadProfile(cred.user);
+  return cred.user;
+}
+
 // Публичный профиль нужен, чтобы ФИО видели журнал, проверка и списки.
 // Ошибка записи не должна отменять регистрацию: профиль users уже создан.
 async function writePublicProfile(uid, { fullName, orgId }) {
@@ -345,8 +431,42 @@ export async function joinRoomAsGuest(roomId, displayName, avatarId) {
   await setDoc(playerRef, playerData, { merge: true });
 }
 
+// Гостевой вход для прохождения теста по прямой ссылке.
+//
+// Не создаёт полноценный аккаунт: используется анонимная аутентификация
+// Firebase (как в Live-комнатах) — без email и пароля. Анонимная сессия
+// переживает обновление страницы (SDK хранит её в localStorage), поэтому
+// случайное обновление не сбрасывает гостя и не создаёт вторую попытку.
+// ФИО проверяется и сохраняется ДО входа: не плодим анонимные аккаунты
+// из-за ошибок валидации.
+export async function signInGuestForTest(fullName) {
+  const nameCheck = validateGuestName(fullName);
+  if (!nameCheck.ok) throw new Error(nameCheck.error);
+
+  if (State.user && State.user.isAnonymous !== true) {
+    throw new Error("Вы уже вошли в аккаунт. Чтобы пройти тест гостем, выйдите из аккаунта.");
+  }
+
+  if (!State.user) {
+    // Требует включённого провайдера Anonymous в Firebase Console.
+    await signInAnonymously(auth);
+  }
+  const user = auth.currentUser;
+  if (!user?.uid) throw new Error("Не удалось войти как гость.");
+
+  // Ждём загрузку профиля: для гостя документ users/{uid} отсутствует —
+  // loadProfile зафиксирует status "missing", и роутер не уведёт на #login.
+  await loadProfile(user);
+
+  saveGuestName(nameCheck.value);
+  return user;
+}
+
 export async function logout() {
   await signOut(auth);
+  // С гостевой сессией заканчивается и её ФИО: следующий гость на этом
+  // устройстве вводит своё имя, а не наследует чужое.
+  clearGuestName();
   loadToken++;
   State.user = null;
   State.profile = null;

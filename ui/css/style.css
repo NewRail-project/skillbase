@@ -699,3 +699,90 @@ body {
   flex-direction: column;
   gap: 0.5rem;
 }
+
+/* ---------- Вход через Google ---------- */
+.google-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  background: #fff;
+  color: #1f1f1f;
+  border: 1px solid var(--border-color);
+  font-weight: 600;
+}
+.google-btn:hover {
+  filter: brightness(0.985);
+  border-color: var(--text-2);
+}
+.google-btn:disabled { opacity: .7; }
+.google-icon { display: inline-flex; flex: none; }
+
+.google-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1rem 0;
+  color: var(--text-2);
+  font-size: 0.8125rem;
+}
+.google-divider > span {
+  flex: 1;
+  height: 1px;
+  background: var(--border-color);
+}
+.google-divider-text { flex: none; }
+
+/* ---------- Первоначальная настройка профиля (#setup) ---------- */
+.setup-styles-head { margin: 1.25rem 0 0.75rem; }
+.setup-styles-head p { margin: 0.25rem 0 0; }
+.setup-styles {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+@media (min-width: 560px) {
+  .setup-styles { grid-template-columns: 1fr 1fr 1fr; }
+}
+.setup-style-card {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  text-align: left;
+  padding: 0.875rem;
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-ctl);
+  background: var(--surface-2);
+  cursor: pointer;
+  min-width: 0;
+}
+.setup-style-card:hover { border-color: var(--text-2); }
+.setup-style-card[aria-checked="true"] {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  background: var(--surface);
+}
+.setup-style-card b { display: block; font-size: 0.9375rem; line-height: 1.25; }
+.setup-style-card .muted {
+  display: block;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  margin-top: 0.25rem;
+}
+.setup-style-body { min-width: 0; }
+.setup-style-shot {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.setup-style-bar { display: block; width: 100%; background: var(--accent); opacity: .85; }
+.setup-page .form-error:empty { display: none; }

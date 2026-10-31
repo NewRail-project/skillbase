@@ -30,11 +30,17 @@ function requireOnline(message) {
 
 // Начало попытки. Документ создаётся со статусом in_progress; ученик
 // не может записать в него оценку — это разрешено только сотруднику.
-export async function startAttempt({ test, user, profile, assignmentId = "", attemptNo = 1, deadlineAt = null }) {
+//
+// Гостевая попытка (guest = { fullName }): анонимная сессия проходит
+// опубликованный тест по прямой ссылке. Профиль гостя отсутствует, поэтому
+// orgId берётся из теста, а ФИО (обязательное полеuserName по правилам Firestore)
+// приходит из гостевой формы. Задания гостям недоступны: assignmentId — "".
+export async function startAttempt({ test, user, profile, guest = null, assignmentId = "", attemptNo = 1, deadlineAt = null }) {
   requireOnline("Нет подключения к интернету. Попытка не начата.");
   if (!user?.uid) throw new Error("Нужно войти в аккаунт.");
-  if (!profile?.orgId) throw new Error("Профиль организации не загружен.");
   if (!test?.id) throw new Error("Тест не выбран.");
+  const guestAttempt = Boolean(guest?.fullName);
+  if (!guestAttempt && !profile?.orgId) throw new Error("Профиль организации не загружен.");
 
   const deadline = deadlineAt
     ? (deadlineAt instanceof Date ? Timestamp.fromDate(deadlineAt) : deadlineAt)
@@ -44,18 +50,24 @@ export async function startAttempt({ test, user, profile, assignmentId = "", att
   // поэтому журнал не должен зависеть только от текущего профиля.
   // Поля необязательные: старые профили могли быть созданы без ФИО/группы.
   const snapshot = {};
-  const fullName = String(profile.fullName || "").trim();
-  if (fullName) snapshot.userName = fullName;
-  const groupId = String(profile.groupId || "").trim();
+  const fullName = guestAttempt
+    ? String(guest.fullName || "").trim()
+    : String(profile.fullName || "").trim();
+  if (!fullName) throw new Error(guestAttempt
+    ? "Укажите ФИО гостя."
+    : "ФИО в профиле не заполнено.");
+  snapshot.userName = fullName;
+  const groupId = guestAttempt ? "" : String(profile.groupId || "").trim();
   if (groupId) snapshot.groupId = groupId;
+  if (guestAttempt) snapshot.guest = true;
 
   const version = Number.isInteger(test.version) && test.version >= 1 ? test.version : 1;
   const authorId = test.authorId || "";
 
   const payload = {
     userId: user.uid,
-    userEmail: user.email || "",
-    orgId: profile.orgId,
+    userEmail: guestAttempt ? "" : (user.email || ""),
+    orgId: guestAttempt ? (test.orgId || "") : profile.orgId,
     testId: test.id,
     testTitle: test.title || "",
     assignmentId: assignmentId || "",

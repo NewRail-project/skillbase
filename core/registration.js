@@ -138,3 +138,22 @@ export function normalizeProfileData(data, user) {
 export function needsFullName(profile) {
   return !profile || !String(profile.fullName || "").trim();
 }
+
+// ---------- Первоначальная настройка профиля (Google-вход) ----------
+
+// Стили интерфейса на экране настройки: значения — существующие скины
+// data-ui (theme.css), названия — пользовательские роли продукта.
+export const SETUP_STYLES = [
+  ["education", "Студент", "Современный и выразительный интерфейс для обучения"],
+  ["depot", "Сотрудник депо", "Строгий корпоративный стиль для работников депо"],
+  ["operations", "Машинист / локомотивная бригада", "Сдержанный профессиональный стиль для эксплуатационного персонала"]
+];
+
+// Незавершённый профиль: документа нет (missing) или ФИО пустое.
+// Гостям настройка не нужна, сетевая ошибка ≠ незавершённость —
+// иначе получим цикл редиректов вместо страницы.
+export function profileSetupIncomplete(profileStatus, profile, isAnonymous = false) {
+  if (isAnonymous) return false;
+  if (profileStatus === "missing") return true;
+  return profileStatus === "ready" && needsFullName(profile);
+}

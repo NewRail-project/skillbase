@@ -744,6 +744,457 @@ function testCases() {
             ]
         },
         {
+            name: "Гость создаёт свою попытку на опубликованный тест",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "guest1", token: { firebase: { sign_in_provider: "anonymous" } } },
+                path: `${DB}/attempts/a-guest`,
+                method: "create",
+                resource: {
+                    data: {
+                        userId: "guest1",
+                        userEmail: "",
+                        orgId: ORG,
+                        testId: "t1",
+                        testTitle: "Тест",
+                        assignmentId: "",
+                        answers: {},
+                        startedAt: ISO,
+                        status: "in_progress",
+                        attemptNo: 1,
+                        deadlineAt: null,
+                        testVersion: 1,
+                        userName: "Гость Петров",
+                        guest: true,
+                        testAuthorId: "teacher1",
+                        createdAt: ISO,
+                        updatedAt: ISO
+                    }
+                }
+            },
+            functionMocks: [
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/users/guest1` }],
+                    result: { value: false }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: {
+                        value: { data: { status: "published", orgId: ORG } }
+                    }
+                }
+            ]
+        },
+        {
+            name: "Гость не создаёт попытку под чужим uid",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "guest1", token: { firebase: { sign_in_provider: "anonymous" } } },
+                path: `${DB}/attempts/a-guest2`,
+                method: "create",
+                resource: {
+                    data: {
+                        userId: "student2",
+                        userEmail: "",
+                        orgId: ORG,
+                        testId: "t1",
+                        testTitle: "Тест",
+                        assignmentId: "",
+                        answers: {},
+                        status: "in_progress",
+                        attemptNo: 1,
+                        deadlineAt: null,
+                        testVersion: 1,
+                        userName: "Гость Петров",
+                        guest: true,
+                        createdAt: ISO,
+                        updatedAt: ISO
+                    }
+                }
+            },
+            functionMocks: [
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/users/guest1` }],
+                    result: { value: false }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: {
+                        value: { data: { status: "published", orgId: ORG } }
+                    }
+                }
+            ]
+        },
+        {
+            name: "Гость не создаёт попытку на неопубликованный тест",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "guest1", token: { firebase: { sign_in_provider: "anonymous" } } },
+                path: `${DB}/attempts/a-guest3`,
+                method: "create",
+                resource: {
+                    data: {
+                        userId: "guest1",
+                        userEmail: "",
+                        orgId: ORG,
+                        testId: "t1",
+                        testTitle: "Тест",
+                        assignmentId: "",
+                        answers: {},
+                        status: "in_progress",
+                        attemptNo: 1,
+                        deadlineAt: null,
+                        testVersion: 1,
+                        userName: "Гость Петров",
+                        guest: true,
+                        createdAt: ISO,
+                        updatedAt: ISO
+                    }
+                }
+            },
+            functionMocks: [
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/users/guest1` }],
+                    result: { value: false }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: {
+                        value: { data: { status: "draft", orgId: ORG } }
+                    }
+                }
+            ]
+        },
+        {
+            name: "Гость не пишет оценку в свою попытку",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "guest1", token: { firebase: { sign_in_provider: "anonymous" } } },
+                path: `${DB}/attempts/a-guest4`,
+                method: "create",
+                resource: {
+                    data: {
+                        userId: "guest1",
+                        userEmail: "",
+                        orgId: ORG,
+                        testId: "t1",
+                        testTitle: "Тест",
+                        assignmentId: "",
+                        answers: {},
+                        status: "in_progress",
+                        attemptNo: 1,
+                        deadlineAt: null,
+                        testVersion: 1,
+                        userName: "Гость Петров",
+                        guest: true,
+                        score: 5,
+                        total: 10,
+                        percent: 50,
+                        createdAt: ISO,
+                        updatedAt: ISO
+                    }
+                }
+            },
+            functionMocks: [
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/users/guest1` }],
+                    result: { value: false }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: {
+                        value: { data: { status: "published", orgId: ORG } }
+                    }
+                }
+            ]
+        },
+        {
+            name: "Гость не проходит тест через задание",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "guest1", token: { firebase: { sign_in_provider: "anonymous" } } },
+                path: `${DB}/attempts/a-guest5`,
+                method: "create",
+                resource: {
+                    data: {
+                        userId: "guest1",
+                        userEmail: "",
+                        orgId: ORG,
+                        testId: "t1",
+                        testTitle: "Тест",
+                        assignmentId: "a1",
+                        answers: {},
+                        status: "in_progress",
+                        attemptNo: 1,
+                        deadlineAt: null,
+                        testVersion: 1,
+                        userName: "Гость Петров",
+                        guest: true,
+                        createdAt: ISO,
+                        updatedAt: ISO
+                    }
+                }
+            },
+            functionMocks: [
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/users/guest1` }],
+                    result: { value: false }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: {
+                        value: { data: { status: "published", orgId: ORG } }
+                    }
+                }
+            ]
+        },
+        {
+            name: "Гость без ФИО не создаёт попытку",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "guest1", token: { firebase: { sign_in_provider: "anonymous" } } },
+                path: `${DB}/attempts/a-guest6`,
+                method: "create",
+                resource: {
+                    data: {
+                        userId: "guest1",
+                        userEmail: "",
+                        orgId: ORG,
+                        testId: "t1",
+                        testTitle: "Тест",
+                        assignmentId: "",
+                        answers: {},
+                        status: "in_progress",
+                        attemptNo: 1,
+                        deadlineAt: null,
+                        testVersion: 1,
+                        userName: "",
+                        guest: true,
+                        createdAt: ISO,
+                        updatedAt: ISO
+                    }
+                }
+            },
+            functionMocks: [
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/users/guest1` }],
+                    result: { value: false }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: {
+                        value: { data: { status: "published", orgId: ORG } }
+                    }
+                }
+            ]
+        },
+        {
+            name: "Гость не подменяет организацию попытки",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "guest1", token: { firebase: { sign_in_provider: "anonymous" } } },
+                path: `${DB}/attempts/a-guest7`,
+                method: "create",
+                resource: {
+                    data: {
+                        userId: "guest1",
+                        userEmail: "",
+                        orgId: "other-org",
+                        testId: "t1",
+                        testTitle: "Тест",
+                        assignmentId: "",
+                        answers: {},
+                        status: "in_progress",
+                        attemptNo: 1,
+                        deadlineAt: null,
+                        testVersion: 1,
+                        userName: "Гость Петров",
+                        guest: true,
+                        createdAt: ISO,
+                        updatedAt: ISO
+                    }
+                }
+            },
+            functionMocks: [
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/users/guest1` }],
+                    result: { value: false }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: {
+                        value: { data: { status: "published", orgId: ORG } }
+                    }
+                }
+            ]
+        },
+        {
+            name: "Гость создаёт маркер активной попытки",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "guest1", token: { firebase: { sign_in_provider: "anonymous" } } },
+                path: `${DB}/activeAttempts/guest1`,
+                method: "create",
+                resource: {
+                    data: { uid: "guest1", attemptId: "att-g1", testId: "t1", deadlineAt: null, startedAt: ISO }
+                }
+            },
+            functionMocks: [
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/users/guest1` }],
+                    result: { value: false }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: {
+                        value: { data: { status: "published", orgId: ORG } }
+                    }
+                },
+                {
+                    function: "existsAfter",
+                    args: [{ exactValue: `${DB}/attempts/att-g1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "getAfter",
+                    args: [{ exactValue: `${DB}/attempts/att-g1` }],
+                    result: {
+                        value: { data: { userId: "guest1", status: "in_progress", guest: true } }
+                    }
+                }
+            ]
+        },
+        {
+            name: "Маркер гостя требует гостевую попытку из того же batch",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "guest1", token: { firebase: { sign_in_provider: "anonymous" } } },
+                path: `${DB}/activeAttempts/guest1`,
+                method: "create",
+                resource: {
+                    data: { uid: "guest1", attemptId: "att-g2", testId: "t1", deadlineAt: null, startedAt: ISO }
+                }
+            },
+            functionMocks: [
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/users/guest1` }],
+                    result: { value: false }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: {
+                        value: { data: { status: "published", orgId: ORG } }
+                    }
+                },
+                {
+                    function: "existsAfter",
+                    args: [{ exactValue: `${DB}/attempts/att-g2` }],
+                    result: { value: true }
+                },
+                {
+                    function: "getAfter",
+                    args: [{ exactValue: `${DB}/attempts/att-g2` }],
+                    result: {
+                        value: { data: { userId: "guest1", status: "in_progress" } }
+                    }
+                }
+            ]
+        },
+        {
+            name: "Гость не пишет маркер под чужим uid",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "guest1", token: { firebase: { sign_in_provider: "anonymous" } } },
+                path: `${DB}/activeAttempts/student2`,
+                method: "create",
+                resource: {
+                    data: { uid: "student2", attemptId: "att-g3", testId: "t1", deadlineAt: null, startedAt: ISO }
+                }
+            },
+            functionMocks: [
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/users/guest1` }],
+                    result: { value: false }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: {
+                        value: { data: { status: "published", orgId: ORG } }
+                    }
+                }
+            ]
+        },
+        {
             name: "Комнаты: участник пишет ответ на текущий вопрос",
             expectation: "ALLOW",
             request: {

@@ -10,7 +10,10 @@ import {
   normalizeProfileData,
   needsFullName,
   safeUi,
-  DEFAULT_UI
+  DEFAULT_UI,
+  VALID_UI,
+  SETUP_STYLES,
+  profileSetupIncomplete
 } from "../core/registration.js";
 import {
   DEFAULT_ORG_ID,
@@ -172,4 +175,37 @@ test("нужно ли заполнить ФИО у старого аккаунт
   assert.equal(needsFullName({}), true);
   assert.equal(needsFullName({ fullName: "   " }), true);
   assert.equal(needsFullName({ fullName: "Иван" }), false);
+});
+
+// ---------- Google-вход: экран первоначальной настройки ----------
+
+// Незавершённый профиль: документа нет или ФИО пустое — нужно открыть
+// #setup. Гостям настройка не нужна; сетевая ошибка ≠ незавершённость
+// (иначе цикл редиректов вместо честного сообщения).
+test("profileSetupIncomplete: стиль гейта на экран настройки", () => {
+  const ANON = true;
+  assert.equal(profileSetupIncomplete("missing", null, false), true,
+    "нет документа users/{uid} — показать настройку");
+  assert.equal(profileSetupIncomplete("ready", { fullName: "" }, false), true,
+    "документ есть, ФИО пустое — показать настройку");
+  assert.equal(profileSetupIncomplete("ready", { fullName: "Иван" }, false), false,
+    "готовый профиль — сразу в приложение");
+  assert.equal(profileSetupIncomplete("missing", null, ANON), false,
+    "гостю настройка профиля не нужна");
+  assert.equal(profileSetupIncomplete("error", null, false), false,
+    "сети/правила недоступны — не посылать на настройку");
+});
+
+// Стили на экране настройки — существующие скины data-ui, без дубликатов:
+// иначе предпросмотр ссылался бы на несуществующую тему.
+test("SETUP_STYLES: три существующих уникальных скина", () => {
+  assert.equal(SETUP_STYLES.length, 3);
+  const values = SETUP_STYLES.map(([v]) => v);
+  assert.deepEqual(new Set(values).size, 3);
+  for (const value of values) {
+    assert.ok(VALID_UI.includes(value), `скин ${value} существует в theme.css`);
+  }
+  // Предпросмотр и живое применение обязаны быть определены для каждого
+  // значения (radius/gap в setup-profile.js) — проверяем через safeUi.
+  assert.equal(safeUi(values[0]), values[0]);
 });

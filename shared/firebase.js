@@ -1,7 +1,9 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
 import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
-  createUserWithEmailAndPassword, signOut, signInAnonymously
+  createUserWithEmailAndPassword, signOut, signInAnonymously,
+  GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
+  linkWithCredential, fetchSignInMethodsForEmail
 } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
 import {
   getFirestore, initializeFirestore, doc, getDoc, setDoc, updateDoc, addDoc, collection,
@@ -27,6 +29,8 @@ export const db = _db;
 export {
   initializeApp, getAuth, getFirestore, initializeFirestore,
   onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, signInAnonymously,
+  GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
+  linkWithCredential, fetchSignInMethodsForEmail,
   doc, getDoc, setDoc, updateDoc, addDoc, collection, query, where, orderBy, getDocs, serverTimestamp,
   deleteDoc, onSnapshot, runTransaction, writeBatch, limit, startAfter, Timestamp, increment, arrayUnion, arrayRemove, documentId
 };

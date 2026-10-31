@@ -148,6 +148,8 @@ export default async function ReviewPage() {
 
   let studentName = attempt.userName
     || (attempt.userEmail ? attempt.userEmail.split("@")[0] : `Участник ·${(attempt.userId || "").slice(-4)}`);
+  // Гостевая попытка: профиля нет, ФИО — из самой попытки.
+  if (attempt.guest === true) studentName = `Гость · ${attempt.userName || "гость"}`;
   try {
     const profiles = await loadPublicProfiles([attempt.userId], orgId);
     const profile = profiles[0];
