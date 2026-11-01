@@ -1,10 +1,12 @@
+// ui/pages/about.js — «О платформе»: назначение, аудитория, возможности.
+// Секции с id (features/training/live) — цели ссылок футера вида #about/features:
+// прямой переход и обновление страницы работают через hash-роутер.
 import { h } from "../../shared/dom.js";
-import { generateQRSvg, generateQRDataUrl } from "../../shared/qr.js";
-import { icons } from "../../shared/icons.js";
+import { docPage, scrollToDocSection } from "../components/doc-page.js";
+import { State } from "../../core/auth.js";
+import { generateQRSvg } from "../../shared/qr.js";
 
 export default function AboutPage() {
-  const page = h("div", { class: "page about-page" });
-
   const siteUrl = "https://newrail-project.github.io/skillbase/";
 
   // Настройки QR-кода: фирменные цвета Skillbase
@@ -24,61 +26,113 @@ export default function AboutPage() {
   });
   qrWrapper.innerHTML = generateQRSvg(siteUrl, qrOptions);
 
+  const page = docPage({
+    eyebrow: "Платформа",
+    title: "О платформе",
+    subtitle: "Обучение, проверка знаний и live-занятия в железнодорожной отрасли.",
+    extra: [
+      "Документы: ",
+      h("a", { href: "#privacy" }, "политика конфиденциальности"),
+      " · ",
+      h("a", { href: "#terms" }, "пользовательское соглашение"),
+      " · ",
+      h("a", { href: "#rules" }, "правила использования"),
+      "."
+    ],
+    sections: [
+      {
+        title: "Назначение",
+        blocks: [
+          h("p", {}, "Skillbase — корпоративная платформа обучения и оценки знаний для железнодорожной отрасли. Она закрывает полный учебный цикл организации: материал для подготовки, задания и тесты для проверки знаний, журнал результатов и аналитика для преподавателя."),
+          h("p", {}, "Доступ к платформе привязан к организации: участники регистрируются по приглашению, а гость проходит конкретный тест или Live-занятие по прямой ссылке — без учётной записи.")
+        ]
+      },
+      {
+        title: "Для кого предназначена",
+        blocks: [
+          h("ul", {},
+            h("li", {}, "студенты профильных учебных заведений и колледжей — обучаются по материалам и сдают тесты;"),
+            h("li", {}, "сотрудники депо и локомотивные бригады — проходят регулярные проверки знаний своей организации (в роли студентов);"),
+            h("li", {}, "преподаватели — создают материалы, тесты и задания, проверяют попытки и следят за успеваемостью;"),
+            h("li", {}, "администраторы — настраивают группы, роли и доступ внутри организации.")
+          )
+        ]
+      },
+      {
+        id: "features",
+        title: "Возможности платформы",
+        blocks: [
+          h("ul", {},
+            h("li", {}, "Обучение: материалы-книги с сохранением прогресса чтения; задания типа «обучение», где материал нужно прочитать до теста."),
+            h("li", {}, "Тестирование: тренажёры и экзамены с таймером, ограничением попыток и серверной фиксацией ответов."),
+            h("li", {}, "Задания: назначение теста группе со сроком — студентам видно, что и к какому дню нужно сдать."),
+            h("li", {}, "Проверка: автоматическая оценка и ручная проверка преподавателем — с баллами и комментариями."),
+            h("li", {}, "Результаты и аналитика: журнал попыток, выгрузка CSV и статистика по вопросам — какие вопросы вызывают трудности."),
+            h("li", {}, "Live-занятия: комнаты с кодом и QR-входом, таймерами вопросов, рейтингом и подиумом.")
+          )
+        ]
+      },
+      {
+        id: "training",
+        title: "Обучение и тестирование",
+        blocks: [
+          h("p", {}, "Обычный цикл на платформе: студент читает материал → преподаватель даёт задание со сроком → студент проходит попытку → преподаватель проверяет → результат фиксируется в журнале, при необходимости открывается пересдача."),
+          h("p", {}, "Прохождение устроено честно: во время активной попытки материалы закрываются на сервере, а правильные ответы хранятся в отдельной закрытой коллекции и студенту не раскрываются. Показ ответов после фиксации — настройка преподавателя в тесте.")
+        ]
+      },
+      {
+        id: "live",
+        title: "Live-занятия",
+        blocks: [
+          h("p", {}, "Live-комната — интерактивная проверка знаний в реальном времени. Ведущий открывает комнату по коду или QR-коду, участники отвечают на телефонах, а результаты появляются на экране мгновенно."),
+          h("ul", {},
+            h("li", {}, "вопросы с таймером и мгновенной проверкой ответов;"),
+            h("li", {}, "рейтинг участников и подиум по итогам игры;"),
+            h("li", {}, "дополнительные режимы: экспресс-вопросы, дуэли, реакции;"),
+            h("li", {}, "режим «в своём темпе» для самостоятельного прохождения;"),
+            h("li", {}, "табло проектора — отдельный экран для демонстрации в аудитории.")
+          )
+        ]
+      }
+    ]
+  });
+
+  // Корпоративная карточка с QR-кодом: адрес платформы и загрузка PNG.
   const card = h("section", { class: "panel" },
-    h("div", { class: "panel-head" },
-      h("div", { class: "eyebrow" }, "О платформе"),
-      h("h1", {}, "Skillbase"),
-      h("p", { class: "page-sub" }, "Современная цифровая платформа для обучения, проверки знаний и проведения live-занятий в железнодорожной отрасли.")
-    ),
     h("div", { class: "panel-body" },
       h("div", { class: "about-grid" },
         h("div", {},
-          h("h3", {}, "Для кого создана платформа"),
-          h("p", {}, "Skillbase разработана специально для сотрудников депо, локомотивных бригад и студентов профильных учебных заведений и колледжей железнодорожного транспорта."),
-          h("h3", { style: "margin-top: 1.5rem;" }, "Ключевые возможности"),
-          h("ul", { class: "about-features" },
-            h("li", {}, "Обучение: интерактивные материалы, конспекты и учебные задания с ограничением сроков."),
-            h("li", {}, "Тестирование: проверка знаний с закрытыми ключами ответов и защитой от списывания."),
-            h("li", {}, "Live-занятия: интерактивные комнаты в реальном времени с кодом входа, QR-кодом, таймерами вопросов и таблицей лидеров."),
-            h("li", {}, "Аналитика: детальные результаты попыток, статистика прохождения и контроль успеваемости.")
-          ),
-          h("h3", { style: "margin-top: 1.5rem;" }, "Обучение и тестирование"),
-          h("p", {}, "Платформа предлагает гибкую систему обучения: от теоретических материалов до практических тестов. Студенты могут проходить тесты с ограничением попыток, а преподаватели — видеть результаты и анализировать успеваемость."),
-          h("h3", { style: "margin-top: 1.5rem;" }, "Live-занятия"),
-          h("p", {}, "Интерактивные live-комнаты позволяют проводить тестирования в реальном времени. Ведущий задает вопросы, участники отвечают, а результаты отображаются на экране. Система поддерживает QR-код для быстрого входа, таймеры вопросов и таблицу лидеров.")
-        ),
-        h("div", {
-          class: "brand-qr-card",
-          style: "text-align: center; margin-top: 1rem; padding: 2.5rem 1.5rem; background: linear-gradient(135deg, #101810 0%, #0a0f0a 100%); color: #fff; border-radius: 2rem; border: 1px solid #C5E747; box-shadow: var(--shadow-lg); position: relative; overflow: hidden;"
-        },
-          h("div", {
-            style: "position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, transparent, #C5E747, transparent);"
-          }),
-          h("div", { style: "margin-bottom: 1.5rem; position: relative;" },
-            h("div", { style: "font-family: var(--font-brand); font-weight: 800; font-size: 1.5rem; letter-spacing: 0.1em; color: #C5E747; text-shadow: 0 0 10px rgba(197, 231, 71, 0.3);" }, "SKILLBASE"),
-            h("div", { style: "font-size: 0.8rem; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.25rem;" }, "Официальная платформа")
-          ),
-          qrWrapper,
-          h("p", { style: "margin: 1.5rem 0; font-size: 0.95rem; opacity: 0.9; position: relative;" }, "Отсканируйте, чтобы открыть платформу"),
-          h("div", { class: "btn-row", style: "justify-content: center; gap: 0.75rem; position: relative;" },
+          h("p", {}, "Адрес платформы для сотрудников и студентов. Отсканируйте QR, чтобы открыть Skillbase на телефоне — вход доступен и на устройстве, и на компьютере."),
+          h("div", { class: "btn-row", style: "margin-top: var(--space-3);" },
             h("a", {
               class: "btn",
               href: siteUrl,
               target: "_blank",
-              rel: "noopener",
-              style: "background: #C5E747; color: #101810; border: none; font-weight: 600; padding: 0.75rem 1.5rem;"
-            }, "Открыть сайт"),
+              rel: "noopener"
+            }, "Открыть сайт")
+          )
+        ),
+        h("div", {
+          class: "brand-qr-card",
+          style: "text-align: center; margin-top: 1rem; padding: 2.5rem 1.5rem; background: linear-gradient(135deg, #101810 0%, #0a0f0a 100%); color: #fff; border-radius: 1.25rem; border: 1px solid #C5E747; box-shadow: var(--shadow-lg); position: relative; overflow: hidden;"
+        },
+          h("div", { style: "margin-bottom: 1.25rem; position: relative;" },
+            h("div", { style: "font-family: var(--font-brand); font-weight: 800; font-size: 1.5rem; letter-spacing: 0.1em; color: #C5E747; text-shadow: 0 0 10px rgba(197, 231, 71, 0.3);" }, "SKILLBASE"),
+            h("div", { style: "font-size: 0.8rem; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.25rem;" }, "Корпоративная платформа")
+          ),
+          qrWrapper,
+          h("p", { style: "margin: 1.25rem 0; font-size: 0.95rem; opacity: 0.9; position: relative;" }, "Отсканируйте, чтобы открыть платформу"),
+          h("div", { class: "btn-row", style: "justify-content: center; gap: 0.75rem; position: relative;" },
             h("button", {
               class: "btn",
               id: "download-qr-btn",
               style: "background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); backdrop-filter: blur(10px);"
-            }, "PNG")
+            }, "Скачать PNG")
           )
         )
       )
     )
   );
-
   page.appendChild(card);
 
   // Функция скачивания QR-кода как настоящего PNG через Canvas
@@ -104,7 +158,7 @@ export default function AboutPage() {
         ctx.fillStyle = "#F5F7ED";
         ctx.fillRect(0, 0, exportSize, exportSize);
         ctx.drawImage(img, 0, 0, exportSize, exportSize);
-        
+
         try {
           const pngUrl = canvas.toDataURL("image/png");
           const link = document.createElement("a");
@@ -127,5 +181,6 @@ export default function AboutPage() {
     });
   }
 
+  scrollToDocSection(page, State.routeParam);
   return page;
 }
