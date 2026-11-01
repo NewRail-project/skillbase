@@ -20,6 +20,16 @@ export const SOUND_DEFS = {
   wrong: { kind: "sweep", from: 300, to: 170, dur: 220, wave: "sawtooth", gain: 0.12 },
   // Смена места вверх в таблице.
   up: { kind: "sweep", from: 523, to: 1046, dur: 150, wave: "sine", gain: 0.13 },
+  // Серия: 3 верных подряд (огонь) и 5 (молния) — растущий свист-гудок.
+  streak3: { kind: "sweep", from: 440, to: 784, dur: 260, wave: "triangle", gain: 0.15 },
+  streak5: { kind: "tone", dur: 340, wave: "triangle", gain: 0.15, chord: [659, 880, 1319] },
+  // Серия оборвана: короткий падающий «выдох».
+  streakBreak: { kind: "sweep", from: 520, to: 140, dur: 320, wave: "sawtooth", gain: 0.1 },
+  // Подиум: удар на каждое место, 1-е — полный аккорд.
+  podiumStep: { kind: "sweep", from: 262, to: 392, dur: 200, wave: "sine", gain: 0.15 },
+  podiumFirst: { kind: "tone", dur: 400, wave: "triangle", gain: 0.16, chord: [523, 659, 784, 1046] },
+  // Реакция: колокольчик.
+  reaction: { kind: "tone", freq: 1320, dur: 90, wave: "sine", gain: 0.08 },
   // Финал: аккорд-арпеджио из трёх нот в тех же 400 мс.
   final: {
     kind: "tone", dur: 400, wave: "sine", gain: 0.14,
@@ -30,7 +40,12 @@ export const SOUND_DEFS = {
 // Паттерны вибрации.
 export const VIBRATION_DEFS = {
   correct: [30],
-  wrong: [60, 40, 60]
+  wrong: [60, 40, 60],
+  streak3: [40, 30, 40],
+  streak5: [50, 30, 50, 30, 90],
+  streakBreak: [120],
+  podiumStep: [25],
+  podiumFirst: [60, 40, 60, 40, 140]
 };
 
 const GATE_MS = 150;

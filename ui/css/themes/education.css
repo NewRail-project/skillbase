@@ -32,6 +32,16 @@ html[data-ui="education"][data-theme="light"] {
   --danger-border: #E7B4B4;
   --shadow: 0 1px 2px rgba(21, 33, 43, .05), 0 10px 30px rgba(21, 33, 43, .07);
   --shadow-lift: 0 2px 4px rgba(21, 33, 43, .06), 0 18px 44px rgba(21, 33, 43, .12);
+  /* Строки рейтинга: фон и текст заданы ПАРОЙ, текст не наследуется от темы. */
+  --row-bg: #EDE9E2;
+  --row-text: #15212B;
+  --row-text-2: #54626E;
+  --row-me-bg: #1B5A7A;
+  --row-me-text: #FFFFFF;
+  --medal-gold-bg: #F2B233;
+  --medal-silver-bg: #C9D1D9;
+  --medal-bronze-bg: #D9965B;
+  --medal-text: #15212B;
 }
 
 html[data-ui="education"][data-theme="dark"] {
@@ -58,6 +68,16 @@ html[data-ui="education"][data-theme="dark"] {
   --danger-border: #5A2A30;
   --shadow: 0 1px 0 rgba(255, 255, 255, .04), 0 14px 34px rgba(0, 0, 0, .45);
   --shadow-lift: 0 2px 0 rgba(255, 255, 255, .05), 0 22px 48px rgba(0, 0, 0, .55);
+  /* Строки рейтинга: фон и текст заданы ПАРОЙ, текст не наследуется от темы. */
+  --row-bg: #1E2833;
+  --row-text: #E7EDF3;
+  --row-text-2: #A3B2BF;
+  --row-me-bg: #79C0E0;
+  --row-me-text: #07131C;
+  --medal-gold-bg: #F2B233;
+  --medal-silver-bg: #C9D1D9;
+  --medal-bronze-bg: #D9965B;
+  --medal-text: #15212B;
 }
 
 html[data-ui="education"][data-theme="light"] {

@@ -1,3 +1,4 @@
+import { themeToggle } from "../components/theme-toggle.js";
 import { h } from "../../shared/dom.js";
 import { login, linkGoogleAfterPasswordLogin } from "../../core/auth.js";
 import { authErrorMessage } from "../../shared/errors.js";
@@ -7,6 +8,8 @@ import { railScene, brandLockup } from "../../ui/components/brand.js";
 
 export default function LoginPage() {
   const page = h("div", { class: "page auth-page" });
+  // Тема хранится на устройстве (localStorage), поэтому доступна и гостю.
+  page.appendChild(h("div", { class: "auth-corner" }, themeToggle({ withLabel: true })));
 
   const errorBox = h("div", { class: "form-error", role: "alert" });
   const linkHint = h("div", { class: "form-hint", style: "display:none" });

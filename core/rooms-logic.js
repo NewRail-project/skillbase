@@ -108,10 +108,134 @@ export function speedRatio(qDurationSec, answeredMs) {
   return Math.min(1, left) * SPEED_MAX;
 }
 
+// ЕДИНАЯ ФОРМУЛА ОЧКОВ (решение: оставляем оба механизма — они награждают
+// разное: серия — стабильность, скорость — уверенность). Всё считается
+// только здесь, экран итогов берёт разбивку из scoreBreakdown().
+//   итого = round(база × (1 + серия + скорость))
+//   серия    = min(0.5, 0.1 × верных подряд)   → «Серия ×1.2»
+//   скорость = до 0.5 по оставшемуся времени   → «Скорость +4»
+// Пропуск и неверный ответ дают 0 очков и обнуляют серию.
+export function scoreBreakdown(basePoints, { streak = 0, speed = 0 } = {}) {
+  const base = basePoints || 1;
+  const streakRate = streakRatio(streak);
+  const speedRate = Math.min(SPEED_MAX, Math.max(0, Number(speed) || 0));
+  const total = Math.round(base * (1 + streakRate + speedRate));
+  const streakBonus = Math.round(base * streakRate);
+  // Скорость = остаток, чтобы base + серия + скорость всегда равнялись total.
+  const speedBonus = total - base - streakBonus;
+  return {
+    base,
+    streakMult: Math.round((1 + streakRate) * 100) / 100,
+    streakBonus,
+    speedBonus,
+    total
+  };
+}
+
 // Итог очков одного ответа: базовые очки, домноженные на бонусы.
-export function answerPoints(basePoints, { streak = 0, speed = 0 } = {}) {
-  const mult = 1 + streakRatio(streak) + Math.min(SPEED_MAX, Math.max(0, speed));
-  return Math.round((basePoints || 1) * mult);
+export function answerPoints(basePoints, opts = {}) {
+  return scoreBreakdown(basePoints, opts).total;
+}
+
+// Строка для экрана итогов: «Верно: 10 · Серия ×1.2 · Скорость +4 = 16 б.».
+// Нулевые бонусы не показываем; ответ без очков — «Неверно»/«Пропуск».
+export function formatBreakdown(result) {
+  if (!result) return "";
+  if (!result.answered) return "Пропуск · 0 б.";
+  if (!result.correct) return "Неверно · 0 б.";
+  const b = result.breakdown;
+  const parts = [`Верно: ${b.base}`];
+  if (b.streakMult > 1) parts.push(`Серия ×${b.streakMult.toFixed(1)}`);
+  if (b.speedBonus > 0) parts.push(`Скорость +${b.speedBonus}`);
+  return `${parts.join(" · ")} = ${b.total} б.`;
+}
+
+// Уровень значка серии: огонь с 3 верных подряд, молния с 5.
+export const STREAK_FIRE_AT = 3;
+export const STREAK_BOLT_AT = 5;
+export function streakTier(streak) {
+  const n = Number.isFinite(streak) ? streak : 0;
+  if (n >= STREAK_BOLT_AT) return "bolt";
+  if (n >= STREAK_FIRE_AT) return "fire";
+  return "none";
+}
+
+// Событие серии между двумя кадрами — для анимации значка:
+//   "hit"   — серия выросла (вспышка и увеличение),
+//   "tier"  — выросла и сменился уровень (огонь → молния),
+//   "break" — серия была от 3 и оборвалась (значок гаснет),
+//   "lost"  — малая серия (1–2) обнулилась, значок просто исчезает,
+//   "same"  — без изменений.
+export function streakEvent(prevStreak, nextStreak) {
+  const a = Number.isFinite(prevStreak) ? prevStreak : 0;
+  const b = Number.isFinite(nextStreak) ? nextStreak : 0;
+  if (b > a) return streakTier(b) !== streakTier(a) && streakTier(b) !== "none" ? "tier" : "hit";
+  if (b < a) return streakTier(a) !== "none" ? "break" : "lost";
+  return "same";
+}
+
+// Места с учётом ничьей: равные очки и верные — одно место (1, 1, 3).
+// Мутирует и возвращает те же объекты с полем place.
+export function assignPlaces(rows) {
+  let place = 0;
+  (rows || []).forEach((row, index) => {
+    const prev = rows[index - 1];
+    if (!prev || prev.score !== row.score || (prev.correctCount ?? 0) !== (row.correctCount ?? 0)) {
+      place = index + 1;
+    }
+    row.place = place;
+  });
+  return rows;
+}
+
+// «Дорожка» ответов — компактная строка в документе scores/{uid}: по символу
+// на вопрос (позиция = номер вопроса): "1" верно, "0" неверно, "-" пропуск.
+// Её пишет ведущий вместе с очками: так серию, дуэль и экспресс могут
+// показать ВСЕ участники, хотя чужие ответы им недоступны.
+export function trailFromResults(results) {
+  const byQid = new Map((results || []).map(r => [Number(r.qid), r]));
+  const last = Math.max(-1, ...byQid.keys());
+  let out = "";
+  for (let i = 0; i <= last; i++) {
+    const r = byQid.get(i);
+    out += !r ? "-" : !r.answered ? "-" : r.correct ? "1" : "0";
+  }
+  return out;
+}
+
+// Вердикты по дорожке: [{ qid: "0", verdict: true|false|null }, …].
+export function verdictsFromTrail(trail) {
+  return String(trail || "").split("").map((ch, i) => ({
+    qid: String(i), verdict: ch === "1" ? true : ch === "0" ? false : null
+  }));
+}
+
+// Текущая и лучшая серия по дорожке.
+export function streakFromTrail(trail) {
+  let streak = 0;
+  let best = 0;
+  for (const ch of String(trail || "")) {
+    if (ch === "1") { streak += 1; best = Math.max(best, streak); } else streak = 0;
+  }
+  return { streak, bestStreak: best };
+}
+
+// Серия игрока на клиенте: по раскрытым вопросам (reveals) и ответам из
+// документа игрока. Ничего не пишет в Firestore — правила не меняются.
+// qids — порядок закрытых вопросов; возвращает { streak, bestStreak, verdicts }.
+export function streakFromReveals(player, reveals, qids) {
+  let streak = 0;
+  let best = 0;
+  const verdicts = [];
+  for (const qid of qids || []) {
+    const reveal = reveals?.[qid];
+    if (!reveal) continue;
+    const answer = player?.answers?.[qid];
+    const verdict = answer == null ? null : myAnswerVerdict(reveal, answer);
+    verdicts.push({ qid, verdict });
+    if (verdict === true) { streak += 1; best = Math.max(best, streak); } else streak = 0;
+  }
+  return { streak, bestStreak: best, verdicts };
 }
 
 // Игрок из снапшота дальше идёт в чистые функции: times приведены к мс.
@@ -180,6 +304,8 @@ export function computeScores(players, keys, openedIndexes = [], speed = null) {
     let answered = 0;
     let finished = 0;
     let streak = 0;
+    let bestStreak = 0;
+    const results = [];
     openedIndexes.forEach(index => {
       const qid = String(index);
       const key = normalized[qid];
@@ -187,19 +313,26 @@ export function computeScores(players, keys, openedIndexes = [], speed = null) {
       max += key.points || 1;
       finished += 1;
       const answer = player.answers?.[qid];
-      if (answer == null) { streak = 0; return; } // пропуск сбрасывает серию
+      if (answer == null) { // пропуск сбрасывает серию
+        streak = 0;
+        results.push({ qid, answered: false, correct: false, points: 0, breakdown: null });
+        return;
+      }
       answered += 1;
       const { correct, points } = scoreForQuestion(key, answer);
       if (correct) {
         correctCount += 1;
         streak += 1;
-        const add = answerPoints(points, {
+        bestStreak = Math.max(bestStreak, streak);
+        const breakdown = scoreBreakdown(points, {
           streak,
           speed: speed ? speedRatioFor(player, qid, speed) : 0
-        }) - points;
-        score += points + add;
+        });
+        score += breakdown.total;
+        results.push({ qid, answered: true, correct: true, points: breakdown.total, breakdown });
       } else {
         streak = 0; // неверный ответ сбрасывает серию
+        results.push({ qid, answered: true, correct: false, points: 0, breakdown: null });
       }
     });
     return {
@@ -211,10 +344,17 @@ export function computeScores(players, keys, openedIndexes = [], speed = null) {
       // Сколько ответов дано и сколько вопросов уже завершено — для
       // рейтинга (процент верных, число завершённых вопросов).
       answered,
-      finished
+      finished,
+      // Серия и дорожка ответов пишутся в scores/{uid} (правила Firestore
+      // не ограничивают набор полей); results — только для клиента и тестов.
+      streak,
+      bestStreak,
+      results,
+      trail: trailFromResults(results)
     };
   });
   return perPlayer.sort((a, b) => b.score - a.score
+    || b.correctCount - a.correctCount
     || (a.name || "").localeCompare(b.name || "", "ru"));
 }
 

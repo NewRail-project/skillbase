@@ -1,7 +1,8 @@
 import { h } from "../../shared/dom.js";
 import { State, logout, refreshProfile, createOwnProfile, saveOwnProfile } from "../../core/auth.js";
 import { displayName, initialsAvatar, validateFullName, saveProfile, computeProfileStats } from "../../core/profile.js";
-import { AVATAR_PRESETS, avatarPreset } from "../../shared/avatars.js";
+import { avatarPreset, avatarSvg, DEFAULT_AVATAR_VALUE } from "../../shared/avatars.js";
+import { avatarPicker } from "../components/avatar.js";
 import { needsFullName } from "../../core/registration.js";
 import { listMyAttempts } from "../../core/attempts.js";
 import { icons } from "../../shared/icons.js";
@@ -211,7 +212,8 @@ function avatarNode(profile, avatarUrl) {
   // изображения (старые base64) продолжают показываться.
   const preset = avatarPreset(avatarUrl);
   if (preset) {
-    node.textContent = preset.emoji;
+    if (avatarSvg(preset, 96)) node.innerHTML = avatarSvg(preset, 96); // статичный SVG из констант
+    else node.textContent = preset.emoji;
     node.style.background = preset.bg;
     node.classList.add("avatar-preset");
   } else if (typeof avatarUrl === "string" && avatarUrl.startsWith("data:image/")) {
@@ -401,29 +403,10 @@ function editForm(profile) {
 
 function avatarDialog(profile) {
   const dialog = modal();
-  const grid = h("div", { class: "avatar-preset-grid", role: "radiogroup", "aria-label": "Пресет аватара" });
   const errorBox = h("div", { class: "avatar-error", role: "alert" });
-  let pending = null;
-
-  const renderGrid = () => {
-    grid.textContent = "";
-    for (const preset of AVATAR_PRESETS) {
-      const selected = pending === `preset:${preset.id}`;
-      const item = h("button", {
-        type: "button",
-        class: "avatar-preset-cell" + (selected ? " selected" : ""),
-        style: `background:${preset.bg}`,
-        "aria-pressed": String(selected),
-        title: preset.id,
-        onclick: () => {
-          pending = `preset:${preset.id}`;
-          renderGrid();
-        }
-      }, preset.emoji);
-      grid.appendChild(item);
-    }
-  };
-  renderGrid();
+  const initial = avatarPreset(profile.avatar) ? profile.avatar : DEFAULT_AVATAR_VALUE;
+  let pending = initial;
+  const picker = avatarPicker({ value: initial, onChange: value => { pending = value; } });
 
   const saveBtn = h("button", {
     type: "button",
@@ -454,8 +437,8 @@ function avatarDialog(profile) {
 
   dialog.querySelector(".modal-content").append(
     h("h2", { style: "margin-top:0" }, "Аватар"),
-    h("p", { class: "muted" }, "Выберите пресет: эмодзи на цветном фоне. Загрузка файлов не используется."),
-    grid,
+    h("p", { class: "muted" }, "Выберите значок железной дороги. Загрузка файлов не используется."),
+    picker.el,
     errorBox,
     h("div", { class: "btn-row" },
       saveBtn,

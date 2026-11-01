@@ -44,7 +44,7 @@ test('VIBRATION_DEFS: верный [30], неверный [60,40,60]', () => {
   assert.deepEqual(VIBRATION_DEFS.wrong, [60, 40, 60]);
 });
 
-test('REACTIONS: 8 пресетов, normalizeReaction отбрасывает чужое', () => {
+test('REACTIONS: 8 пресетов (4 ЖД + 4 эмодзи), normalizeReaction отбрасывает чужое', () => {
   assert.equal(REACTIONS.length, 8);
   for (const emoji of REACTIONS) assert.equal(normalizeReaction(emoji), emoji);
   assert.equal(normalizeReaction('🐍'), null);

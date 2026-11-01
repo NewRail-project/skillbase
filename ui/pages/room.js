@@ -12,7 +12,9 @@ import {
   revealAutoQuestion, writeScoreBoard, syncServerClock
 } from "../../core/rooms.js";
 import {
-  questionTimeMs, answeredCount, myAnswerVerdict, buildJoinUrl, computeScores
+  questionTimeMs, answeredCount, myAnswerVerdict, buildJoinUrl, computeScores,
+  streakFromReveals, verdictsFromTrail, streakTier, streakEvent, scoreBreakdown,
+  speedRatio, formatBreakdown, normalizePlayerTimes
 } from "../../core/rooms-logic.js";
 import {
   CONN, ROLE_OBSERVER, ROLE_PLAYER, RATING_STATUS_LABEL,
@@ -27,9 +29,18 @@ import {
   db, doc, getDoc, onSnapshot, collection, updateDoc, serverTimestamp
 } from "../../shared/firebase.js";
 import { loadPublicProfiles } from "../../core/profile.js";
-import { avatarPreset } from "../../shared/avatars.js";
+import { avatarChip as avatarChipEl } from "../components/avatar.js";
 import { play, soundEnabled, setSoundEnabled, vibrate } from "../../shared/sound.js";
-import { REACTIONS } from "../../shared/reactions.js";
+import { REACTIONS, REACTION_COOLDOWN_MS, canSendReaction } from "../../shared/reactions.js";
+import { reactionGlyph, reactionLabel } from "../components/reaction-icons.js";
+import { leaderList, captureRects, playFlip, MOVE_VISIBLE_MS } from "../components/leaderboard.js";
+import { streakMeter } from "../components/streak.js";
+import { ringTimer, updateRings, pulseRings, gapCountdown, updateGap } from "../components/ring-timer.js";
+import { buildPodium, playPodium, showPodiumNow, podiumOrder, STEP_MS } from "../components/podium.js";
+import { runConfetti, stopConfetti } from "../components/confetti.js";
+import { buildDuel } from "../components/duel.js";
+import { buildExpress, expressStations, EXPRESS_STOP_MS } from "../components/express.js";
+import { themeToggle } from "../components/theme-toggle.js";
 import { icons } from "../../shared/icons.js";
 import { toast } from "../components/toast.js";
 import { generateQRSvg } from "../../shared/qr.js";
@@ -45,7 +56,12 @@ let leaderRef = null;
 let reactionRef = null;
 let floatsRef = null;
 let statusRef = null;
-let confettiTimer = null;
+let streakRef = null;
+let final = null;          // финальная последовательность: дуэль → подиум → экспресс
+let frame = { sig: "", at: 0, prev: null, cur: null }; // кадр рейтинга для анимаций
+let moveState = new Map(); // uid → { delta, until } значки ↑2 / ↓1
+let meterStreak = 0;       // серия, показанная над карточкой участника
+let pendingRect = null;    // позиции карточек до перерисовки (FLIP)
 const autoClosed = new Set();
 let lastSignature = null;
 let lastBoardSig = null;
@@ -77,7 +93,13 @@ function reset() {
     document.removeEventListener("visibilitychange", onlineHandler);
     onlineHandler = null;
   }
-  if (confettiTimer) { clearTimeout(confettiTimer); confettiTimer = null; }
+  stopConfetti();
+  if (final) { final.cancel(); final = null; }
+  frame = { sig: "", at: 0, prev: null, cur: null };
+  moveState = new Map();
+  meterStreak = 0;
+  pendingRect = null;
+  streakRef = null;
   autoClosed.clear();
   lastSignature = null;
   lastBoardSig = null;
@@ -288,6 +310,14 @@ function signature() {
     `test=${local.test ? 1 : 0}`,
     `keys=${local.keysReady ? 1 : 0}`
   ].join("|");
+}
+
+// Полная длительность вопроса в мс (для кольца таймера) или 0, если не ограничен.
+function questionTotalMs() {
+  const li = liveInfo();
+  if (li.plan?.questionMs) return li.plan.questionMs;
+  const sec = questionDurationSec(local.test, local.room?.settings);
+  return sec ? sec * 1000 : 0;
 }
 
 // Оставшееся время открытого вопроса в мс (или null, если не ограничено).
@@ -593,6 +623,9 @@ export default async function RoomPage() {
     statusRef = h("div", { class: "room-status", role: "status" });
     page.appendChild(statusRef);
   }
+  // Полоса серии — над карточкой участника, вне сменной перерисовки вида.
+  streakRef = h("div", { class: "streak-host", "aria-live": "polite" });
+  if (!isScreen) page.appendChild(streakRef);
   const leaderHost = h("section", { class: "room-leaderboard-host", "aria-label": "Таблица результатов" });
   const reactionBar = h("div", { class: "room-reaction-bar" });
   const floats = h("div", { class: "room-reaction-floats", "aria-hidden": "true" });
@@ -669,6 +702,10 @@ function updateLiveTexts() {
   page.querySelectorAll("[data-live-clock]").forEach(el => {
     el.textContent = li.msLeft == null ? "" : formatClockMs(li.msLeft);
   });
+  // Кольцо вопроса и обратный отсчёт паузы обновляются «на месте».
+  const ringLeft = openMsLeft();
+  if (ringLeft !== null) updateRings(page, ringLeft);
+  if (li.phase === "gap" || li.legacyPhase === "closed") updateGap(page, li.msLeft);
   page.querySelectorAll("[data-live-bar]").forEach(el => {
     const plan = li.plan;
     if (!plan || li.msLeft == null) { el.style.width = "0%"; return; }
@@ -721,6 +758,7 @@ function scheduleRender(page) {
   }
   fillStatusBarIfChanged();
   updateLeaderboard();
+  updateStreakMeter();
   updateReactionBar();
   showFloats();
   ensureTickTimer();
@@ -736,9 +774,12 @@ function fillStatusBarIfChanged() {
 
 function renderPage(page) {
   const existing = page.querySelector(".room-view");
+  syncBoardFrame();
+  const oldTops = captureRects(existing);
   const next = buildView();
   if (existing) existing.replaceWith(next);
   else page.insertBefore(next, page.querySelector(".room-leaderboard-host"));
+  playFlip(next, oldTops);
   updateLeaderboard();
   updateLiveTexts();
 }
@@ -754,6 +795,9 @@ function onStateUpdate(page, isScreen) {
   const myRank = rankOf(myPlayer()?.uid);
   const reveal = li.legacyPhase === "closed" ? local.reveals?.[now.qid] : null;
   const mine = myPlayer()?.answers?.[now.qid];
+  const myStreak = role() === "player"
+    ? (boardData().find(r => r.uid === State.user?.uid)?.streak ?? 0)
+    : null;
 
   if (prev) {
     const oldIds = prev.ids.split(",").filter(Boolean);
@@ -775,6 +819,16 @@ function onStateUpdate(page, isScreen) {
         play("wrong"); vibrate("wrong"); flash(page, "room-flash-wrong", true);
       }
     }
+    // Серия: огонь с 3, молния с 5, обрыв — гаснущий звук.
+    if (myStreak != null && prev.streak != null && myStreak !== prev.streak) {
+      const ev = streakEvent(prev.streak, myStreak);
+      const tier = streakTier(myStreak);
+      setTimeout(() => {
+        if (ev === "tier" && tier === "bolt") { play("streak5"); vibrate("streak5"); }
+        else if (ev === "tier" && tier === "fire") { play("streak3"); vibrate("streak3"); }
+        else if (ev === "break") { play("streakBreak"); vibrate("streakBreak"); }
+      }, 280);
+    }
     // Подъём моего места.
     if (myRank != null && prev.rank != null && myRank < prev.rank) {
       play("up");
@@ -783,11 +837,11 @@ function onStateUpdate(page, isScreen) {
     const finishedNow = room?.status === "closed" && prev.status === "active"
       || (li.auto && now.life === "completed" && prev.life === "in_progress");
     if (finishedNow) {
-      play("final");
-      runConfetti(page);
+      // Звук финала и конфетти играет финальная последовательность (подиум).
+      if (!boardData().length) play("final");
     }
   }
-  prev = { ...now, ids, reveal: Boolean(reveal), rank: myRank, status: room?.status || "" };
+  prev = { ...now, ids, reveal: Boolean(reveal), rank: myRank, streak: myStreak, status: room?.status || "" };
 }
 
 // rankOf: место моего uid в таблице (по очкам).
@@ -823,7 +877,12 @@ function ensureTickTimer() {
   tickTimer = setInterval(() => {
     const remaining = openMsLeft();
     if (remaining === null) { stopInterval(tickTimer); tickTimer = null; return; }
-    if (remaining > 0 && Math.ceil(remaining / 1000) <= 5) play("tick");
+    if (remaining > 0 && Math.ceil(remaining / 1000) <= 5) {
+      // Пульс кольца и звук «тик» — одним событием, чтобы шли в такт.
+      updateRings(pageRef, remaining);
+      pulseRings(pageRef);
+      play("tick");
+    }
   }, 1000);
 }
 
@@ -846,25 +905,33 @@ function updateReactionBar() {
   const whose = role();
   if (!whose || !local.room || local.room.status === "closed") return;
   bar.appendChild(h("span", { class: "room-reaction-label" }, "Реакция:"));
-  REACTIONS.forEach(emoji => {
-    bar.appendChild(h("button", {
+  const buttons = [];
+  REACTIONS.forEach(value => {
+    const btn = h("button", {
       type: "button",
       class: "room-reaction-btn",
-      "aria-label": `Реакция ${emoji}`,
+      title: reactionLabel(value),
+      "aria-label": `Реакция: ${reactionLabel(value)}`,
       onclick: () => {
         const at = Date.now();
-        if (at - lastReactionTs < 1100) return; // правила требуют > 1 с
+        // Клиентский троттлинг: правила требуют паузу больше 1 с.
+        if (!canSendReaction(lastReactionTs, at)) return;
         lastReactionTs = at;
-        sendReaction(local.code, emoji).catch(err => {
+        play("reaction");
+        buttons.forEach(b => { b.disabled = true; b.classList.add("is-cooling"); });
+        setTimeout(() => buttons.forEach(b => { b.disabled = false; b.classList.remove("is-cooling"); }), REACTION_COOLDOWN_MS);
+        sendReaction(local.code, value).catch(err => {
           console.error("Реакция:", err);
           toast("Реакцию не отправили (не чаще раза в секунду)", "error");
         });
       }
-    }, emoji));
+    }, reactionGlyph(value));
+    buttons.push(btn);
+    bar.appendChild(btn);
   });
 }
 
-// Всплывающие эмодзи: показываем только новые (uid с новым at).
+// Всплывающие реакции: показываем только новые (uid с новым at).
 function showFloats() {
   const host = floatsRef;
   if (!host) return;
@@ -872,7 +939,7 @@ function showFloats() {
     const atMs = item.atMs || 0;
     if (atMs <= (shownReactions.get(item.uid) || 0)) continue;
     shownReactions.set(item.uid, atMs);
-    const el = h("span", { class: "room-float-emoji" }, item.emoji || "👍");
+    const el = h("span", { class: "room-float-emoji" }, reactionGlyph(item.emoji || "👍"));
     el.style.left = `${30 + Math.abs(hashUid(item.uid)) % 40}%`;
     host.appendChild(el);
     setTimeout(() => el.remove(), 2200);
@@ -885,22 +952,104 @@ function hashUid(uid) {
   return acc;
 }
 
-// ---------- Таблица лидеров: FLIP, place badge, count-up ----------
+// ---------- Рейтинг карточками: данные, FLIP, значки места и серии ----------
 
+// Единый источник строк рейтинга: очки из scores + участники комнаты.
+// Серия и дорожка ответов приходят из scores (их пишет ведущий), а для
+// своей строки серия считается сразу по раскрытым вопросам.
+function boardData() {
+  const room = local.room;
+  const li = liveInfo();
+  const revealIds = Object.keys(local.reveals || {}).sort((a, b) => Number(a) - Number(b));
+  const finished = li.plan ? finishedPositions(li.plan, serverNowMs()).length : revealIds.length;
+  const rows = ratingRows({
+    scores: local.scores,
+    players: local.players,
+    questionCount: room?.questionCount || 0,
+    finished,
+    lifecycle: li.lifecycle
+  });
+  const mine = role() === "player" ? myPlayer() : null;
+  for (const row of rows) {
+    row.verdicts = verdictsFromTrail(row.trail);
+    if (mine && row.uid === mine.uid && revealIds.length) {
+      const own = streakFromReveals(mine, local.reveals, revealIds);
+      if (own.verdicts.length >= row.verdicts.length) {
+        row.streak = own.streak;
+        row.bestStreak = own.bestStreak;
+        row.verdicts = own.verdicts;
+      }
+    }
+  }
+  return rows;
+}
+
+// Рейтинг для ручного режима: пока нет ни одного документа очков — пусто.
 function boardRows() {
-  return [...(local.scores || [])].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)
-    || String(a.name).localeCompare(String(b.name), "ru"));
+  return (local.scores || []).length ? boardData() : [];
+}
+
+function ratingSource() {
+  return boardData();
+}
+
+// Кадр рейтинга: что было до последнего изменения (для count-up, значков
+// места ↑2/↓1 и вспышки серии). Подсказки живут ~1.5 с, потом гаснут,
+// чтобы обычная перерисовка не проигрывала анимацию заново.
+function syncBoardFrame() {
+  const rows = boardData();
+  const sig = rows.map(r => `${r.uid}:${r.place}:${r.score}:${r.streak}`).join(",");
+  if (sig === frame.sig) return rows;
+  const now = Date.now();
+  const mk = () => ({
+    places: new Map(rows.map(r => [r.uid, r.place])),
+    scores: new Map(rows.map(r => [r.uid, r.score ?? 0])),
+    streaks: new Map(rows.map(r => [r.uid, r.streak ?? 0]))
+  });
+  const prevCur = frame.cur;
+  frame = { sig, at: now, prev: prevCur, cur: mk() };
+  if (prevCur) {
+    for (const row of rows) {
+      const old = prevCur.places.get(row.uid);
+      if (typeof old === "number" && old !== row.place) {
+        moveState.set(row.uid, { delta: old - row.place, until: now + MOVE_VISIBLE_MS });
+      }
+    }
+  }
+  return rows;
+}
+
+function leaderCtx({ board = false } = {}) {
+  const now = Date.now();
+  const moves = new Map();
+  for (const [uid, m] of moveState) {
+    if (m.until > now) moves.set(uid, m.delta); else moveState.delete(uid);
+  }
+  const fresh = frame.prev && now - frame.at < 1500 && !reducedMotion();
+  return {
+    avatar: avatarChip,
+    me: State.user?.uid,
+    moves,
+    prevScores: fresh ? new Map(frame.prev.scores) : new Map(),
+    prevStreaks: fresh ? new Map(frame.prev.streaks) : new Map(),
+    statusLabel: RATING_STATUS_LABEL,
+    board
+  };
+}
+
+function leaderListFor(rows, opts) {
+  return leaderList(rows, leaderCtx(opts));
 }
 
 function leaderSignature(rows) {
-  return rows.map((row, index) =>
-    `${row.uid}:${index}:${row.score ?? 0}:${row.correctCount ?? 0}`).join(",");
+  return rows.map(row =>
+    `${row.uid}:${row.place}:${row.score ?? 0}:${row.correctCount ?? 0}:${row.streak ?? 0}:${row.percent}:${row.answered}`).join(",");
 }
 
 function updateLeaderboard() {
   const host = leaderRef;
   if (!host) return;
-  // На проекторе таблица построена в screenView — здесь не дублируем.
+  // На проекторе рейтинг построен в screenView — здесь не дублируем.
   if (isScreenRoute()) return;
   // Автономный режим: общий рейтинг — часть самого вида (ratingPanel).
   if (isAutoRoom(local.room)) {
@@ -912,7 +1061,8 @@ function updateLeaderboard() {
   const room = local.room;
   const roleHere = role();
 
-  // Участнику таблица — только по настройке теста showLeaderboard.
+  // Участнику рейтинг — только по настройке теста showLeaderboard.
+  syncBoardFrame();
   const rows = Boolean(room)
     && (roleHere !== "player" || room.showLeaderboard === true)
     ? boardRows()
@@ -921,109 +1071,42 @@ function updateLeaderboard() {
     host.classList.add("room-leaderboard-empty");
     if (host.textContent) host.textContent = "";
     lastBoardSig = null;
-    lastRanks = null;
     return;
   }
   host.classList.remove("room-leaderboard-empty");
   const sig = leaderSignature(rows);
-  if (host.querySelector("table") && sig === lastBoardSig) return;
+  if (host.querySelector(".lb-list") && sig === lastBoardSig) return;
 
-  // FLIP: запомнить позиции ДО перерисовки.
-  const oldRects = new Map();
-  host.querySelectorAll("tr[data-uid]").forEach(row => {
-    oldRects.set(row.getAttribute("data-uid"), row.getBoundingClientRect());
-  });
-  const oldRanks = oldRanksMap(host);
-  const oldScores = lastScores || new Map();
-
-  // Перерисовка.
+  // FLIP: запомнить позиции ДО перерисовки, доехать ПОСЛЕ.
+  const oldTops = captureRects(host);
   host.textContent = "";
-  const table = h("table", { class: "table room-leader-table" },
-    h("thead", {}, h("tr", {},
-      h("th", {}, "#"), h("th", {}, "Участник"),
-      h("th", {}, "Верно"), h("th", {}, "Баллы"))),
-    h("tbody", {})
-  );
-  const newRanks = new Map();
-  rows.forEach((row, index) => {
-    newRanks.set(row.uid, index + 1);
-    table.querySelector("tbody").appendChild(leaderRow(row, index, oldRanks, oldScores));
-  });
-  host.appendChild(table);
+  host.appendChild(h("h2", { class: "lb-title" }, "Рейтинг"));
+  host.appendChild(leaderListFor(rows));
   lastBoardSig = sig;
-  lastRanks = newRanks;
-  lastScores = new Map(rows.map(row => [row.uid, row.score ?? 0]));
-
-  animateFlip(host, oldRects);
+  playFlip(host, oldTops);
 }
 
-function leaderRow(entry, index, oldRanks, oldScores) {
-  const oldRank = oldRanks?.get(entry.uid);
-  const delta = typeof oldRank === "number" ? oldRank - (index + 1) : 0;
-  const rankCell = h("td", {},
-    String(index + 1),
-    delta !== 0 && !reducedMotion()
-      ? h("span", { class: "leader-move" }, delta > 0 ? `↑${delta}` : `↓${-delta}`)
-      : null);
-  // Столбец очков: count-up от предыдущего значения.
-  const oldScore = oldScores.get(entry.uid);
-  const targetScore = entry.score ?? 0;
-  const scoreCell = h("td", { class: "leader-score" }, "");
-  if (typeof oldScore === "number" && oldScore !== targetScore && !reducedMotion()) {
-    scoreCell.appendChild(countUp(targetScore, oldScore, entry.max ?? 0));
-  } else {
-    scoreCell.textContent = `${targetScore} из ${entry.max ?? 0}`;
+// Полоса серии над карточкой участника: огонь с 3, молния с 5.
+function updateStreakMeter() {
+  const host = streakRef;
+  if (!host) return;
+  if (isScreenRoute() || role() !== "player" || !local.room || local.room.status === "closed") {
+    if (host.firstChild) host.textContent = "";
+    meterStreak = 0;
+    return;
   }
-  return h("tr", { "data-uid": entry.uid },
-    rankCell,
-    h("td", {}, avatarChip(entry), h("b", {}, entry.name || "Участник")),
-    h("td", {}, `${entry.correctCount ?? 0}`),
-    scoreCell
-  );
-}
-
-function countUp(target, from, max) {
-  const span = h("span", { class: "score-countup" }, `${from} из ${max}`);
-  const start = performance.now();
-  const dur = 600;
-  const step = (at) => {
-    const progress = Math.min(1, (at - start) / dur);
-    span.textContent = `${Math.round(from + (target - from) * progress)} из ${max}`;
-    if (progress < 1) requestAnimationFrame(step);
-  };
-  requestAnimationFrame(step);
-  setTimeout(() => { span.textContent = `${target} из ${max}`; }, dur + 50);
-  return span;
-}
-
-function oldRanksMap(host) {
-  const out = new Map();
-  let index = 0;
-  host.querySelectorAll("tr[data-uid]").forEach(row => {
-    out.set(row.getAttribute("data-uid"), ++index);
-  });
-  return out;
-}
-
-// FLIP: строки поменялись местами — старые позиции к новым прыгают
-// плавным transform 600 мс.
-function animateFlip(host, oldRects) {
-  if (reducedMotion() || !oldRects.size) return;
-  const rows = host.querySelectorAll("tr[data-uid]");
-  rows.forEach(row => {
-    const uid = row.getAttribute("data-uid");
-    const beforeRect = oldRects.get(uid);
-    if (!beforeRect) return;
-    const afterRect = row.getBoundingClientRect();
-    const delta = beforeRect.top - afterRect.top;
-    if (Math.abs(delta) < 1) return;
-    row.style.transition = "none";
-    row.style.transform = `translateY(${delta}px)`;
-    requestAnimationFrame(() => {
-      row.style.transition = "transform 600ms ease";
-      row.style.transform = "";
-    });
-  });
+  const row = boardData().find(r => r.uid === State.user?.uid);
+  const streak = row?.streak ?? 0;
+  if (streak === meterStreak) return;
+  const node = streakMeter(streak, meterStreak);
+  const prevStreak = meterStreak;
+  meterStreak = streak;
+  host.textContent = "";
+  if (node) host.appendChild(node);
+  // Оборванная серия: значок гаснет, затем полоса убирается.
+  if (streak === 0 && prevStreak > 0) {
+    setTimeout(() => { if (meterStreak === 0) host.textContent = ""; }, 1700);
+  }
 }
 
 // ---------- Аватары ----------
@@ -1133,18 +1216,9 @@ async function initRoomQR(room, root) {
 // ---------- Аватары ----------
 
 function avatarChip(entry) {
-  const profile = local.profiles.get(entry.uid);
   // Гость не имеет publicProfiles — аватар берём из его players-документа.
-  const preset = avatarPreset(profile?.avatar || entry.avatar);
-  if (preset) {
-    return h("span", {
-      class: "avatar-chip",
-      style: `background:${preset.bg}`,
-      "aria-hidden": "true"
-    }, preset.emoji);
-  }
-  return h("span", { class: "avatar-chip avatar-chip-fallback", "aria-hidden": "true" },
-    (entry.name || "У").trim().slice(0, 1).toUpperCase() || "?");
+  const profile = local.profiles.get(entry.uid);
+  return avatarChipEl(profile?.avatar || entry.avatar, entry.name);
 }
 
 // ---------- Подиум и конфетти ----------
@@ -1176,82 +1250,98 @@ function livePodium() {
   );
 }
 
-function podiumPanel() {
-  const rows = boardRows().slice(0, 3);
+// Финальная последовательность: Дуэль двух лидеров → подиум (3 → 2 → 1,
+// очки «набегают», конфетти на 1 месте) → Экспресс по станциям-вопросам.
+// Узел создаётся один раз и переиспользуется при перерисовках вида, а
+// пройденная последовательность запоминается (sessionStorage), чтобы
+// обновление страницы не гоняло её заново.
+function finalSeenKey() { return `sb:finalSeen:${local.code}`; }
+function finalWasSeen() { try { return sessionStorage.getItem(finalSeenKey()) === "1"; } catch { return false; } }
+function markFinalSeen() { try { sessionStorage.setItem(finalSeenKey(), "1"); } catch { /* нет storage */ } }
+
+function finalSequence({ projector = false } = {}) {
+  const rows = boardData();
   if (!rows.length) return null;
-  const medals = ["🥇", "🥈", "🥉"];
-  const heights = ["podium-first", "podium-second", "podium-third"];
-  return h("div", { class: "panel room-podium" },
-    h("div", { class: "panel-head" }, h("h2", {}, "Итоги")),
-    h("div", { class: "podium-row" },
-      rows.map((row, index) => h("div", { class: `podium ${heights[index]}` },
-        h("div", { class: "podium-medal", "aria-hidden": "true" }, medals[index]),
-        avatarChip(row),
-        h("div", { class: "podium-name" }, row.name || row.uid),
-        h("div", { class: "podium-score" }, `${row.score ?? 0} б.`)
-      ))
-    )
-  );
+  const sig = `${local.code}|${projector ? 1 : 0}`;
+  if (final && final.sig === sig) { final.refresh(rows); return final.node; }
+  if (final) final.cancel();
+  final = createFinal(sig, rows, projector);
+  return final.node;
 }
 
-// Confetti на canvas без библиотек: до 120 частиц, остановка через 4 с.
-function runConfetti(page) {
-  if (!page || reducedMotion()) return;
-  const canvas = h("canvas", { class: "room-confetti", "aria-hidden": "true" });
-  page.appendChild(canvas);
-  const resize = () => {
-    canvas.width = page.clientWidth;
-    canvas.height = page.clientHeight;
+function createFinal(sig, initialRows, projector) {
+  const node = h("div", { class: `final-seq${projector ? " final-projector" : ""}` });
+  const st = { sig, node, rows: initialRows, stage: "start", timers: [], stop: null };
+  const clearTimers = () => { st.timers.forEach(clearTimeout); st.timers = []; if (st.stop) { st.stop(); st.stop = null; } };
+  const mount = (child) => { node.textContent = ""; node.appendChild(child); };
+  const later = (fn, ms) => { st.timers.push(setTimeout(fn, ms)); };
+  const hasExpress = () => expressStations(st.rows).length > 0;
+
+  const podiumBlock = (instant) => {
+    const pod = buildPodium(st.rows, { avatar: avatarChip });
+    if (instant) showPodiumNow(pod);
+    return { pod, panel: h("div", { class: "panel room-podium" },
+      h("div", { class: "panel-head" }, h("h2", {}, "Итоги")), pod) };
   };
-  resize();
-  const colors = ["#F44336", "#FFC107", "#4CAF50", "#2196F3", "#9C27B0", "#FF9800"];
-  const particles = [];
-  const rnd = Math.random;
-  for (let i = 0; i < 120; i++) {
-    particles.push({
-      x: rnd() * canvas.width,
-      y: -20 - rnd() * canvas.height * 0.3,
-      vx: (rnd() - 0.5) * 2,
-      vy: 2 + rnd() * 3,
-      size: 4 + rnd() * 6,
-      rot: rnd() * Math.PI,
-      vr: (rnd() - 0.5) * 0.2,
-      color: colors[Math.floor(rnd() * colors.length)],
-      shape: rnd() < 0.5 ? "rect" : "circle"
+
+  const goDone = () => {
+    clearTimers(); st.stage = "done"; markFinalSeen();
+    const { panel } = podiumBlock(true);
+    const actions = h("div", { class: "btn-row", style: "padding:0 var(--space-3) var(--space-3)" },
+      hasExpress() ? h("button", { type: "button", class: "btn secondary", onclick: () => goExpress(true) }, "Показать экспресс") : null);
+    panel.appendChild(actions);
+    mount(panel);
+  };
+
+  const goExpress = (manual = false) => {
+    clearTimers(); st.stage = "express";
+    if (!hasExpress()) { goDone(); return; }
+    const ex = buildExpress(st.rows, { avatar: avatarChip, questionCount: local.room?.questionCount || 0 });
+    const toDone = h("button", { type: "button", class: "btn primary", onclick: goDone }, "К итогам");
+    mount(h("div", {}, ex.el, h("div", { class: "btn-row", style: "padding:0 var(--space-3) var(--space-3)" }, toDone)));
+    st.stop = ex.stop;
+    requestAnimationFrame(() => ex.start());
+    if (!manual) later(goDone, 600 + expressStations(st.rows).length * EXPRESS_STOP_MS + 3500);
+  };
+
+  const goPodium = () => {
+    clearTimers(); st.stage = "podium";
+    const { pod, panel } = podiumBlock(false);
+    const next = h("button", { type: "button", class: "btn secondary", onclick: () => (hasExpress() ? goExpress() : goDone()) }, "Дальше");
+    panel.appendChild(h("div", { class: "btn-row", style: "padding:0 var(--space-3) var(--space-3)" }, next));
+    mount(panel);
+    const count = Math.min(3, st.rows.length);
+    const first = () => {
+      play("podiumFirst"); vibrate("podiumFirst");
+      runConfetti(pageRef || document.body, { power: 1.4 });
+    };
+    requestAnimationFrame(() => {
+      st.stop = playPodium(pod, {
+        onStep: () => { play("podiumStep"); vibrate("podiumStep"); },
+        onFirst: first
+      });
     });
-  }
-  const ctx2d = canvas.getContext("2d");
-  const start = performance.now();
-  const finishAfter = 4000;
-  const draw = (at) => {
-    if (at - start > finishAfter) {
-      canvas.remove();
-      return;
-    }
-    ctx2d.clearRect(0, 0, canvas.width, canvas.height);
-    for (const p of particles) {
-      p.x += p.vx;
-      p.y += p.vy;
-      p.rot += p.vr;
-      if (p.y > canvas.height + 20) { p.y = -20; p.x = rnd() * canvas.width; }
-      ctx2d.save();
-      ctx2d.translate(p.x, p.y);
-      ctx2d.rotate(p.rot);
-      ctx2d.fillStyle = p.color;
-      if (p.shape === "rect") {
-        ctx2d.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
-      } else {
-        ctx2d.beginPath();
-        ctx2d.arc(0, 0, p.size / 2, 0, Math.PI * 2);
-        ctx2d.fill();
-      }
-      ctx2d.restore();
-    }
-    if (confettiTimer !== null) requestAnimationFrame(draw);
+    const total = 400 + podiumOrder(count).length * STEP_MS + 4200;
+    later(() => (hasExpress() ? goExpress() : goDone()), total);
   };
-  requestAnimationFrame(draw);
-  // 4 секунды дальше — canvas подчищаем и без rAF-цепочки.
-  confettiTimer = setTimeout(() => { confettiTimer = null; canvas.remove(); }, finishAfter + 100);
+
+  const goDuel = () => {
+    clearTimers(); st.stage = "duel";
+    const [a, b] = st.rows;
+    if (!a || !b || !(a.verdicts?.length || b.verdicts?.length)) { goPodium(); return; }
+    const duel = buildDuel(a, b, { avatar: avatarChip, onDone: goPodium });
+    mount(duel.el);
+    st.stop = duel.stop;
+    requestAnimationFrame(() => duel.start());
+  };
+
+  st.cancel = () => { clearTimers(); stopConfetti(); };
+  st.refresh = (rows) => {
+    st.rows = rows;
+    if (st.stage === "done") goDone();
+  };
+  if (finalWasSeen()) goDone(); else goDuel();
+  return st;
 }
 
 function notFoundPanel() {
@@ -1294,10 +1384,10 @@ function questionPanel(question, { showAnswer = false } = {}) {
   return panel;
 }
 
-// Результаты комнаты: подиум при закрытии.
+// Результаты комнаты при закрытии: дуэль, подиум, экспресс.
 function roomResults() {
   if (local.room?.status !== "closed" && liveInfo().lifecycle !== "completed") return null;
-  return podiumPanel();
+  return finalSequence();
 }
 
 function playersListWidget(players) {
@@ -1322,8 +1412,10 @@ function hostHeader(wrap, room) {
       h("h1", {}, room.testTitle || "Комната"),
       h("p", { class: "page-sub" }, `Код комнаты: `),
     ),
-    h("a", { class: "btn secondary", href: `#room/${room.code || room.id}/screen` },
-      "Экран проектора")
+    h("div", { class: "room-head-tools" },
+      themeToggle(),
+      h("a", { class: "btn secondary", href: `#room/${room.code || room.id}/screen` },
+        "Экран проектора"))
   ));
   // Код крупно, чтобы продемонстрировать на экране/камере.
   wrap.appendChild(h("div", { class: "room-code-badge" }, room.code || room.id));
@@ -1546,7 +1638,8 @@ function playerView() {
       h("div", { class: "eyebrow" }, "Live-комната · вы участник"),
       h("h1", {}, room.testTitle || "Комната"),
       h("p", { class: "page-sub" }, `Код комнаты: ${room.code || room.id}`)
-    )
+    ),
+    h("div", { class: "room-head-tools" }, themeToggle())
   ));
 
   const currentId = room.phase === "opened" || room.phase === "closed"
@@ -1642,10 +1735,16 @@ function waitPanel(text) {
 function answerForm(question, questionId) {
   const room = local.room;
   const left = openMsLeft();
+  const total = questionTotalMs();
   const wrap = h("div", { class: "panel" });
-  wrap.appendChild(h("div", { class: "panel-head" },
+  // Круговой таймер вокруг вопроса вместо цифр: дуга убывает плавно,
+  // в последние 5 секунд кольцо краснеет и пульсирует в такт тику.
+  wrap.appendChild(h("div", { class: "panel-head question-head" },
     h("h2", {}, question.text || "Вопрос без текста"),
-    left && left > 0 ? h("span", { class: "timer badge badge-neutral", "data-live-clock": "1" }, formatClock(left)) : null
+    left && left > 0
+      ? (total ? ringTimer({ totalMs: total, leftMs: left })
+        : h("span", { class: "timer badge badge-neutral", "data-live-clock": "1" }, formatClock(left)))
+      : null
   ));
 
   const submitBtn = h("button", { type: "button", class: "btn primary btn-block" }, "Ответить");
@@ -1843,12 +1942,14 @@ function screenView() {
         : room?.testTitle || "Комната"),
     h("div", { class: "screen-code" }, room?.code || local.code || ""),
     left && left > 0
-      ? h("div", { class: "screen-timer", "data-live-clock": "1" }, formatClock(left))
+      ? h("div", { class: "screen-timer-box" },
+        questionTotalMs() ? ringTimer({ totalMs: questionTotalMs(), leftMs: left }) : null,
+        h("div", { class: "screen-timer", "data-live-clock": "1" }, formatClock(left)))
       : h("div", { class: "screen-timer screen-timer-empty" }, "")
   ));
 
   if (finishedRoom) {
-    const podium = podiumPanel();
+    const podium = finalSequence({ projector: true });
     if (podium) wrap.appendChild(podium);
   } else if (!question) {
     // Ожидание первого вопроса — момент входа участников: крупный QR,
@@ -1881,16 +1982,12 @@ function screenView() {
     ));
   }
 
-  const rows = boardRows();
-  if (rows.length) {
-    wrap.appendChild(h("div", { class: "screen-board" },
-      rows.slice(0, 6).map((row, index) => h("div", { class: "screen-row" },
-        h("span", { class: "screen-rank" }, `${index + 1}.`),
-        avatarChip(row),
-        h("span", { class: "screen-name" }, row.name || row.uid),
-        h("span", { class: "screen-score" }, `${row.score ?? 0} б.`)
-      ))
-    ));
+  // Табло: рейтинг крупными карточками в стиле вокзального табло.
+  const boardRowsList = boardRows();
+  if (boardRowsList.length && !finishedRoom) {
+    syncBoardFrame();
+    wrap.appendChild(h("div", { class: "screen-board-wrap" },
+      leaderListFor(boardRowsList.slice(0, 8), { board: true })));
   }
 
   // Комната активна, вопрос уже открыт: маленький QR под таблицей —
@@ -1909,26 +2006,11 @@ function screenView() {
 
 // ---------- Автономный режим: рейтинг и виды ----------
 
-function ratingSource() {
-  const room = local.room;
-  const li = liveInfo();
-  const finished = li.plan ? finishedPositions(li.plan, serverNowMs()).length : 0;
-  return ratingRows({
-    scores: local.scores,
-    players: local.players,
-    questionCount: room?.questionCount || 0,
-    finished,
-    lifecycle: li.lifecycle
-  });
-}
-
-// Общий рейтинг: место, ФИО, баллы, % верных, завершённые вопросы, статус.
-// Карточки в две строки — читаются на экране телефона без горизонтальной
-// прокрутки.
+// Общий рейтинг карточками: место, аватар, ФИО, баллы, % верных, число
+// вопросов, статус; своя строка подсвечена, у серии — значок огня/молнии.
 function ratingPanel({ title = "Общий рейтинг", limit = null, rows = null } = {}) {
   const all = rows || ratingSource();
   const list = limit ? all.slice(0, limit) : all;
-  const me = State.user?.uid;
   const panel = h("section", { class: "panel live-rating", "aria-label": title },
     h("div", { class: "panel-head" },
       h("h2", {}, title),
@@ -1938,21 +2020,7 @@ function ratingPanel({ title = "Общий рейтинг", limit = null, rows =
       h("p", { class: "muted" }, "Участников пока нет — рейтинг появится после первых ответов.")));
     return panel;
   }
-  panel.appendChild(h("ol", { class: "live-rating-list" },
-    list.map(row => h("li", {
-      class: "live-rating-row" + (row.uid === me ? " is-me" : ""),
-      "data-uid": row.uid
-    },
-      h("span", { class: "lr-place" }, String(row.place)),
-      avatarChip(row),
-      h("span", { class: "lr-name" }, row.name),
-      h("span", { class: "lr-score" }, `${row.score} б.`),
-      h("span", { class: "lr-meta" },
-        `${row.percent}% верных · вопросов: ${row.answered} из ${row.finished || 0}`,
-        " · ",
-        h("b", { class: `lr-status lr-${row.status}` }, RATING_STATUS_LABEL[row.status]))
-    ))
-  ));
+  panel.appendChild(leaderListFor(list));
   return panel;
 }
 
@@ -2094,6 +2162,8 @@ function autoHostView() {
       positions
     });
     wrap.appendChild(progressPanel(li, room));
+    const hostSeq = finalSequence();
+    if (hostSeq) wrap.appendChild(hostSeq);
     wrap.appendChild(h("section", { class: "panel" },
       h("div", { class: "panel-head" }, h("h2", {}, "Итоговая статистика")),
       h("div", { class: "panel-body" },
@@ -2128,7 +2198,8 @@ function playerHead(room, label) {
     h("div", {},
       h("div", { class: "eyebrow" }, `Live-комната · ${label}`),
       h("h1", {}, room.testTitle || "Комната"),
-      h("p", { class: "page-sub" }, `Код комнаты: ${room.code || room.id}`)));
+      h("p", { class: "page-sub" }, `Код комнаты: ${room.code || room.id}`)),
+    h("div", { class: "room-head-tools" }, themeToggle()));
 }
 
 function lobbyPanel(room, who) {
@@ -2194,6 +2265,31 @@ function autoPlayerView() {
   return finishedPlayerView(wrap, room, li);
 }
 
+// Мои результаты по закрытым вопросам с разбивкой очков по единой формуле
+// (core/rooms-logic.js): «Верно: 10 · Серия ×1.2 · Скорость +4 = 16 б.».
+function myResults() {
+  const me = myPlayer();
+  if (!me) return [];
+  const li = liveInfo();
+  const times = normalizePlayerTimes(me).times || {};
+  const starts = li.plan ? autoQStarts(li.plan) : qStartsMs(local.room);
+  const duration = li.plan ? li.plan.questionSec : questionDurationSec(local.test, local.room?.settings);
+  const speedOn = local.room?.speedBonus !== false;
+  const ids = Object.keys(local.reveals || {}).sort((a, b) => Number(a) - Number(b));
+  let streak = 0;
+  return ids.map(qid => {
+    const reveal = local.reveals[qid];
+    const answer = me.answers?.[qid];
+    if (answer == null) { streak = 0; return { qid, answered: false, correct: false, breakdown: null }; }
+    if (myAnswerVerdict(reveal, answer) !== true) { streak = 0; return { qid, answered: true, correct: false, breakdown: null }; }
+    streak += 1;
+    const speed = speedOn && duration && starts[qid] && typeof times[qid] === "number"
+      ? speedRatio(duration, times[qid] - starts[qid]) : 0;
+    const base = reveal.reveal?.points || reveal.points || 1;
+    return { qid, answered: true, correct: true, breakdown: scoreBreakdown(base, { streak, speed }) };
+  });
+}
+
 // Пауза между вопросами: итог по моему ответу и верный ответ (когда
 // ведущий его раскрыл).
 function gapPanel(question, li, my) {
@@ -2207,8 +2303,11 @@ function gapPanel(question, li, my) {
   const box = h("div", { class: "panel" },
     h("div", { class: "empty-state" },
       h("h2", { class: verdict === true ? "live-ok" : verdict === false || my == null ? "live-bad" : "" }, title),
-      h("p", { class: "muted" }, last ? "Результаты появятся через " : "Следующий вопрос через ",
-        h("b", { "data-live-clock": "1" }, formatClockMs(li.msLeft || 0)))));
+      h("p", { class: "gap-breakdown", "data-breakdown": "1" }, (() => {
+        const mine = myResults().find(r => r.qid === String(li.qid));
+        return mine ? formatBreakdown(mine) : "";
+      })()),
+      gapCountdown({ label: last ? "Результаты появятся через" : "Следующий вопрос через", msLeft: li.msLeft || 0 })));
   if (reveal) {
     box.appendChild(questionPanel(question, {
       showAnswer: {
@@ -2224,6 +2323,8 @@ function gapPanel(question, li, my) {
 
 function finishedPlayerView(wrap, room, li) {
   const rows = ratingSource();
+  const seq = finalSequence();
+  if (seq) wrap.appendChild(seq);
   const mine = rows.find(r => r.uid === State.user?.uid);
   wrap.appendChild(h("section", { class: "panel" },
     h("div", { class: "panel-head" },
@@ -2236,6 +2337,13 @@ function finishedPlayerView(wrap, room, li) {
             h("div", { class: "quick-action" }, h("b", {}, `${mine.percent}%`), h("span", {}, "верных"))) 
         : h("p", { class: "muted" }, "Ваш результат появится, как только ведущий подведёт итоги."),
       mine ? h("p", { class: "muted" }, `Верных ответов: ${mine.correctCount} из ${room.questionCount || 0}`) : null)));
+  const results = myResults();
+  if (results.length) {
+    wrap.appendChild(h("section", { class: "panel" },
+      h("div", { class: "panel-head" }, h("h2", {}, "Как считались баллы")),
+      h("ol", { class: "live-accuracy" },
+        results.map((r, i) => h("li", {}, `Вопрос ${i + 1}: ${formatBreakdown(r)}`)))));
+  }
   wrap.appendChild(ratingPanel({ title: "Итоговый рейтинг", rows }));
   const m = materialButton();
   if (m) wrap.appendChild(m);
@@ -2259,6 +2367,10 @@ function autoObserverView() {
     wrap.appendChild(lobbyPanel(room, "observer"));
   } else {
     wrap.appendChild(progressPanel(li, room));
+  }
+  if (li.lifecycle === "completed" || li.lifecycle === "closed") {
+    const obsSeq = finalSequence();
+    if (obsSeq) wrap.appendChild(obsSeq);
   }
   // Рейтинг наблюдатель видит всегда; отвечать и получать баллы нельзя.
   wrap.appendChild(ratingPanel({ title: li.lifecycle === "waiting" ? "Рейтинг" : "Общий рейтинг" }));

@@ -138,7 +138,7 @@ service cloud.firestore {
 
     // Пресеты реакций Live-комнат (для правила reactions ниже).
     function reactionsList() {
-      return ["👍", "🔥", "😂", "😮", "🎉"];
+      return ["signal", "horn", "bell", "star", "👍", "🔥", "😂", "😮", "🎉"];
     }
 
     // ---------- publicProfiles ----------

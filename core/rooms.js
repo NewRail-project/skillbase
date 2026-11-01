@@ -219,6 +219,9 @@ export async function writeScoreBoard({ code, board }) {
       correctCount: entry.correctCount,
       answered: entry.answered ?? 0,
       finished: entry.finished ?? 0,
+      streak: entry.streak ?? 0,
+      bestStreak: entry.bestStreak ?? 0,
+      trail: entry.trail ?? "",
       updatedAt: serverTimestamp()
     }, { merge: true });
   }
@@ -429,6 +432,9 @@ export async function closeQuestion({ code, index, keys, test, players, speed = 
       score: entry.score,
       max: entry.max,
       correctCount: entry.correctCount,
+      streak: entry.streak ?? 0,
+      bestStreak: entry.bestStreak ?? 0,
+      trail: entry.trail ?? "",
       updatedAt: serverTimestamp()
     }, { merge: true });
   }

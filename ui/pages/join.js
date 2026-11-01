@@ -8,6 +8,7 @@
 // Уже вошедший (players/{uid} существует) сразу возвращается в комнату со
 // своей ПРЕЖНЕЙ ролью: наблюдатель не превращается в участника, а выбор
 // роли пережившей перезагрузку сессии восстанавливается из sessionStorage.
+import { themeToggle } from "../components/theme-toggle.js";
 import { h } from "../../shared/dom.js";
 import { State, signInAsGuest, isStaff } from "../../core/auth.js";
 import { getRoom, joinRoom, getMyRoomRole } from "../../core/rooms.js";
@@ -17,7 +18,7 @@ import {
 } from "../../core/live-auto.js";
 import { getGuestName } from "../../core/guest.js";
 import { saveReturnTo } from "../../shared/return-to.js";
-import { AVATAR_PRESETS } from "../../shared/avatars.js";
+import { avatarPicker } from "../components/avatar.js";
 import { toast } from "../components/toast.js";
 
 const ROLE_LABEL = { [ROLE_PLAYER]: "Участник", [ROLE_OBSERVER]: "Наблюдатель" };
@@ -46,6 +47,8 @@ function recallRole(code) {
 
 export default async function JoinPage() {
   const page = h("div", { class: "page" });
+  // Тема хранится на устройстве (localStorage), поэтому доступна и гостю.
+  page.appendChild(h("div", { class: "auth-corner" }, themeToggle({ withLabel: true })));
   const codeRaw = (State.routeParam || "").split("/")[0] || "";
   const codeFromRoute = normalizeRoomCode(codeRaw) || "";
   const signedIn = Boolean(State.user);
@@ -200,10 +203,7 @@ export default async function JoinPage() {
 
   // ---------- Гость: аватар ----------
 
-  const avatarSelect = h("select", { id: "guest-avatar", "aria-label": "Аватар" },
-    AVATAR_PRESETS.map(preset =>
-      h("option", { value: `preset:${preset.id}` }, `${preset.emoji} ${preset.id}`)
-    ));
+  const picker = avatarPicker();
 
   // ---------- Вход ----------
 
@@ -235,7 +235,7 @@ export default async function JoinPage() {
     joinBtn.textContent = "Подключаемся…";
     try {
       if (guestMode) {
-        await signInAsGuest(code, nameCheck.value, avatarSelect.value, role);
+        await signInAsGuest(code, nameCheck.value, picker.getValue(), role);
       } else {
         const found = await getRoom(code);
         if (!found) { setMessage("Комната с таким кодом не найдена."); return; }
@@ -318,7 +318,7 @@ export default async function JoinPage() {
         h("div", { class: "field" }, nameLabel, nameInput, nameHint),
         guestMode
           ? h("div", { class: "field" },
-              h("label", { for: "guest-avatar" }, "Аватар"), avatarSelect)
+              h("label", {}, "Аватар"), picker.el)
           : null,
         joinBtn,
         message

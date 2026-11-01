@@ -68,7 +68,14 @@ const pairsToCheck = [
   ['danger', 'surface'],
   ['text', 'ok-bg'],
   ['text', 'danger-bg'],
-  ['text', 'warn-bg']
+  ['text', 'warn-bg'],
+  // Строки рейтинга и подиум: явные пары «фон + текст» (Live-комнаты).
+  ['row-text', 'row-bg'],
+  ['row-text-2', 'row-bg'],
+  ['row-me-text', 'row-me-bg'],
+  ['medal-text', 'medal-gold-bg'],
+  ['medal-text', 'medal-silver-bg'],
+  ['medal-text', 'medal-bronze-bg']
 ];
 
 let hasError = false;

@@ -104,3 +104,34 @@ html[data-theme="dark"] {
   --error-color: var(--danger);
   --radius-ctl: var(--radius-s);
 }
+
+/* Псевдонимы старых имён переменных. Раньше они были не определены, и CSS
+   брал светлые запасные цвета — отсюда белый текст на белой карточке в
+   тёмной теме. Теперь все цвета идут от токенов активной темы. */
+:root {
+  --surface-1: var(--surface);
+  --surface-2: var(--elevated);
+  --surface-3: var(--border);
+  --surface-bg-alt: var(--elevated);
+  --muted: var(--text-2);
+  --text-muted: var(--text-2);
+  --muted-ink: var(--text-2);
+  --accent-ink: var(--accent);
+  --primary: var(--accent);
+  --on-primary: var(--on-accent);
+  --success: var(--ok);
+  --color-success: var(--ok);
+  --color-danger: var(--danger);
+  --warning: var(--warn);
+  --on-warning: var(--on-warn);
+  --on-success: var(--bg);
+  --on-danger: var(--bg);
+  --on-info: var(--bg);
+  --info: var(--accent-2);
+  --line: var(--border);
+  --ink: var(--text);
+  --focus-ring: var(--focus);
+  --shadow-1: var(--shadow);
+  --shadow-2: var(--shadow);
+  --shadow-lg: var(--shadow-lift);
+}

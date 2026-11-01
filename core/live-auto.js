@@ -389,6 +389,9 @@ export function ratingRows({ scores = [], players = [], questionCount = 0,
       correctCount: correct,
       answered: Number(s.answered) || 0,
       finished: closed,
+      streak: Number(s.streak) || 0,
+      bestStreak: Number(s.bestStreak) || 0,
+      trail: typeof s.trail === "string" ? s.trail : "",
       total: questionCount,
       percent: closed > 0 ? Math.round((correct / closed) * 100) : 0,
       status: done ? "completed" : "in_progress"
@@ -423,6 +426,8 @@ export function changedScores(existing = [], board = []) {
       || old.correctCount !== entry.correctCount
       || old.answered !== entry.answered
       || old.finished !== entry.finished
+      || (old.streak ?? 0) !== (entry.streak ?? 0)
+      || (old.trail ?? "") !== (entry.trail ?? "")
       || old.name !== entry.name;
   });
 }
