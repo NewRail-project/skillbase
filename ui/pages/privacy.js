@@ -115,7 +115,7 @@ export default function PrivacyPage() {
         blocks: [
           h("p", {}, "Все вопросы, связанные с конфиденциальностью данных, следует направлять разработчику:"),
           h("ul", {},
-            h("li", {}, "Буйленков Даниил Дмитриевич — главный разработчик проекта;"),
+            h("li", {}, "Буйленков Даниил — главный разработчик проекта;"),
             h("li", {}, "Email: bujlenkovdaniil@gmail.com;"),
             h("li", {}, "Telegram: @Frozencode_f;"),
             h("li", {}, "GitHub: https://github.com/NewRail-project/skillbase")
