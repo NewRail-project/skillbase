@@ -203,6 +203,19 @@ export default async function QuizPage() {
   const staff = isStaff();
   const profile = State.profile || {};
 
+  // Удалённый тест: автор и админ организации всё ещё могут прочитать
+  // документ (статус "deleted"), остальные получают "не найден". Никому
+  // не позволяем начать попытку: правила Firestore отклонят её, но
+  // покажем сообщение сразу.
+  if (test.status === "deleted") {
+    page.append(errorPanel(
+      "Тест удалён",
+      "Тест удалён из каталога и истории. Результаты ранее пройденных попыток сохранены в истории.",
+      back
+    ));
+    return page;
+  }
+
   if (!staff && test.status !== "published") {
     page.append(errorPanel("Тест недоступен", "Тест ещё не опубликован.", back));
     return page;

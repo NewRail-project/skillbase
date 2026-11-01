@@ -193,12 +193,40 @@ service cloud.firestore {
         && request.resource.data.questions is list
         && request.resource.data.questions.size() > 0;
 
+      // Обновление: автор или админ организации, authorId и orgId
+      // неизменяемы. Мягкое удаление — это тоже update:
+      //   status → "deleted" может поставить только автор или админ
+      //   организации, и вместе со статусом обязан записать
+      //   deletedBy == свой uid (кто удалил — видно в документе).
+      //   Воскресить удалённый тест нельзя: статус "deleted" не
+      //   меняется, а правки прочих полей удалённого теста запрещены
+      //   (допустимо только повторное удаление — идемпотентность).
       allow update: if signedIn()
         && (resource.data.authorId == request.auth.uid
           || isAdminOf(resource.data.orgId))
         && request.resource.data.authorId == resource.data.authorId
-        && request.resource.data.orgId == resource.data.orgId;
+        && request.resource.data.orgId == resource.data.orgId
+        && (
+          (
+            resource.data.status != "deleted"
+            && request.resource.data.status != "deleted"
+          )
+          || (
+            request.resource.data.status == "deleted"
+            && request.resource.data.get("deletedBy", "") == request.auth.uid
+            // Мягкое удаление меняет только служебные поля:
+            // прочие правки удалённого теста запрещены.
+            && request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly(
+                ["status", "deletedAt", "deletedBy", "updatedAt", "settings"]
+              )
+          )
+        )
+        && !(resource.data.status == "deleted"
+          && request.resource.data.status != "deleted");
 
+      // Жёсткое удаление запрещено: попытки, история и аналитика
+      // хранятся вокруг документа теста.
       allow delete: if false;
     }
 

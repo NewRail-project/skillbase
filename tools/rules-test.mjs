@@ -473,6 +473,194 @@ function liveAutoCases() {
     ];
 }
 
+// ---------- Удаление теста (soft delete) ----------
+// Мягкое удаление: status → "deleted" пишет автор или админ организации
+// с меткой deletedBy == uid. Воскресить или править удалённый тест нельзя;
+// жёсткие deleteDoc запрещены (попытки, история и аналитика остаются).
+function testDeleteCases() {
+    const existingPattern = testDoc();
+    const deletedPattern = {
+        ...existingPattern,
+        status: "deleted",
+        deletedBy: "teacher1",
+        deletedAt: ISO,
+        updatedAt: ISO,
+        settings: { showCorrectAfterQuestion: false }
+    };
+
+    return [
+        {
+            name: "Удаление: автор помечает свой тест удалённым",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/tests/t1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: existingPattern,
+            newDoc: deletedPattern,
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Удаление: повторная пометка тем же автором (идемпотентность)",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/tests/t1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: { data: deletedPattern },
+            newDoc: deletedPattern,
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Удаление: другой преподаватель не может удалить чужой тест",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher2" },
+                path: `${DB}/tests/t1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: existingPattern,
+            newDoc: {
+                ...deletedPattern,
+                deletedBy: "teacher2"
+            },
+            functionMocks: profileMocks("teacher2", "teacher")
+        },
+        {
+            name: "Удаление: студент не может пометить тест удалённым",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/tests/t1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: existingPattern,
+            newDoc: { ...deletedPattern, deletedBy: "student1" },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Удаление: админ организации удаляет тест автора",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "admin1" },
+                path: `${DB}/tests/t1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: existingPattern,
+            newDoc: { ...deletedPattern, deletedBy: "admin1" },
+            functionMocks: profileMocks("admin1", "admin")
+        },
+        {
+            name: "Удаление: админ чужой организации не может удалить тест",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "admin2" },
+                path: `${DB}/tests/t1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: existingPattern,
+            newDoc: { ...deletedPattern, deletedBy: "admin2" },
+            functionMocks: profileMocks("admin2", "admin", "other-org")
+        },
+        {
+            name: "Удаление: без deletedBy == uid пометка не принимается",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/tests/t1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: existingPattern,
+            newDoc: {
+                ...deletedPattern,
+                deletedBy: "t-doctor"
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Удаление: удалённый тест нельзя воскресить (статус draft)",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/tests/t1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: deletedPattern,
+            newDoc: {
+                ...existingPattern,
+                status: "draft"
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Удаление: правки прочих полей удалённого теста запрещены",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/tests/t1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: deletedPattern,
+            newDoc: {
+                ...deletedPattern,
+                title: "Переписанный заголовок"
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Удаление: жёсткое удаление tests запрещено",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/tests/t1`,
+                method: "delete"
+            },
+            existingDoc: existingPattern,
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Удаление: testKeys теста удалить нельзя",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/testKeys/t1`,
+                method: "delete"
+            },
+            existingDoc: {
+                authorId: "teacher1",
+                orgId: ORG,
+                items: { "0": { type: "single", points: 1, correct: [0] } }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Удаление: попытку студента удалить нельзя",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/attempts/a1`,
+                method: "delete"
+            },
+            existingDoc: attemptDoc(),
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                ...assignmentMocks("exam")
+            ]
+        }
+    ];
+}
+
 function testCases() {
     return [
         {
@@ -2821,7 +3009,7 @@ async function main() {
 
     const project = projectId();
     const token = await accessToken();
-    const cases = [...testCases(), ...selfPaceCases()];
+    const cases = [...testCases(), ...testDeleteCases(), ...selfPaceCases()];
 
     const testSuite = cases.map((item) => {
         const request = { ...item.request };

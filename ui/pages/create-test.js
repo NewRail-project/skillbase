@@ -347,6 +347,14 @@ export default async function CreateTestPage() {
       return errorPage("Тест не найден", "Возможно, он был удалён или ссылка устарела.", back);
     }
 
+    if (editing.status === "deleted") {
+      return errorPage(
+        "Тест удалён",
+        "Тест удалён из каталога и истории, редактирование недоступно. Результаты ранее пройденных попыток сохранены.",
+        back
+      );
+    }
+
     if (editing.authorId !== State.user?.uid && !isAdmin()) {
       return errorPage(
         "Нет прав на редактирование",
