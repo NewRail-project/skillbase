@@ -802,7 +802,6 @@ body.sidebar-open { overflow: hidden; }
 .room-status { min-height: 1.2em; margin: var(--space-2) 0; color: var(--muted-ink, inherit); }
 .room-status-error { color: var(--signal); }
 .room-options { margin: 0; padding-left: 1.2rem; display: grid; gap: var(--space-1); }
-.reveal-answer { border-left: 3px solid var(--accent); }
 .assignment-material {
   white-space: pre-wrap;
   max-height: 40vh;
@@ -943,7 +942,6 @@ body.sidebar-open { overflow: hidden; }
 .room-leaderboard-host:empty { display: none; }
 .leader-score { font-variant-numeric: tabular-nums; }
 .leader-move { font-size: .8rem; font-weight: 700; color: var(--color-success, #2e7d32); margin-left: var(--space-2); }
-.score-countup { font-variant-numeric: tabular-nums; }
 .room-leader-table tbody tr { will-change: transform; }
 .avatar-chip {
   display: inline-flex;
@@ -1215,20 +1213,6 @@ body.sidebar-open { overflow: hidden; }
 .live-people { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: center; margin: var(--space-2) 0; }
 .live-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: var(--surface-2, #eef1e4); border-radius: 16px; }
 
-.live-rating-list { list-style: none; margin: 0; padding: var(--space-2) var(--space-3) var(--space-3); display: grid; gap: var(--space-2); }
-.live-rating-row {
-  display: grid; grid-template-columns: 2rem auto 1fr auto; align-items: center;
-  column-gap: var(--space-2); row-gap: 2px; padding: var(--space-2) var(--space-3);
-  border-radius: .75rem; background: var(--surface-2, #f1f4e8);
-}
-.live-rating-row.is-me { outline: 2px solid var(--accent); }
-.lr-place { font-weight: 800; text-align: center; }
-.lr-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.lr-score { font-weight: 800; white-space: nowrap; }
-.lr-meta { grid-column: 2 / -1; font-size: .8rem; color: var(--muted, #555); }
-.lr-completed { color: var(--accent-ink, #2d5a12); }
-.lr-in_progress { color: var(--muted, #555); }
 .live-ok { color: #2e7d32; }
 .live-bad { color: var(--signal); }
 .live-accuracy { padding-left: 1.2rem; display: grid; gap: 2px; font-size: .9rem; }
-@media (max-width: 380px) { .live-rating-row { grid-template-columns: 1.6rem auto 1fr auto; padding: var(--space-2); } }

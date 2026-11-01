@@ -1,6 +1,6 @@
 import {
-  db, collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc,
-  query, where, serverTimestamp, orderBy, Timestamp
+  db, collection, doc, getDoc, getDocs, addDoc,
+  query, where, serverTimestamp, Timestamp
 } from "../shared/firebase.js";
 import { validateAssignmentDraft } from "./assignment-logic.js";
 
@@ -117,15 +117,4 @@ export async function getTeacherResults(testId, teacherGroups = null) {
     attempts = attempts.filter(a => teacherGroups.includes(a.groupId));
   }
   return attempts.sort((a, b) => (b.finishedAt?.seconds || 0) - (a.finishedAt?.seconds || 0));
-}
-
-export async function closeAssignment(assignmentId) {
-  await updateDoc(doc(db, "assignments", assignmentId), {
-    status: "closed",
-    updatedAt: serverTimestamp()
-  });
-}
-
-export async function removeAssignment(assignmentId) {
-  await deleteDoc(doc(db, "assignments", assignmentId));
 }

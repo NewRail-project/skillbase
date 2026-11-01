@@ -14,7 +14,6 @@ import {
   safeUi,
   validateFullName
 } from "./registration.js";
-import { DEFAULT_ORG_ID } from "../configs/organization.js";
 import { isValidAvatarValue } from "../shared/avatars.js";
 import { validateGuestName, saveGuestName, clearGuestName } from "./guest.js";
 
@@ -39,8 +38,6 @@ export const State = {
   // Флаг для отслеживания начальной загрузки профиля
   initialProfileLoad: false
 };
-
-export const DEFAULT_ORG = DEFAULT_ORG_ID;
 
 export function subscribe(listener) {
   State.listeners.push(listener);

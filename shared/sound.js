@@ -167,11 +167,6 @@ function makeOscillator(audio, def, opts) {
   return osc;
 }
 
-// Для тестов: сброс дедупликации между «событиями».
-export function resetGate() {
-  lastPlayedMs = {};
-}
-
 // Вибрация: верный [30], неверный [60,40,60] — только если поддерживается
 // и звук не выключен вручную (в тихом режиме без вибрации).
 export function vibrate(kind) {

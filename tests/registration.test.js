@@ -203,7 +203,7 @@ test("SETUP_STYLES: три существующих уникальных ски�
   const values = SETUP_STYLES.map(([v]) => v);
   assert.deepEqual(new Set(values).size, 3);
   for (const value of values) {
-    assert.ok(VALID_UI.includes(value), `скин ${value} существует в theme.css`);
+    assert.ok(VALID_UI.includes(value), `скин ${value} существует в темах education/operations/depot`);
   }
   // Предпросмотр и живое применение обязаны быть определены для каждого
   // значения (radius/gap в setup-profile.js) — проверяем через safeUi.

@@ -8,7 +8,6 @@
 // пользователям своей организации. Это же проверяют firestore.rules.
 
 export const ADMIN_ROLE = "admin";
-export const STAFF_ROLES = ["teacher", "admin"];
 export const ALL_ROLES = ["student", "teacher", "admin"];
 
 export const ROLE_LABELS = {

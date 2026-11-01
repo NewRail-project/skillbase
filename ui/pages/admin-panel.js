@@ -9,7 +9,10 @@ const ROLE_LABEL = { student: "Студент", teacher: "Преподавате
 
 function tile({ icon, title, text, href, action }) {
   const card = h("a", { class: "quick-action", href });
-  card.innerHTML = `<span class="icon">${icon}</span>`;
+  // Статичный SVG из констант, пользовательских данных нет.
+  const iconEl = h("span", { class: "icon" });
+  iconEl.innerHTML = icon;
+  card.append(iconEl);
   card.append(
     h("b", {}, title),
     h("span", {}, text),

@@ -62,8 +62,10 @@ function quickActions(items) {
   return h("div", { class: "quick-actions" },
     items.map(item => {
       const a = h("a", { class: "quick-action", href: item.href });
-      a.innerHTML = `<span class="icon">${item.icon}</span>`;
-      a.append(h("b", {}, item.label), h("span", {}, item.hint));
+      // Статичный SVG из констант, пользовательских данных нет.
+      const iconEl = h("span", { class: "icon" });
+      iconEl.innerHTML = item.icon;
+      a.append(iconEl, h("b", {}, item.label), h("span", {}, item.hint));
       return a;
     })
   );
@@ -98,8 +100,14 @@ function resultChart(attempts) {
     )
   );
   const chart = h("div", { style: "margin-top:12px" });
-  chart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}"
-    preserveAspectRatio="none" role="img" aria-label="Проценты последних попыток">${bars}</svg>`;
+  // В сборке только локальные числа (width/height) и разметка баров,
+  // построенная выше; пользовательских строк нет (R7).
+  const svg =
+    `<svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}"
+    preserveAspectRatio="none" role="img" aria-label="Проценты последних попыток">` +
+    bars +
+    "</svg>";
+  chart.innerHTML = svg;
   wrap.appendChild(chart);
   return wrap;
 }

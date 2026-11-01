@@ -13,7 +13,5 @@
 // в Firebase Console как справочник (см. docs/FIREBASE_SETUP.md).
 
 export const DEFAULT_ORG_ID = "default-org";
-export const DEFAULT_ORG_TITLE = "Skillbase";
 
 export const DEFAULT_GROUP_ID = "default-group";
-export const DEFAULT_GROUP_TITLE = "Общая группа";

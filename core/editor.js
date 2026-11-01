@@ -250,18 +250,6 @@ export async function loadTest(testId) {
   }
 }
 
-// Ключи ответов теста. Доступны только сотрудникам организации по правилам.
-export async function getTestKeys(testId) {
-  if (!isStaff()) return null;
-  try {
-    const snap = await getDoc(doc(db, "testKeys", testId));
-    return snap.exists() ? snap.data().items : null;
-  } catch (error) {
-    console.error("[Skillbase] Не удалось прочитать testKeys:", error?.code || "unknown", error?.message || error);
-    return null;
-  }
-}
-
 // Чтение теста и ключей для экрана проверки. Не трогает currentTest,
 // чтобы преподаватель, открывший проверку, не потерял черновик редактора.
 export async function getTestForReview(testId, version = null) {
@@ -309,19 +297,6 @@ export async function getTestForReview(testId, version = null) {
   return { test, keys };
 }
 
-export function loadDraft(testId) {
-  try {
-    const local = readDraftLocally(testId);
-    if (local) {
-      currentTest = local;
-      return local;
-    }
-    return null;
-  } catch (error) {
-    console.error("Ошибка загрузки черновика:", error);
-    return null;
-  }
-}
 
 export function validateTestDraft(test) {
   const { errors, warnings } = validateTest(test, { publishing: false });
@@ -480,11 +455,4 @@ export async function deleteTest(testId) {
     unaddressedAssignments: plan.foreignAssignmentIds,
     unaddressedRooms: plan.foreignRooms
   };
-}
-
-export async function setTestStatus(testId, status) {
-  await updateDoc(doc(db, "tests", testId), {
-    status,
-    updatedAt: serverTimestamp()
-  });
 }

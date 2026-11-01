@@ -119,7 +119,10 @@ export function renderSidebar(onChange) {
         if (onChange) onChange();
       }
     });
-    themeBtn.innerHTML = `<span class="icon" style="display:inline-flex;width:18px;height:18px">${themeIcon}</span><span>${themeLabel}</span>`;
+    // Статичный SVG из констант, пользовательских данных нет.
+    const themeIconEl = h("span", { class: "icon", style: "display:inline-flex;width:18px;height:18px" });
+    themeIconEl.innerHTML = themeIcon;
+    themeBtn.append(themeIconEl, h("span", {}, themeLabel));
 
     aside.appendChild(h("div", { class: "sidebar-footer" },
       themeBtn,

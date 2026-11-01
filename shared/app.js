@@ -62,8 +62,6 @@ const routes = {
   "analytics":    { file: "ui/pages/analytics.js",         title: "Аналитика по тесту",   auth: true, roles: STAFF },
   "review":       { file: "ui/pages/review.js",            title: "Проверка попытки",     auth: true, roles: STAFF },
   "assignments":  { file: "ui/pages/assignments.js",       title: "Задания",              auth: true },
-  "student":      { file: "ui/pages/student-dashboard.js", title: "Панель студента",      auth: true },
-  "teacher":      { file: "ui/pages/teacher-dashboard.js", title: "Панель преподавателя", auth: true, roles: STAFF },
   "users":        { file: "ui/pages/users.js",             title: "Пользователи",         auth: true, roles: STAFF },
   "admins":       { file: "ui/pages/admins.js",            title: "Администраторы",       auth: true, roles: ADMIN },
   "settings":     { file: "ui/pages/settings.js",          title: "Настройки",            auth: true },

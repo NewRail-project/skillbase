@@ -29,7 +29,7 @@ node scripts/check-contrast.mjs | tail -2
 
 echo "→ GitHub Pages"
 git add -A
-git commit -m "Live: палитра гостя, свой темп, мгновенный вердикт, живой топ, админ-участник" || true
+git commit -m "Обновление Skillbase" || true
 git push
 
 echo "→ Firebase: правила и индексы (реакции ЖД)"

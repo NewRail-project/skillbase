@@ -24,7 +24,7 @@ import {
 } from "./live-auto.js";
 import { State, isStaff, isAdmin } from "./auth.js";
 import {
-  REACTIONS, normalizeReaction
+  normalizeReaction
 } from "../shared/reactions.js";
 
 function requireOnline(message) {
@@ -443,16 +443,6 @@ export async function getMyRoomRole(code) {
 }
 
 // Проверка членства ДО входа: собственный players/{uid} документ
-// читается правилами любому вошедшему (request.auth.uid == playerId),
-// поэтому проверка безопасна и не требует прав на список участников.
-// Участник определяется id документа — без чтения поля uid.
-export async function isRoomMember(code) {
-  const roomCode = normalizeRoomCode(code);
-  if (!roomCode || !State.user?.uid) return false;
-  const snap = await getDoc(doc(db, "rooms", roomCode, "players", State.user.uid));
-  return snap.exists();
-}
-
 // Заменяет маркеры SERVER_TIMESTAMP на настоящую serverTimestamp().
 function replaceServerMarkers(fields) {
   const out = {};
@@ -731,8 +721,6 @@ export async function saveAnswer(code, questionId, answer) {
 
 // rooms/{code}/reactions/{uid}: { emoji, at }. Каждый участник/наблюдатель
 // пишет только свой документ; правила не дают слать чаще раза в секунду.
-export const REACTIONS_PRESETS = REACTIONS;
-
 export async function sendReaction(code, emoji) {
   requireOnline("Нет подключения к интернету. Реакция не отправлена.");
   const roomCode = normalizeRoomCode(code);

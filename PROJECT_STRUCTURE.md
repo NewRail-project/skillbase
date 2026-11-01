@@ -21,7 +21,6 @@ skillbase/
 │   ├── main.js             # Точка входа приложения
 │   ├── firebase.js         # Инициализация Firebase
 │   ├── firebase-config.js  # Конфигурация Firebase
-│   └── utils.js            # Утилиты
 ├── ui/                     # Пользовательский интерфейс
 │   ├── pages/              # Страницы приложения
 │   │   ├── home.js         # Главная страница
@@ -30,13 +29,10 @@ skillbase/
 │   │   ├── profile.js      # Профиль пользователя
 │   │   ├── admins.js       # Управление администраторами организации
 │   │   ├── assignments.js  # Задания ученика
-│   │   ├── teacher-results.js # Результаты преподавателя
 │   │   ├── quiz.js         # Прохождение теста
 │   │   └── ...             # Другие страницы
 │   ├── editor/             # Компоненты редактора
-│   │   ├── EditorComponent.js
-│   │   ├── EditorStyles.css
-│   │   └── index.html
+│   │   └── EditorComponent.js
 │   ├── authContext.js      # Контекст аутентификации
 │   └── network-status.js   # Статус сети
 ├── tests/                  # Тесты
