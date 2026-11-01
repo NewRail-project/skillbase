@@ -48,12 +48,15 @@ const routes = {
   "quiz":         { file: "ui/pages/quiz.js",              title: "Тест",                 auth: true, guest: true },
   "launch":       { file: "ui/pages/launch.js",            title: "Как провести тест",    auth: true, roles: STAFF },
   "join":         { file: "ui/pages/join.js",              title: "Вход по коду" },
-  "about":        { file: "ui/pages/about.js",             title: "О платформе" },
-  // Информационные страницы: открыты всем (гостям тоже), без привязки к роли.
   "privacy":      { file: "ui/pages/privacy.js",           title: "Политика конфиденциальности" },
+  "privacy-en":   { file: "ui/pages/privacy-en.js",        title: "Privacy Policy" },
   "terms":        { file: "ui/pages/terms.js",             title: "Пользовательское соглашение" },
+  "terms-en":     { file: "ui/pages/terms-en.js",          title: "Terms of Use" },
   "rules":        { file: "ui/pages/rules.js",             title: "Правила использования" },
+  "rules-en":     { file: "ui/pages/rules-en.js",          title: "Usage Guidelines" },
   "contact":      { file: "ui/pages/contact.js",           title: "Контакты и обратная связь" },
+  "about":        { file: "ui/pages/about.js",             title: "О проекте" },
+  "about-en":     { file: "ui/pages/about-en.js",          title: "About the project" },
   // guest: маршрут открыт анонимному гостю (участие в live-комнате —
   // единственная гостевая функция; остальное требует регистрации).
   "room":         { file: "ui/pages/room.js",              title: "Live-комната",         auth: true, guest: true },
