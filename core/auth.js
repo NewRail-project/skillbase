@@ -4,7 +4,7 @@ import {
   GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
   linkWithCredential
 } from "../shared/firebase.js";
-import { applyThemeMode, getThemeMode } from "../shared/theme.js";
+import { applyThemeMode, getThemeMode, setPalette, applyPalette, getStoredPalette } from "../shared/theme.js";
 import {
   DEFAULT_UI,
   VALID_UI,
@@ -72,9 +72,18 @@ function fallbackProfile(user) {
 
 export function applyTheme(uiName) {
   const ui = safeUi(uiName);
-  document.documentElement.setAttribute("data-ui", ui);
-  // data-ui — это "скин" интерфейса; светлота/темнота живёт в data-theme
-  // и не должна сбрасываться при смене скина.
+  // data-ui — это "скин" интерфейса (палитра). Выбор хранится в
+  // shared/theme.js (localStorage, ключ sb-palette): профиль пишет и читает
+  // ту же настройку, поэтому гость и вошедший пользователь не расходятся.
+  setPalette(ui);
+  // Светлота/темнота живёт в data-theme и не сбрасывается при смене скина.
+  applyThemeMode(getThemeMode());
+}
+
+// Выход и экран входа: профиля нет — берём палитру, сохранённую на
+// устройстве (гость выбирал её сам), а не жёсткий скин по умолчанию.
+export function applyGuestPalette() {
+  applyPalette(getStoredPalette() || DEFAULT_UI);
   applyThemeMode(getThemeMode());
 }
 
@@ -138,9 +147,13 @@ async function loadProfile(user) {
       : "Не удалось загрузить профиль. Проверьте подключение к сети.";
   }
 
-  // Apply theme if profile exists, otherwise use default
-  if (State.profile?.ui) {
+  // Палитру из профиля применяем, только когда документ профиля реально
+  // загружен. Гость (анонимный вход), «нет профиля» и ошибка чтения не должны
+  // сбрасывать палитру, выбранную на этом устройстве.
+  if (State.profileStatus === "ready" && State.profile?.ui) {
     applyTheme(State.profile.ui);
+  } else {
+    applyGuestPalette();
   }
   State.initialProfileLoad = false;
   notify();
@@ -165,7 +178,7 @@ export async function initAuth() {
         State.profile = null;
         State.profileStatus = "signed-out";
         State.profileError = null;
-        applyTheme(DEFAULT_UI);
+        applyGuestPalette();
         State.initialProfileLoad = false;
         if (!first) notify();
         finish(null);
@@ -485,7 +498,7 @@ export async function logout() {
   State.profile = null;
   State.profileStatus = "signed-out";
   State.profileError = null;
-  applyTheme(DEFAULT_UI);
+  applyGuestPalette();
   notify();
 }
 

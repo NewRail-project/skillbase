@@ -338,6 +338,7 @@ export function computeScores(players, keys, openedIndexes = [], speed = null) {
     return {
       uid: player.uid,
       name: player.name || "Участник",
+      isAdminPlayer: player.isAdminPlayer === true,
       score,
       max,
       correctCount,
@@ -431,7 +432,10 @@ export function roomGateStatus({ playersLoaded = false, players = [], uid = null
 // serverTimestamp() перед записью.
 export const SERVER_TIMESTAMP = Symbol("serverTimestamp");
 
-export function joinPlayerFields(existing, { uid = "", playerId = "", name, observer = false, avatar = null, role = null } = {}) {
+export function joinPlayerFields(existing, {
+  uid = "", playerId = "", name, observer = false, avatar = null, role = null,
+  groupId = null, isAdminPlayer = false
+} = {}) {
   if (!existing) {
     const fields = {
       uid: uid || "",
@@ -445,6 +449,10 @@ export function joinPlayerFields(existing, { uid = "", playerId = "", name, obse
     // и после создания документа не меняется (правила Firestore).
     if (role) fields.role = observer ? "observer" : "player";
     if (avatar) fields.avatar = avatar;
+    // Группа — цвет кольца аватара в рейтинге (правила: равна группе профиля).
+    if (groupId && !observer) fields.groupId = String(groupId).slice(0, 64);
+    // Администратор проходит тест участником: флаг скрывает его из общего топа.
+    if (isAdminPlayer && !observer) fields.isAdminPlayer = true;
     return fields;
   }
 
@@ -456,3 +464,33 @@ export function joinPlayerFields(existing, { uid = "", playerId = "", name, obse
   fields.updatedAt = SERVER_TIMESTAMP;
   return fields;
 }
+
+
+// ---------- Вердикты, которые пишет ведущий (без раскрытия ключа) ----------
+
+// Вердикт моего ответа из rooms/{код}/verdicts/{uid}: { v: { "0": { c, p } } }.
+// Возвращает { verdict: true|false|null, points } — null, пока ведущий не
+// проверил ответ. Ключ правильного ответа в документе не хранится.
+export function verdictFromDoc(doc, qid) {
+  const item = doc?.v?.[String(qid)];
+  if (!item) return { verdict: null, points: 0 };
+  return { verdict: item.c === true, points: Number(item.p) || 0 };
+}
+
+// Ведущий задаёт вопросу длительность (сек) из настроек теста.
+export function questionDurationSec(test, settings) {
+  // room.settings хранит только pace: тайминг в нём есть лишь у старых
+  // документов, иначе берём настройки теста.
+  const hasTiming = settings && (settings.timePerQuestion || settings.totalTime);
+  const s = hasTiming ? settings : (test?.settings || settings || {});
+  if (s.timePerQuestion && Number(s.timePerQuestion) > 0) {
+    return Number(s.timePerQuestion);
+  }
+  if (s.totalTime && Number(s.totalTime) > 0) {
+    const count = (test?.questions || []).length || 1;
+    return Math.max(0, Math.round(Number(s.totalTime) / count));
+  }
+  // Без настройки вопрос открыт до ручного закрытия.
+  return null;
+}
+

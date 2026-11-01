@@ -23,12 +23,13 @@ rm -rf "$TMP"
 cd "$DEST"
 echo "→ Проверки"
 npm test
+if [ -f tools/rules-test.mjs ]; then npm run test:rules || echo "! test:rules не прошёл — проверьте firebase login и правила"; fi
 node scripts/check-imports.mjs
 node scripts/check-contrast.mjs | tail -2
 
 echo "→ GitHub Pages"
 git add -A
-git commit -m "Live: баллы, рейтинг-карточки, серия, таймеры, подиум, ЖД-аватары, реакции, дуэль, экспресс" || true
+git commit -m "Live: палитра гостя, свой темп, мгновенный вердикт, живой топ, админ-участник" || true
 git push
 
 echo "→ Firebase: правила и индексы (реакции ЖД)"

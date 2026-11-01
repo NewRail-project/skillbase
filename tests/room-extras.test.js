@@ -39,9 +39,9 @@ test('canPlay: один звук на событие не чаще раза в 1
   assert.equal(canPlay('нет-такого', 1000, lastMs), false, 'неизвестный звук запрещён');
 });
 
-test('VIBRATION_DEFS: верный [30], неверный [60,40,60]', () => {
+test('VIBRATION_DEFS: верный [30], неверный [70,40,70,40,120]', () => {
   assert.deepEqual(VIBRATION_DEFS.correct, [30]);
-  assert.deepEqual(VIBRATION_DEFS.wrong, [60, 40, 60]);
+  assert.deepEqual(VIBRATION_DEFS.wrong, [70, 40, 70, 40, 120]);
 });
 
 test('REACTIONS: 8 пресетов (4 ЖД + 4 эмодзи), normalizeReaction отбрасывает чужое', () => {

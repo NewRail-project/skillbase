@@ -8,20 +8,21 @@
 
 import {
   db, doc, getDoc, setDoc, updateDoc, onSnapshot, serverTimestamp,
-  collection, runTransaction
+  collection, runTransaction, writeBatch
 } from "../shared/firebase.js";
 import {
   generateRoomCode, normalizeRoomCode, isValidRoomCode,
   computeScores, buildReveal, normalizePlayerTimes,
-  joinPlayerFields, SERVER_TIMESTAMP
+  joinPlayerFields, SERVER_TIMESTAMP, questionDurationSec
 } from "./rooms-logic.js";
 import { normalizeKeys } from "./scoring.js";
 import {
   LIVE_MODE_AUTO, LIVE_MODE_MANUAL, ROLE_OBSERVER, ROLE_PLAYER,
+  PACE_SELF, PACE_SYNC,
   buildAutoSettings, resolveRequestedRole, offsetFromProbe,
   bestOffset, isRegistrationOpen
 } from "./live-auto.js";
-import { State, isStaff } from "./auth.js";
+import { State, isStaff, isAdmin } from "./auth.js";
 import {
   REACTIONS, normalizeReaction
 } from "../shared/reactions.js";
@@ -57,7 +58,13 @@ export async function createRoom({ test, profile, allowObservers = false, mode =
   const questions = Array.isArray(test.questions) ? test.questions : [];
   if (!questions.length) throw new Error("В тесте нет вопросов.");
   const liveMode = mode === LIVE_MODE_MANUAL ? LIVE_MODE_MANUAL : LIVE_MODE_AUTO;
+  // «В своём темпе» работает только в автономном режиме: в ручном ведущий
+  // сам открывает каждый вопрос для всех, общий темп там неизбежен.
+  if (liveMode === LIVE_MODE_MANUAL && options.pace === PACE_SELF) {
+    throw new Error("Режим «в своём темпе» доступен только в автономном тесте.");
+  }
   const auto = liveMode === LIVE_MODE_AUTO ? buildAutoSettings({ test, options }) : null;
+  const pace = auto ? auto.pace : PACE_SYNC;
 
   for (let attempt = 0; attempt < 5; attempt++) {
     const code = generateRoomCode();
@@ -94,6 +101,15 @@ export async function createRoom({ test, profile, allowObservers = false, mode =
         showLeaderboard: auto
           ? auto.showLeaderboard
           : Boolean(test?.settings?.showLeaderboard),
+        // Настройки комнаты. pace: "sync" — общий таймер (как раньше),
+        // "self" — каждый в своём темпе (core/live-auto.js, selfProgress).
+        // ВАЖНО: тайминг вопроса берётся из qDurationSec/questionSec и из
+        // теста, а не отсюда (см. questionDurationSec).
+        settings: { pace },
+        // Дубль pace в корне документа: его читают правила Firestore.
+        pace,
+        // Мгновенный вердикт после ответа (пишет ведущий в verdicts/{uid}).
+        instantVerdict: auto ? auto.instantVerdict === true : false,
         ...(auto ? {
           questionSec: auto.questionSec,
           gapSec: auto.gapSec,
@@ -205,27 +221,104 @@ export async function revealAutoQuestion({ code, position, keysByPos }) {
   return true;
 }
 
+// Документ rooms/{код}/scores/{uid}: единый вид для ручного и автономного режима.
+function scoreDocData(entry) {
+  return {
+    uid: entry.uid,
+    name: entry.name,
+    score: entry.score,
+    max: entry.max,
+    correctCount: entry.correctCount,
+    answered: entry.answered ?? 0,
+    finished: entry.finished ?? 0,
+    streak: entry.streak ?? 0,
+    bestStreak: entry.bestStreak ?? 0,
+    trail: entry.trail ?? "",
+    done: entry.done === true,
+    isAdminPlayer: entry.isAdminPlayer === true,
+    updatedAt: serverTimestamp()
+  };
+}
+
+// Firestore принимает до 500 операций в одном batch; берём с запасом.
+const BATCH_LIMIT = 400;
+
+async function commitInBatches(items, fill) {
+  for (let i = 0; i < items.length; i += BATCH_LIMIT) {
+    const batch = writeBatch(db);
+    items.slice(i, i + BATCH_LIMIT).forEach(item => fill(batch, item));
+    await batch.commit();
+  }
+}
+
 // Записывает в scores переданные строки (вызывающий отбирает изменившиеся).
+// Пакетами: 100 участников — одна сетевая операция вместо ста, поэтому
+// рейтинг на экранах наблюдателей обновляется почти сразу.
 export async function writeScoreBoard({ code, board }) {
   requireOnline("Нет подключения к интернету. Рейтинг не обновлён.");
   const roomCode = normalizeRoomCode(code);
   if (!roomCode) throw new Error("Некорректный код комнаты.");
-  for (const entry of board) {
-    await setDoc(doc(db, "rooms", roomCode, "scores", entry.uid), {
-      uid: entry.uid,
-      name: entry.name,
-      score: entry.score,
-      max: entry.max,
-      correctCount: entry.correctCount,
-      answered: entry.answered ?? 0,
-      finished: entry.finished ?? 0,
-      streak: entry.streak ?? 0,
-      bestStreak: entry.bestStreak ?? 0,
-      trail: entry.trail ?? "",
-      updatedAt: serverTimestamp()
-    }, { merge: true });
-  }
+  await commitInBatches(board, (batch, entry) => {
+    batch.set(doc(db, "rooms", roomCode, "scores", entry.uid), scoreDocData(entry), { merge: true });
+  });
   return board.length;
+}
+
+// Вердикты участников: rooms/{код}/verdicts/{uid} = { uid, v: { "0": { c, p } } }.
+// Пишет только ведущий (правила). Документ читает сам участник — он видит
+// «верно/неверно» и очки сразу после ответа, но не правильный ответ.
+export async function writeVerdicts({ code, verdicts }) {
+  requireOnline("Нет подключения к интернету. Вердикты не обновлены.");
+  const roomCode = normalizeRoomCode(code);
+  if (!roomCode) throw new Error("Некорректный код комнаты.");
+  const entries = Object.entries(verdicts || {});
+  await commitInBatches(entries, (batch, [uid, v]) => {
+    batch.set(doc(db, "rooms", roomCode, "verdicts", uid), {
+      uid, v, updatedAt: serverTimestamp()
+    }, { merge: false });
+  });
+  return entries.length;
+}
+
+// Раскрытие правильных ответов сразу по нескольким вопросам (конец теста
+// «в своём темпе»). Вызывающий передаёт только позиции без reveal: правила
+// запрещают переписывать существующий документ.
+export async function revealQuestions({ code, positions, keysByPos }) {
+  requireOnline("Нет подключения к интернету. Ответы не раскрыты.");
+  const roomCode = normalizeRoomCode(code);
+  if (!roomCode) throw new Error("Некорректный код комнаты.");
+  await commitInBatches(positions, (batch, position) => {
+    const qid = String(position);
+    const key = keysByPos?.[qid] || null;
+    batch.set(doc(db, "rooms", roomCode, "reveals", qid), {
+      qid,
+      revealedAt: serverTimestamp(),
+      reveal: buildReveal(key),
+      points: key?.points || 1,
+      explanation: key?.explanation || ""
+    }, { merge: false });
+  });
+  return positions.length;
+}
+
+// Игроку показан вопрос position (режим «в своём темпе»): серверная метка
+// shown/{position}.at запускает ЕГО таймер. Документ создаётся один раз —
+// перезагрузка страницы таймер не сбрасывает. Повторный вызов для
+// существующего документа отклоняется правилами (это не ошибка для клиента).
+export async function markQuestionShown(code, position) {
+  requireOnline("Нет подключения к интернету. Вопрос не показан.");
+  const roomCode = normalizeRoomCode(code);
+  if (!roomCode) throw new Error("Некорректный код комнаты.");
+  if (!State.user?.uid) throw new Error("Нужно войти в аккаунт.");
+  const index = Number(position);
+  if (!Number.isInteger(index) || index < 0) throw new Error("Некорректный номер вопроса.");
+  await setDoc(
+    doc(db, "rooms", roomCode, "players", State.user.uid, "shown", String(index)),
+    // prev — номер предыдущего вопроса: правило Firestore проверяет по нему,
+    // что лента идёт по порядку (предыдущий отвечен или его время вышло).
+    index > 0 ? { at: serverTimestamp(), prev: String(index - 1) } : { at: serverTimestamp() },
+    { merge: false }
+  );
 }
 
 // Оценка смещения часов устройства относительно сервера. Пишем
@@ -279,10 +372,14 @@ export async function joinRoom(code, { displayName, role, observer = false, prof
   }
   // Преподаватель, не ведущий этой комнаты, входит только наблюдателем
   // (правило Firestore дублирует проверку на сервере).
+  // Администратор — исключение: он проходит тест участником (флаг
+  // isAdminPlayer скроет его из общего рейтинга, правила проверяют роль).
+  const adminUser = isAdmin();
   const requested = resolveRequestedRole({
     requested: role || (observer ? ROLE_OBSERVER : ROLE_PLAYER),
     isStaffUser: isStaff(),
-    isHost: room.hostId === uid
+    isHost: room.hostId === uid,
+    isAdminUser: adminUser
   });
 
   // Свой документ читать можно (правила: request.auth.uid == playerId).
@@ -314,7 +411,9 @@ export async function joinRoom(code, { displayName, role, observer = false, prof
     playerId: uid,
     name,
     observer: effectiveObserver,
-    role: effectiveObserver ? ROLE_OBSERVER : ROLE_PLAYER
+    role: effectiveObserver ? ROLE_OBSERVER : ROLE_PLAYER,
+    groupId: profile?.groupId || null,
+    isAdminPlayer: adminUser && room.hostId !== uid
   });
   await setDoc(
     playerRef,
@@ -379,19 +478,7 @@ export async function openQuestion(code, questionIndex) {
   });
 }
 
-// Ведущий задаёт вопросу длительность (сек) из настроек теста.
-export function questionDurationSec(test, settings) {
-  const s = settings || test?.settings || {};
-  if (s.timePerQuestion && Number(s.timePerQuestion) > 0) {
-    return Number(s.timePerQuestion);
-  }
-  if (s.totalTime && Number(s.totalTime) > 0) {
-    const count = (test?.questions || []).length || 1;
-    return Math.max(0, Math.round(Number(s.totalTime) / count));
-  }
-  // Без настройки вопрос открыт до ручного закрытия.
-  return null;
-}
+export { questionDurationSec };
 
 // Ведущий закрывает вопрос: пишет reveal (правильный ответ виден всем)
 // и пересчитывает scores по ответам на уже закрытые вопросы. speed:
@@ -425,19 +512,9 @@ export async function closeQuestion({ code, index, keys, test, players, speed = 
   const openedIndexes = [];
   for (let i = 0; i <= targetIndex; i++) openedIndexes.push(i);
   const board = computeScores(players || [], normalized, openedIndexes, speed);
-  for (const entry of board) {
-    await setDoc(doc(db, "rooms", roomCode, "scores", entry.uid), {
-      uid: entry.uid,
-      name: entry.name,
-      score: entry.score,
-      max: entry.max,
-      correctCount: entry.correctCount,
-      streak: entry.streak ?? 0,
-      bestStreak: entry.bestStreak ?? 0,
-      trail: entry.trail ?? "",
-      updatedAt: serverTimestamp()
-    }, { merge: true });
-  }
+  await commitInBatches(board, (batch, entry) => {
+    batch.set(doc(db, "rooms", roomCode, "scores", entry.uid), scoreDocData(entry), { merge: true });
+  });
 
   await updateDoc(roomRef(roomCode), {
     phase: "closed",
@@ -457,7 +534,7 @@ export async function closeQuestion({ code, index, keys, test, players, speed = 
 // не отдадут чужие ответы никому другому), "none" — не слушать.
 export function subscribeRoom(code, {
   onRoom, onPlayers, onError, onRoomError, onPlayersError, onAnswersError,
-  answerScope = "all"
+  answerScope = "all", watchShown = false
 }) {
   const roomCode = normalizeRoomCode(code);
   if (!roomCode) {
@@ -467,18 +544,41 @@ export function subscribeRoom(code, {
   const answerUnsubs = new Map();   // uid → unsubscribe
   const answersByUid = new Map();   // uid → {qid: value}
   const timesByUid = new Map();     // uid → {qid: ms}
+  const shownUnsubs = new Map();    // uid → unsubscribe (режим «в своём темпе»)
+  const shownByUid = new Map();     // uid → {qid: ms} — когда вопрос показан игроку
 
   function emitPlayers() {
     if (!onPlayers) return;
     onPlayers(playersRaw.map(p => normalizePlayerTimes({
       ...p,
       answers: answersByUid.get(p.uid) || {},
-      times: timesByUid.get(p.uid) || {}
+      times: timesByUid.get(p.uid) || {},
+      shown: shownByUid.get(p.uid) || {}
     })));
+  }
+
+  // Показ вопросов игрокам: только ведущему и только для «своего темпа» —
+  // от личных меток shown считаются очки и бонус за скорость.
+  function watchShownOf(player) {
+    if (answerScope !== "all" || !watchShown) return;
+    if (shownUnsubs.has(player.uid)) return;
+    shownByUid.set(player.uid, {});
+    const unsub = onSnapshot(
+      collection(db, "rooms", roomCode, "players", player.uid, "shown"),
+      snapshot => {
+        const shown = {};
+        snapshot.docs.forEach(item => { shown[item.id] = toMs(item.data({ serverTimestamps: "estimate" })?.at); });
+        shownByUid.set(player.uid, shown);
+        emitPlayers();
+      },
+      error => (onAnswersError || onError)?.(error)
+    );
+    shownUnsubs.set(player.uid, unsub);
   }
 
   function watchAnswers(player) {
     if (answerScope !== "all") return;
+    watchShownOf(player);
     if (answerUnsubs.has(player.uid)) return;
     answersByUid.set(player.uid, {});
     timesByUid.set(player.uid, {});
@@ -510,6 +610,13 @@ export function subscribeRoom(code, {
         timesByUid.delete(uid);
       }
     }
+    for (const [uid, unsub] of shownUnsubs) {
+      if (!alive.has(uid)) {
+        try { unsub(); } catch (e) { /* уже отписаны */ }
+        shownUnsubs.delete(uid);
+        shownByUid.delete(uid);
+      }
+    }
   }
 
   const unsubscribeRoom = onSnapshot(
@@ -537,6 +644,8 @@ export function subscribeRoom(code, {
     try { unsubscribePlayers(); } catch (e) { /* уже отписаны */ }
     answerUnsubs.forEach(unsub => { try { unsub(); } catch (e) { /* уже отписаны */ } });
     answerUnsubs.clear();
+    shownUnsubs.forEach(unsub => { try { unsub(); } catch (e) { /* уже отписаны */ } });
+    shownUnsubs.clear();
   };
 }
 
@@ -546,7 +655,7 @@ export function subscribeRoom(code, {
 // (клиент переходит в «waiting»), даже если список ещё не загрузился.
 // Читать собственный документ и ответы правила разрешают любому
 // вошедшему (request.auth.uid == playerId).
-export function subscribeOwnState(code, uid, { onPlayer, onAnswers, onError }) {
+export function subscribeOwnState(code, uid, { onPlayer, onAnswers, onShown, onVerdicts, onError }) {
   const roomCode = normalizeRoomCode(code);
   if (!roomCode) throw new Error("Некорректный код комнаты.");
   if (!uid) throw new Error("Нужно войти в аккаунт.");
@@ -563,16 +672,38 @@ export function subscribeOwnState(code, uid, { onPlayer, onAnswers, onError }) {
       const answers = {};
       const times = {};
       snapshot.docs.forEach(item => {
-        answers[item.id] = (item.data() || {}).answer;
-        times[item.id] = toMs((item.data() || {}).at);
+        // estimate: собственный ответ получает время сразу, не ожидая сервера.
+        const data = item.data({ serverTimestamps: "estimate" }) || {};
+        answers[item.id] = data.answer;
+        times[item.id] = toMs(data.at);
       });
       if (onAnswers) onAnswers({ answers, times });
     },
     error => onError && onError(error)
   );
+  // Личная лента вопросов («в своём темпе»): когда показан каждый вопрос.
+  // serverTimestamps: "estimate" — собственная запись видна сразу, не
+  // дожидаясь ответа сервера (иначе таймер стартовал бы с задержкой).
+  const unsubShown = onShown ? onSnapshot(
+    collection(db, "rooms", roomCode, "players", uid, "shown"),
+    snapshot => {
+      const shown = {};
+      snapshot.docs.forEach(item => { shown[item.id] = toMs(item.data({ serverTimestamps: "estimate" })?.at); });
+      onShown(shown);
+    },
+    error => onError && onError(error)
+  ) : null;
+  // Вердикты, которые пишет ведущий: верно/неверно и очки, без ключа ответа.
+  const unsubVerdicts = onVerdicts ? onSnapshot(
+    doc(db, "rooms", roomCode, "verdicts", uid),
+    snapshot => onVerdicts(snapshot.exists() ? snapshot.data() : null),
+    error => onError && onError(error)
+  ) : null;
   return () => {
     try { unsubPlayer(); } catch (e) { /* уже отписаны */ }
     try { unsubAnswers(); } catch (e) { /* уже отписаны */ }
+    try { unsubShown && unsubShown(); } catch (e) { /* уже отписаны */ }
+    try { unsubVerdicts && unsubVerdicts(); } catch (e) { /* уже отписаны */ }
   };
 }
 

@@ -15,7 +15,7 @@
 // от request.time (см. firestore.rules, players/answers) — поэтому ответ
 // на «не тот» вопрос или после окончания окна сервер отклонит сам.
 
-import { scoreForQuestion } from "./rooms-logic.js";
+import { scoreForQuestion, computeScores, normalizePlayerTimes } from "./rooms-logic.js";
 
 // ---------- Режимы, роли, состояния ----------
 
@@ -65,10 +65,18 @@ export function roleOfPlayer(player) {
 
 // Роль, которую можно запросить при входе. Преподаватель, не ведущий
 // этой комнаты, входит только наблюдателем (так же требуют правила).
-export function resolveRequestedRole({ requested, isStaffUser = false, isHost = false } = {}) {
+// Администратор исключение: он может пройти тест участником (его результат
+// не попадает в общий рейтинг — см. isAdminPlayer в ratingRows).
+export function resolveRequestedRole({ requested, isStaffUser = false, isHost = false, isAdminUser = false } = {}) {
   const role = normalizeRole(requested);
-  if (role === ROLE_PLAYER && isStaffUser && !isHost) return ROLE_OBSERVER;
+  if (role === ROLE_PLAYER && isStaffUser && !isHost && !isAdminUser) return ROLE_OBSERVER;
   return role;
+}
+
+// Участник-администратор: флаг в players/{uid}. Такие строки не показываются
+// в общем рейтинге, табло и подиуме (кроме самого администратора).
+export function isAdminPlayer(player) {
+  return player?.isAdminPlayer === true;
 }
 
 // ФИО для входа: подставляем из профиля, если там есть минимум два слова
@@ -125,6 +133,10 @@ export function buildAutoSettings({ test, options = {}, random = Math.random } =
     shuffleQuestions: shuffle,
     order: buildQuestionOrder(count, shuffle, random),
     speedBonus: options.speedBonus !== false,
+    pace: options.pace === PACE_SELF ? PACE_SELF : PACE_SYNC,
+    // Мгновенный вердикт после ответа: в своём темпе включён всегда
+    // (общего раскрытия нет), в синхронном режиме — по желанию ведущего.
+    instantVerdict: options.pace === PACE_SELF ? true : options.instantVerdict === true,
     showLeaderboard: options.showLeaderboard != null
       ? options.showLeaderboard === true
       : test?.settings?.showLeaderboard === true,
@@ -185,6 +197,162 @@ function toMs(value) {
 
 export function isAutoRoom(room) {
   return room?.mode === LIVE_MODE_AUTO;
+}
+
+// ---------- Темп: «синхронно» и «каждый в своём темпе» ----------
+//
+// Синхронно (по умолчанию): один общий таймер вопроса — ручной режим ведущего
+// или автономное расписание от autoStartedAt (всё, что описано выше).
+//
+// В своём темпе (settings.pace = "self"): у каждого участника своя лента
+// вопросов. Вопрос p показывается игроку в момент players/{uid}/shown/{p}.at
+// (серверная метка, создаётся один раз и не переписывается), его время —
+// questionSec с этого момента. Следующий вопрос игрок получает сразу после
+// своего ответа или истечения СВОЕГО времени. Общего расписания нет, поэтому
+// эта ветка не использует autoPlan/autoPosition/finalizablePositions: две
+// логики не пересекаются. Жизненный цикл комнаты (запуск, завершение,
+// регистрация) тот же, что у автономного режима (mode = "auto").
+export const PACE_SYNC = "sync";
+export const PACE_SELF = "self";
+// Пауза с вердиктом после ответа, прежде чем показать следующий вопрос (мс).
+export const SELF_HOLD_MS = 1800;
+
+export function paceOf(room) {
+  const value = room?.settings?.pace ?? room?.pace;
+  return value === PACE_SELF ? PACE_SELF : PACE_SYNC;
+}
+
+export function isSelfPaced(room) {
+  return isAutoRoom(room) && paceOf(room) === PACE_SELF;
+}
+
+// План «своего темпа»: без общего старта и слотов.
+export function selfPlan(room) {
+  const questionSec = clampInt(room?.questionSec, QUESTION_SEC_MIN, QUESTION_SEC_MAX, QUESTION_SEC_DEFAULT);
+  return {
+    count: Math.max(0, Number(room?.questionCount) || 0),
+    questionSec,
+    questionMs: questionSec * 1000
+  };
+}
+
+// shown: { "0": мс, "1": мс … } — серверные метки показа вопросов игроку.
+function shownMs(shown, position) {
+  const value = shown?.[String(position)];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+// Где игрок в своей ленте в момент nowMs (серверное время).
+//   position — первый вопрос, который игрок ещё не закончил;
+//   needsShow — вопрос ещё не показан (нужно создать shown/{position});
+//   msLeft — сколько осталось на показанный вопрос;
+//   done — все вопросы закончены.
+// Вопрос закончен, если на него есть ответ или его время вышло.
+export function selfProgress({ plan, shown = {}, answers = {}, nowMs }) {
+  for (let position = 0; position < plan.count; position++) {
+    if (answers?.[String(position)] != null) continue;
+    const at = shownMs(shown, position);
+    if (at == null) {
+      return { position, done: false, needsShow: true, msLeft: plan.questionMs, shownAtMs: null };
+    }
+    const msLeft = at + plan.questionMs - nowMs;
+    if (msLeft > 0) return { position, done: false, needsShow: false, msLeft, shownAtMs: at };
+  }
+  return { position: plan.count, done: true, needsShow: false, msLeft: 0, shownAtMs: null };
+}
+
+// Можно ли в момент requestMs показать игроку вопрос position (копия
+// правила Firestore shown/{qid}): первый вопрос — всегда; следующий — когда
+// предыдущий отвечен или его время вышло.
+export function selfShowAllowed({ plan, shown = {}, answers = {}, requestMs, position }) {
+  if (!Number.isInteger(position) || position < 0 || position >= plan.count) return false;
+  if (shownMs(shown, position) != null) return false;
+  if (position === 0) return true;
+  const prevAt = shownMs(shown, position - 1);
+  if (prevAt == null) return false;
+  return answers?.[String(position - 1)] != null || requestMs >= prevAt + plan.questionMs;
+}
+
+// Копия правила answers для «своего темпа»: ответ принимается в течение
+// questionSec после показа + допуск на сеть.
+export function selfAnswerAllowed({ plan, shown = {}, requestMs, position, graceMs = ANSWER_GRACE_MS }) {
+  const at = shownMs(shown, position);
+  if (at == null || position < 0 || position >= plan.count) return false;
+  return requestMs < at + plan.questionMs + graceMs;
+}
+
+// Какие вопросы игрока уже можно считать (в порядке ленты): отвеченные и те,
+// у которых вышло время (+ запас на доставку последнего ответа). finalize —
+// комната завершена: непоказанные и неотвеченные считаются пропущенными.
+export function selfScoringState({ plan, shown = {}, answers = {}, nowMs, finalize = false, delayMs = FINALIZE_DELAY_MS }) {
+  const positions = [];
+  for (let position = 0; position < plan.count; position++) {
+    const answered = answers?.[String(position)] != null;
+    const at = shownMs(shown, position);
+    const expired = at != null && nowMs >= at + plan.questionMs + delayMs;
+    if (answered || expired || finalize) positions.push(position);
+    else break;
+  }
+  return { positions, done: positions.length >= plan.count && plan.count > 0 };
+}
+
+// Очки всех участников в «своём темпе»: у каждого свои позиции и свои
+// старты вопросов (бонус за скорость считается от личного shown). Пересчёт
+// с нуля по ответам — идемпотентен, как и в общем режиме.
+export function computeSelfScores({ players = [], keysByPos = [], plan, nowMs, finalize = false, speedBonus = true }) {
+  const rows = [];
+  for (const raw of players) {
+    if (raw.observer) continue;
+    const state = selfScoringState({ plan, shown: raw.shown, answers: raw.answers, nowMs, finalize });
+    const speed = speedBonus ? { qDurationSec: plan.questionSec, qStarts: raw.shown || {} } : null;
+    const [row] = computeScores([raw], keysByPos, state.positions, speed);
+    if (!row) continue;
+    row.done = state.done;
+    row.isAdminPlayer = raw.isAdminPlayer === true;
+    rows.push(row);
+  }
+  return rows.sort((a, b) => b.score - a.score
+    || b.correctCount - a.correctCount
+    || (a.name || "").localeCompare(b.name || "", "ru"));
+}
+
+// Вердикты игрока: { "0": { c: true, p: 16 }, … } только по отвеченным
+// вопросам. Ведущий пишет их в rooms/{код}/verdicts/{uid} сразу после ответа:
+// игрок видит «верно/неверно» и очки, а ключ ответа никому не раскрывается.
+export function verdictMapFromResults(results) {
+  const out = {};
+  for (const r of results || []) {
+    if (r.answered) out[String(r.qid)] = { c: r.correct === true, p: Number(r.points) || 0 };
+  }
+  return out;
+}
+
+// Вердикты, которые изменились (экономим записи Firestore).
+export function changedVerdicts(existing = {}, next = {}) {
+  const out = {};
+  for (const uid of Object.keys(next)) {
+    if (JSON.stringify(existing[uid] || {}) !== JSON.stringify(next[uid] || {})) out[uid] = next[uid];
+  }
+  return out;
+}
+
+// Вердикты для общего («синхронного») режима: считаем по ответам, которые
+// уже есть, не дожидаясь закрытия вопроса. Серия и бонус считаются так же, как
+// при закрытии, поэтому итог совпадёт с очками в рейтинге.
+export function liveVerdicts({ players = [], keysByPos = [], speed = null }) {
+  const out = {};
+  for (const raw of players) {
+    if (raw.observer) continue;
+    const answered = Object.keys(raw.answers || {})
+      .filter(qid => raw.answers[qid] != null)
+      .map(Number).filter(Number.isInteger);
+    if (!answered.length) continue;
+    const last = Math.max(...answered);
+    const positions = Array.from({ length: last + 1 }, (_, i) => i);
+    const [row] = computeScores([raw], keysByPos, positions, speed);
+    if (row) out[raw.uid] = verdictMapFromResults(row.results);
+  }
+  return out;
 }
 
 // План из документа комнаты. startMs/endedMs — серверные метки в мс.
@@ -299,6 +467,12 @@ export function finishedPositions(plan, nowMs) {
 export function roomLifecycle(room, nowMs) {
   if (!room) return null;
   if (room.status === "closed") return "closed";
+  if (isSelfPaced(room)) {
+    // Нет общего расписания: состояние определяют только метки комнаты.
+    if (room.liveState === "completed" || room.autoEndedAt) return "completed";
+    if (room.liveState === "in_progress" || room.autoStartedAt) return "in_progress";
+    return "waiting";
+  }
   if (isAutoRoom(room)) {
     const stored = room.liveState;
     const pos = autoPosition(autoPlan(room), nowMs);
@@ -362,18 +536,31 @@ export function serverNow(offsetMs = 0, localNowMs = Date.now()) {
 // Строки общего рейтинга: участники (не наблюдатели) + их очки.
 // Участник без документа очков (ещё нет закрытых вопросов) — с нулями.
 // scores — документы rooms/{code}/scores; players — список участников.
+// viewerUid — кто смотрит рейтинг: строки участников-администраторов
+// (isAdminPlayer) скрыты от всех, кроме самого администратора, чтобы он не
+// попадал в общий топ под видом обычного участника.
 export function ratingRows({ scores = [], players = [], questionCount = 0,
-  finished = 0, lifecycle = "waiting" } = {}) {
+  finished = 0, lifecycle = "waiting", viewerUid = null } = {}) {
   const byUid = new Map();
   for (const s of scores) byUid.set(s.uid, s);
+  const adminUids = new Set();
+  for (const p of players) if (isAdminPlayer(p)) adminUids.add(p.uid);
+  for (const s of scores) if (s.isAdminPlayer === true) adminUids.add(s.uid);
+  const hidden = uid => adminUids.has(uid) && uid !== viewerUid;
   const roster = new Map();
   for (const p of players) {
-    if (roleOfPlayer(p) === ROLE_OBSERVER) continue;
-    roster.set(p.uid, { uid: p.uid, name: p.name || "Участник", avatar: p.avatar });
+    if (roleOfPlayer(p) === ROLE_OBSERVER || hidden(p.uid)) continue;
+    roster.set(p.uid, {
+      uid: p.uid, name: p.name || "Участник", avatar: p.avatar, groupId: p.groupId || null,
+      isAdminPlayer: adminUids.has(p.uid)
+    });
   }
   // Очки есть, а участника в списке нет (список ещё грузится): не теряем.
   for (const s of scores) {
-    if (!roster.has(s.uid)) roster.set(s.uid, { uid: s.uid, name: s.name || "Участник" });
+    if (hidden(s.uid)) continue;
+    if (!roster.has(s.uid)) {
+      roster.set(s.uid, { uid: s.uid, name: s.name || "Участник", isAdminPlayer: adminUids.has(s.uid) });
+    }
   }
   const done = lifecycle === "completed" || lifecycle === "closed";
   const rows = [...roster.values()].map(p => {
@@ -384,6 +571,8 @@ export function ratingRows({ scores = [], players = [], questionCount = 0,
       uid: p.uid,
       name: s.name || p.name,
       avatar: p.avatar,
+      groupId: p.groupId || null,
+      isAdminPlayer: p.isAdminPlayer === true,
       score: Number(s.score) || 0,
       max: Number(s.max) || 0,
       correctCount: correct,
@@ -394,7 +583,8 @@ export function ratingRows({ scores = [], players = [], questionCount = 0,
       trail: typeof s.trail === "string" ? s.trail : "",
       total: questionCount,
       percent: closed > 0 ? Math.round((correct / closed) * 100) : 0,
-      status: done ? "completed" : "in_progress"
+      // «Завершил» — комната закончена или (в своём темпе) игрок прошёл все вопросы.
+      status: done || s.done === true ? "completed" : "in_progress"
     };
   });
   rows.sort((a, b) => b.score - a.score
@@ -428,6 +618,8 @@ export function changedScores(existing = [], board = []) {
       || old.finished !== entry.finished
       || (old.streak ?? 0) !== (entry.streak ?? 0)
       || (old.trail ?? "") !== (entry.trail ?? "")
+      || (old.done === true) !== (entry.done === true)
+      || (old.isAdminPlayer === true) !== (entry.isAdminPlayer === true)
       || old.name !== entry.name;
   });
 }

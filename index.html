@@ -26,6 +26,13 @@
         theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
       }
       var root = document.documentElement;
+      // Палитра (скин) гостя и последний выбор на устройстве — до отрисовки.
+      try {
+        var palette = localStorage.getItem("sb-palette");
+        if (palette === "education" || palette === "operations" || palette === "depot") {
+          root.setAttribute("data-ui", palette);
+        }
+      } catch (_) {}
       root.setAttribute("data-theme", theme);
       root.style.colorScheme = theme;
       var meta = document.querySelector('meta[name="theme-color"]');

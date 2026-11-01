@@ -84,22 +84,37 @@ export function leaderCard(row, ctx = {}) {
     ? h("span", { class: `lb-status lb-status-${row.status}` }, ctx.statusLabel?.[row.status] || row.status)
     : null;
 
+  // Полоса очков: ширина пропорциональна баллам. Рост — только transform
+  // (scaleX) с переходом, без перекладки: плавно и на слабом телефоне.
+  const max = Math.max(1, ctx.maxScore || 1);
+  const target = Math.min(1, (row.score ?? 0) / max);
+  const fill = h("span", { class: "lb-bar-fill" });
+  const startRatio = typeof prevScore === "number" && !reduced()
+    ? Math.min(1, prevScore / Math.max(1, ctx.prevMaxScore || max))
+    : target;
+  fill.style.transform = `scaleX(${startRatio})`;
+  if (startRatio !== target && typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(() => requestAnimationFrame(() => { fill.style.transform = `scaleX(${target})`; }));
+  }
+  const bar = h("span", { class: "lb-bar", "aria-hidden": "true" }, fill);
+
   return h("li", {
-    class: ["lb-card", medal, isMe ? "is-me" : "", delta > 0 ? "lb-rose" : ""].filter(Boolean).join(" "),
+    class: ["lb-card", medal, isMe ? "is-me" : "", delta > 0 ? "lb-rose" : "", row.isAdminPlayer ? "is-admin-player" : ""].filter(Boolean).join(" "),
     "data-uid": row.uid,
     "aria-label": `${row.place} место, ${row.name}, ${row.score ?? 0} баллов${isMe ? ", это вы" : ""}`
   },
     h("span", { class: "lb-place" }, String(row.place ?? "")),
     ctx.avatar ? ctx.avatar(row) : null,
     h("div", { class: "lb-main" },
-      h("b", { class: "lb-name" }, row.name || "Участник"),
+      h("b", { class: "lb-name" }, row.name || "Участник", row.isAdminPlayer ? h("span", { class: "lb-admin-tag" }, " · тренировка") : null),
       h("div", { class: "lb-meta" },
         h("span", {}, `${row.percent ?? 0}% верных`),
         h("span", {}, `вопросов: ${row.answered ?? 0} из ${row.finished ?? 0}`),
         status)),
     h("div", { class: "lb-side" },
       h("span", { class: "lb-score" }, scoreEl, h("span", { class: "lb-unit" }, " б.")),
-      h("span", { class: "lb-badges" }, moveEl, streak)));
+      h("span", { class: "lb-badges" }, moveEl, streak)),
+    bar);
 }
 
 export function leaderList(rows, ctx = {}) {

@@ -108,6 +108,13 @@ export default async function AdminPanelPage() {
       }),
       profile.role === "admin" ? tile({
         icon: icons.check,
+        title: "Пройти тест",
+        text: "Войти в Live-комнату по коду участником. Ваш результат виден только вам и не попадает в общий рейтинг.",
+        href: "#join",
+        action: "Войти по коду"
+      }) : null,
+      profile.role === "admin" ? tile({
+        icon: icons.check,
         title: "Администраторы",
         text: "Назначение и снятие административной роли в организации.",
         href: "#admins",

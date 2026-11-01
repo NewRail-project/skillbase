@@ -40,7 +40,7 @@ export const SOUND_DEFS = {
 // Паттерны вибрации.
 export const VIBRATION_DEFS = {
   correct: [30],
-  wrong: [60, 40, 60],
+  wrong: [70, 40, 70, 40, 120],
   streak3: [40, 30, 40],
   streak5: [50, 30, 50, 30, 90],
   streakBreak: [120],

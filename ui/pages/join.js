@@ -8,9 +8,9 @@
 // Уже вошедший (players/{uid} существует) сразу возвращается в комнату со
 // своей ПРЕЖНЕЙ ролью: наблюдатель не превращается в участника, а выбор
 // роли пережившей перезагрузку сессии восстанавливается из sessionStorage.
-import { themeToggle } from "../components/theme-toggle.js";
+import { appearanceTools } from "../components/theme-toggle.js";
 import { h } from "../../shared/dom.js";
-import { State, signInAsGuest, isStaff } from "../../core/auth.js";
+import { State, signInAsGuest, isStaff, isAdmin } from "../../core/auth.js";
 import { getRoom, joinRoom, getMyRoomRole } from "../../core/rooms.js";
 import { normalizeRoomCode } from "../../core/rooms-logic.js";
 import {
@@ -47,8 +47,8 @@ function recallRole(code) {
 
 export default async function JoinPage() {
   const page = h("div", { class: "page" });
-  // Тема хранится на устройстве (localStorage), поэтому доступна и гостю.
-  page.appendChild(h("div", { class: "auth-corner" }, themeToggle({ withLabel: true })));
+  // Тема и палитра хранятся на устройстве (localStorage), поэтому доступны и гостю.
+  page.appendChild(h("div", { class: "auth-corner" }, appearanceTools({ withLabel: true })));
   const codeRaw = (State.routeParam || "").split("/")[0] || "";
   const codeFromRoute = normalizeRoomCode(codeRaw) || "";
   const signedIn = Boolean(State.user);
@@ -117,7 +117,7 @@ export default async function JoinPage() {
   // ---------- Выбор роли ----------
 
   // Преподаватель, не ведущий комнаты, входит только наблюдателем.
-  const staffObserverOnly = signedIn && !guestMode && isStaff();
+  const staffObserverOnly = signedIn && !guestMode && isStaff() && !isAdmin();
   let selectedRole = recallRole(codeFromRoute) || (staffObserverOnly ? ROLE_OBSERVER : null);
   if (staffObserverOnly) selectedRole = ROLE_OBSERVER;
 
@@ -163,7 +163,8 @@ export default async function JoinPage() {
     roleCard(ROLE_PLAYER, "Участник", [
       "Сами проходите вопросы теста",
       "Получаете баллы и место в общем рейтинге",
-      "Ждёте старта — вопросы идут автоматически"
+      "Ждёте старта — вопросы идут автоматически",
+      ...(signedIn && isAdmin() ? ["Администратор: ваш результат не попадёт в общий рейтинг"] : [])
     ], staffObserverOnly ? "Преподаватель входит только наблюдателем" : ""),
     roleCard(ROLE_OBSERVER, "Наблюдатель", [
       "Видите общий рейтинг и ход теста",
@@ -241,7 +242,8 @@ export default async function JoinPage() {
         if (!found) { setMessage("Комната с таким кодом не найдена."); return; }
         if (found.status !== "active") { setMessage("Комната уже закрыта."); return; }
         const effective = resolveRequestedRole({
-          requested: role, isStaffUser: isStaff(), isHost: found.hostId === State.user.uid
+          requested: role, isStaffUser: isStaff(), isHost: found.hostId === State.user.uid,
+          isAdminUser: isAdmin()
         });
         if (!isRegistrationOpen(found)) {
           // Вернувшийся участник входит и при закрытой регистрации

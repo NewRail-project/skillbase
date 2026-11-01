@@ -2595,6 +2595,224 @@ function testCases() {
     ];
 }
 
+// ---------- «Каждый в своём темпе», вердикты, админ-участник ----------
+// Комната r1: автономная, pace=self, вопрос 20 с, 3 вопроса, тест идёт.
+function selfRoomMocks(overrides = {}) {
+    return roomMocks("", "idle", {
+        mode: "auto",
+        pace: "self",
+        liveState: "in_progress",
+        questionSec: 20,
+        questionCount: 3,
+        autoEndedAt: null,
+        ...overrides
+    });
+}
+
+function shownMock(uid, qid, at) {
+    const path = `${DB}/rooms/r1/players/${uid}/shown/${qid}`;
+    return [
+        { function: "exists", args: [{ exactValue: path }], result: { value: true } },
+        { function: "get", args: [{ exactValue: path }], result: { value: { data: { at } } } }
+    ];
+}
+
+function answerExistsMock(uid, qid, exists) {
+    return [{
+        function: "exists",
+        args: [{ exactValue: `${DB}/rooms/r1/players/${uid}/answers/${qid}` }],
+        result: { value: exists }
+    }];
+}
+
+function selfPaceCases() {
+    const base = [
+        ...profileMocks("student1", "student"),
+        ...selfRoomMocks(),
+        ...playerMock("student1", false)
+    ];
+    const answerAt = (time, qid = "0") => ({
+        auth: { uid: "student1" },
+        path: `${DB}/rooms/r1/players/student1/answers/${qid}`,
+        method: "create",
+        resource: { data: { answer: 1, at: time } },
+        time
+    });
+    return [
+        {
+            name: "Свой темп: ответ в личное окно после показа — разрешён",
+            expectation: "ALLOW",
+            request: answerAt("2026-01-01T00:00:15Z"),
+            functionMocks: [...base, ...shownMock("student1", "0", "2026-01-01T00:00:00Z")]
+        },
+        {
+            name: "Свой темп: ответ после личного времени + допуска — отказ",
+            expectation: "DENY",
+            request: answerAt("2026-01-01T00:00:25Z"),
+            functionMocks: [...base, ...shownMock("student1", "0", "2026-01-01T00:00:00Z")]
+        },
+        {
+            name: "Свой темп: ответ на непоказанный вопрос — отказ",
+            expectation: "DENY",
+            request: answerAt("2026-01-01T00:00:05Z", "1"),
+            functionMocks: [
+                ...base,
+                { function: "exists", args: [{ exactValue: `${DB}/rooms/r1/players/student1/shown/1` }], result: { value: false } }
+            ]
+        },
+        {
+            name: "Свой темп: показ первого вопроса — разрешён",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/players/student1/shown/0`,
+                method: "create",
+                resource: { data: { at: "2026-01-01T00:00:00Z" } },
+                time: "2026-01-01T00:00:00Z"
+            },
+            functionMocks: base
+        },
+        {
+            name: "Свой темп: показ второго вопроса после ответа на первый — разрешён",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/players/student1/shown/1`,
+                method: "create",
+                resource: { data: { at: "2026-01-01T00:00:05Z", prev: "0" } },
+                time: "2026-01-01T00:00:05Z"
+            },
+            functionMocks: [...base, ...shownMock("student1", "0", "2026-01-01T00:00:00Z"), ...answerExistsMock("student1", "0", true)]
+        },
+        {
+            name: "Свой темп: показ второго вопроса раньше времени без ответа — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/players/student1/shown/1`,
+                method: "create",
+                resource: { data: { at: "2026-01-01T00:00:05Z", prev: "0" } },
+                time: "2026-01-01T00:00:05Z"
+            },
+            functionMocks: [...base, ...shownMock("student1", "0", "2026-01-01T00:00:00Z"), ...answerExistsMock("student1", "0", false)]
+        },
+        {
+            name: "Свой темп: перескок через вопрос (prev не qid−1) — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/players/student1/shown/2`,
+                method: "create",
+                resource: { data: { at: "2026-01-01T00:00:05Z", prev: "0" } },
+                time: "2026-01-01T00:00:05Z"
+            },
+            functionMocks: base
+        },
+        {
+            name: "Свой темп: перезапись shown (сброс таймера) — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/players/student1/shown/0`,
+                method: "update",
+                requestResource: true
+            },
+            resource: { data: { at: "2026-01-01T00:00:00Z" } },
+            newDoc: { at: "2026-01-01T00:00:19Z" },
+            functionMocks: base
+        },
+        {
+            name: "Вердикты: участник не пишет свой вердикт",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/verdicts/student1`,
+                method: "create",
+                resource: { data: { uid: "student1", v: { 0: { c: true, p: 99 } } } }
+            },
+            functionMocks: [...profileMocks("student1", "student"), ...selfRoomMocks()]
+        },
+        {
+            name: "Вердикты: ведущий пишет вердикт участника",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/rooms/r1/verdicts/student1`,
+                method: "create",
+                resource: { data: { uid: "student1", v: { 0: { c: true, p: 10 } } } }
+            },
+            functionMocks: [...profileMocks("teacher1", "teacher"), ...selfRoomMocks()]
+        },
+        {
+            name: "Вердикты: участник читает свой вердикт",
+            expectation: "ALLOW",
+            request: { auth: { uid: "student1" }, path: `${DB}/rooms/r1/verdicts/student1`, method: "get" },
+            resource: { data: { uid: "student1", v: {} } },
+            functionMocks: [...profileMocks("student1", "student"), ...selfRoomMocks()]
+        },
+        {
+            name: "Вердикты: участник не читает чужой вердикт",
+            expectation: "DENY",
+            request: { auth: { uid: "student2" }, path: `${DB}/rooms/r1/verdicts/student1`, method: "get" },
+            resource: { data: { uid: "student1", v: {} } },
+            functionMocks: [...profileMocks("student2", "student"), ...selfRoomMocks()]
+        },
+        {
+            name: "Админ: входит участником с флагом isAdminPlayer — разрешено",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "admin1" },
+                path: `${DB}/rooms/r1/players/admin1`,
+                method: "create",
+                resource: {
+                    data: {
+                        uid: "admin1", playerId: "admin1", name: "Админ Тест", observer: false,
+                        role: "player", joinedAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+                        isAdminPlayer: true
+                    }
+                },
+                time: "2026-01-01T00:00:00Z"
+            },
+            functionMocks: [...profileMocks("admin1", "admin"), ...selfRoomMocks({ registrationOpen: true, playersCount: 0, maxPlayers: 100 })]
+        },
+        {
+            name: "Админ: входит участником без флага (попал бы в топ) — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "admin1" },
+                path: `${DB}/rooms/r1/players/admin1`,
+                method: "create",
+                resource: {
+                    data: {
+                        uid: "admin1", playerId: "admin1", name: "Админ Тест", observer: false,
+                        role: "player", joinedAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z"
+                    }
+                },
+                time: "2026-01-01T00:00:00Z"
+            },
+            functionMocks: [...profileMocks("admin1", "admin"), ...selfRoomMocks({ registrationOpen: true, playersCount: 0, maxPlayers: 100 })]
+        },
+        {
+            name: "Админ: студент не может поставить флаг isAdminPlayer — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/players/student1`,
+                method: "create",
+                resource: {
+                    data: {
+                        uid: "student1", playerId: "student1", name: "Иван Петров", observer: false,
+                        role: "player", joinedAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+                        isAdminPlayer: true
+                    }
+                },
+                time: "2026-01-01T00:00:00Z"
+            },
+            functionMocks: [...profileMocks("student1", "student"), ...selfRoomMocks({ registrationOpen: true, playersCount: 0, maxPlayers: 100 })]
+        }
+    ];
+}
+
 async function main() {
     const rules = readFileSync(
         join(ROOT, "firestore.rules"),
@@ -2603,7 +2821,7 @@ async function main() {
 
     const project = projectId();
     const token = await accessToken();
-    const cases = testCases();
+    const cases = [...testCases(), ...selfPaceCases()];
 
     const testSuite = cases.map((item) => {
         const request = { ...item.request };

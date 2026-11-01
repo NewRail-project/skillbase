@@ -9,12 +9,13 @@ import {
   subscribeRoom, subscribeOwnState, openQuestion, closeQuestion, saveAnswer,
   closeRoom, questionDurationSec, sendReaction, subscribeReactions,
   getMyRoomRole, startAutoTest, finishAutoTest, setRegistrationOpen,
-  revealAutoQuestion, writeScoreBoard, syncServerClock
+  revealAutoQuestion, writeScoreBoard, syncServerClock,
+  markQuestionShown, writeVerdicts, revealQuestions
 } from "../../core/rooms.js";
 import {
   questionTimeMs, answeredCount, myAnswerVerdict, buildJoinUrl, computeScores,
   streakFromReveals, verdictsFromTrail, streakTier, streakEvent, scoreBreakdown,
-  speedRatio, formatBreakdown, normalizePlayerTimes
+  speedRatio, formatBreakdown, normalizePlayerTimes, verdictFromDoc
 } from "../../core/rooms-logic.js";
 import {
   CONN, ROLE_OBSERVER, ROLE_PLAYER, RATING_STATUS_LABEL,
@@ -22,7 +23,8 @@ import {
   deriveConnectionState, roleOfPlayer, questionIndexAt, keysByPosition,
   finalizablePositions, finishedPositions, ratingRows, changedScores,
   summarizeRating, questionAccuracy, isRegistrationOpen, serverNow,
-  formatClockMs
+  formatClockMs, isSelfPaced, selfPlan, selfProgress, SELF_HOLD_MS,
+  computeSelfScores, liveVerdicts, verdictMapFromResults, changedVerdicts
 } from "../../core/live-auto.js";
 import { router, leaveWithHash } from "../../shared/app.js";
 import {
@@ -33,14 +35,14 @@ import { avatarChip as avatarChipEl } from "../components/avatar.js";
 import { play, soundEnabled, setSoundEnabled, vibrate } from "../../shared/sound.js";
 import { REACTIONS, REACTION_COOLDOWN_MS, canSendReaction } from "../../shared/reactions.js";
 import { reactionGlyph, reactionLabel } from "../components/reaction-icons.js";
-import { leaderList, captureRects, playFlip, MOVE_VISIBLE_MS } from "../components/leaderboard.js";
+import { leaderList, captureRects, playFlip, animateNumber, MOVE_VISIBLE_MS } from "../components/leaderboard.js";
 import { streakMeter } from "../components/streak.js";
 import { ringTimer, updateRings, pulseRings, gapCountdown, updateGap } from "../components/ring-timer.js";
 import { buildPodium, playPodium, showPodiumNow, podiumOrder, STEP_MS } from "../components/podium.js";
 import { runConfetti, stopConfetti } from "../components/confetti.js";
 import { buildDuel } from "../components/duel.js";
 import { buildExpress, expressStations, EXPRESS_STOP_MS } from "../components/express.js";
-import { themeToggle } from "../components/theme-toggle.js";
+import { appearanceTools } from "../components/theme-toggle.js";
 import { icons } from "../../shared/icons.js";
 import { toast } from "../components/toast.js";
 import { generateQRSvg } from "../../shared/qr.js";
@@ -81,6 +83,12 @@ let profilesLoaded = false;
 let dutyBusy = false;
 let lastScoreSig = "";
 let dutyErrorShown = false;
+let dutyTimer = null;      // отложенный запуск обязанностей ведущего (300–500 мс)
+let hostVerdictCache = {}; // uid → последний записанный вердикт
+let verdictFxSeen = new Set(); // "qid" вердиктов, на которые уже сыграли эффект
+let showTryAt = 0;         // когда в последний раз просили показать вопрос
+let tickCount = 0;
+let lastLeaderUid = null;  // для конфетти при смене лидера
 function reset() {
   unsubs.forEach(fn => { try { fn(); } catch (e) { /* уже отписаны */ } });
   unsubs = [];
@@ -113,6 +121,12 @@ function reset() {
   dutyBusy = false;
   lastScoreSig = "";
   dutyErrorShown = false;
+  if (dutyTimer) { clearTimeout(dutyTimer); dutyTimer = null; }
+  hostVerdictCache = {};
+  verdictFxSeen = new Set();
+  showTryAt = 0;
+  tickCount = 0;
+  lastLeaderUid = null;
   pageRef = null;
   leaderRef = null;
   statusRef = null;
@@ -129,7 +143,13 @@ function reset() {
     timedOut: false,
     errors: {},            // room / own / players — ошибки подписок
     offsetMs: 0,           // смещение часов устройства до сервера
-    clockReady: false
+    clockReady: false,
+    // «В своём темпе»: личная лента и вердикты от ведущего.
+    myShown: {},           // qid → мс показа вопроса мне
+    shownReady: false,
+    verdicts: null,        // мой документ verdicts/{uid}
+    verdictsReady: false,
+    selfHold: null         // { pos, until, max } — пауза с вердиктом
   };
 }
 reset();
@@ -200,7 +220,7 @@ function role() {
 function myPlayer() {
   const uid = State.user?.uid;
   if (local.ownPlayer) {
-    return { ...local.ownPlayer, uid, answers: local.myAnswers, times: local.myTimes };
+    return { ...local.ownPlayer, uid, answers: local.myAnswers, times: local.myTimes, shown: local.myShown };
   }
   const listed = local.players.find(p => p.uid === uid);
   return listed ? { ...listed, answers: { ...(listed.answers || {}), ...local.myAnswers } } : null;
@@ -221,6 +241,7 @@ function liveInfo() {
   if (!room) return empty;
   const nowMs = serverNowMs();
   const lifecycle = roomLifecycle(room, nowMs);
+  if (isSelfPaced(room)) return selfLiveInfo(room, lifecycle, nowMs);
   if (!isAutoRoom(room)) {
     const left = (() => {
       if (room.phase !== "opened") return null;
@@ -249,6 +270,52 @@ function liveInfo() {
     msLeft: phase === "question" || phase === "gap" ? pos.msLeft : null,
     plan
   };
+}
+
+// «В своём темпе»: позиция берётся из личной ленты игрока (shown/answers), а
+// не из общего расписания. Ведущий и наблюдатель общей позиции не имеют.
+function selfLiveInfo(room, lifecycle, nowMs) {
+  const plan = selfPlan(room);
+  const base = { auto: true, self: true, lifecycle, plan, phase: "idle", legacyPhase: "idle",
+    position: -1, qid: "", msLeft: null, ownDone: false };
+  if (lifecycle === "completed" || lifecycle === "closed") {
+    return { ...base, phase: "done", legacyPhase: "done", position: Math.max(-1, plan.count - 1), ownDone: true };
+  }
+  if (lifecycle === "waiting") return base;
+  if (role() !== "player") return { ...base, phase: "question", legacyPhase: "opened" };
+
+  const me = myPlayer();
+  const hold = local.selfHold;
+  if (hold) {
+    const now = Date.now();
+    const haveVerdict = verdictFromDoc(local.verdicts, hold.pos).verdict !== null;
+    if (now < hold.until || (!haveVerdict && room.instantVerdict !== false && now < hold.max)) {
+      return { ...base, phase: "verdict", legacyPhase: "verdict", position: hold.pos, qid: String(hold.pos) };
+    }
+    local.selfHold = null;
+  }
+  const prog = selfProgress({ plan, shown: local.myShown, answers: me?.answers || {}, nowMs });
+  if (prog.done) {
+    return { ...base, phase: "done", legacyPhase: "done", position: plan.count - 1, ownDone: true };
+  }
+  return { ...base, phase: "question", legacyPhase: "opened", position: prog.position,
+    qid: String(prog.position), msLeft: prog.msLeft, needsShow: prog.needsShow };
+}
+
+// Игроку пора показать следующий вопрос — создаём shown/{позиция}. Серверная
+// метка запускает личный таймер; повтор не чаще раза в 700 мс (правило может
+// отклонить слишком раннюю попытку из-за расхождения часов — тогда повторим).
+function ensureSelfShown() {
+  const room = local.room;
+  if (!isSelfPaced(room) || role() !== "player" || !local.clockReady || !local.shownReady) return;
+  const li = liveInfo();
+  if (li.lifecycle !== "in_progress" || li.phase !== "question" || !li.needsShow) return;
+  const now = Date.now();
+  if (now - showTryAt < 700) return;
+  showTryAt = now;
+  markQuestionShown(local.code, li.position).catch(err => {
+    if (err?.code !== "permission-denied") console.warn("Показ вопроса:", err?.code || err);
+  });
 }
 
 // Вопрос теста для позиции (в автономном режиме порядок может быть
@@ -305,6 +372,7 @@ function signature() {
     `crowd=${crowd}`,
     `reveal=${revealId}`,
     `me=${myAnswer != null ? 1 : 0}`,
+    `vd=${Object.keys(local.verdicts?.v || {}).length}:${local.shownReady ? 1 : 0}:${li.needsShow ? 1 : 0}`,
     `role=${me}`,
     `removed=${local.removed ? 1 : 0}`,
     `test=${local.test ? 1 : 0}`,
@@ -493,6 +561,8 @@ export default async function RoomPage() {
     if (!local || local.code !== code) return;
     onStateUpdate(page, isScreen);
     scheduleRender(page);
+    queueHostDuties();
+    ensureSelfShown();
   };
 
   // 15 секунд — только защита от бесконечного ожидания: таймаут не
@@ -505,6 +575,7 @@ export default async function RoomPage() {
   // Комната.
   unsubs.push(subscribeRoom(code, {
     answerScope: isHost ? "all" : "none",
+    watchShown: isHost && isSelfPaced(local.room),
     onRoom: room => {
       if (room) {
         local.room = decorateRoom(room);
@@ -552,6 +623,19 @@ export default async function RoomPage() {
         local.myTimes = times;
         wake();
       },
+      onShown: isSelfPaced(local.room) ? shown => {
+        local.myShown = shown;
+        local.shownReady = true;
+        wake();
+      } : null,
+      // Вердикты ведущего: верно/неверно сразу после ответа, без ключа.
+      onVerdicts: local.room?.instantVerdict === true ? verdicts => {
+        // Первый снапшот (после перезагрузки) только запоминаем, без эффектов.
+        if (!local.verdictsReady) Object.keys(verdicts?.v || {}).forEach(q => verdictFxSeen.add(q));
+        local.verdicts = verdicts;
+        local.verdictsReady = true;
+        wake();
+      } : null,
       onError: error => { setError("own", error); wake(); }
     }));
   }
@@ -613,9 +697,13 @@ export default async function RoomPage() {
   // Тикер: расписание автономного режима, таймеры, обязанности ведущего.
   ticker = setInterval(() => {
     if (!local || local.code !== code) return;
+    tickCount += 1;
     onStateUpdate(page, isScreen);
-    scheduleRender(page);
+    // Тикер нужен только для вещей, зависящих от времени; рейтинг и вердикты
+    // приходят событиями снапшотов (wake), тикер лишь страхует раз в 2 с.
+    scheduleRender(page, { tick: true });
     updateLiveTexts();
+    ensureSelfShown();
     hostAutoDuties();
   }, 500);
 
@@ -653,13 +741,96 @@ function scoreSignature(plan, nowMs) {
   return `${finished}|${answers}|${local.scores.length}`;
 }
 
+// Ответ участника пришёл снапшотом: пересчёт запускаем через ~350 мс, чтобы
+// пачка одновременных ответов ушла в Firestore одним пакетом (лимиты записи),
+// но вердикт и рейтинг обновились почти сразу, а не по тикеру.
+const DUTY_DEBOUNCE_MS = 350;
+function queueHostDuties() {
+  if (dutyTimer || role() !== "host" || !isAutoRoom(local.room)) return;
+  dutyTimer = setTimeout(() => {
+    dutyTimer = null;
+    hostAutoDuties();
+  }, DUTY_DEBOUNCE_MS);
+}
+
+// «В своём темпе»: у каждого свои позиции, поэтому очки, вердикты и итог
+// считаются по личной ленте игрока (computeSelfScores), а не по расписанию.
+// Ключи правильных ответов остаются у ведущего: игрокам уходит только вердикт.
+async function hostSelfDuties() {
+  const room = local.room;
+  if (dutyBusy || !room || role() !== "host" || !local.keysReady || !navigator.onLine) return;
+  const nowMs = serverNowMs();
+  const lifecycle = roomLifecycle(room, nowMs);
+  if (lifecycle === "waiting") return;
+  const plan = selfPlan(room);
+  const finalize = lifecycle === "completed" || lifecycle === "closed";
+  const keysByPos = keysByPosition(local.keys, room);
+  const board = computeSelfScores({
+    players: local.players, keysByPos, plan, nowMs, finalize, speedBonus: room.speedBonus !== false
+  });
+  const verdicts = {};
+  for (const row of board) verdicts[row.uid] = verdictMapFromResults(row.results);
+  const changedV = changedVerdicts(hostVerdictCache, verdicts);
+  const changedS = changedScores(local.scores, board);
+  const missingReveals = finalize
+    ? Array.from({ length: plan.count }, (_, i) => i).filter(i => !local.reveals?.[String(i)])
+    : [];
+  const everyoneDone = lifecycle === "in_progress" && board.length > 0 && board.every(r => r.done)
+    && room.registrationOpen === false;
+  if (!Object.keys(changedV).length && !changedS.length && !missingReveals.length && !everyoneDone) return;
+
+  dutyBusy = true;
+  try {
+    // Сначала вердикты — игрок ждёт их на экране.
+    if (Object.keys(changedV).length) {
+      await writeVerdicts({ code: local.code, verdicts: changedV });
+      Object.assign(hostVerdictCache, changedV);
+    }
+    if (changedS.length) await writeScoreBoard({ code: local.code, board: changedS });
+    if (missingReveals.length) {
+      await revealQuestions({ code: local.code, positions: missingReveals, keysByPos });
+    }
+    if (everyoneDone) await finishAutoTest(local.code);
+    dutyErrorShown = false;
+  } catch (err) {
+    console.error("Режим «в своём темпе» (ведущий):", err);
+    if (!dutyErrorShown) {
+      dutyErrorShown = true;
+      toast("Не удалось обновить вердикты или рейтинг — повторю автоматически.", "error");
+    }
+  } finally {
+    dutyBusy = false;
+  }
+}
+
+// Синхронный автономный режим с мгновенным вердиктом: вердикт пишем сразу
+// после ответа, не дожидаясь закрытия вопроса. Ключ при этом не раскрывается.
+async function hostInstantVerdicts(room, plan) {
+  const keysByPos = keysByPosition(local.keys, room);
+  const speed = room.speedBonus === false ? null : { qDurationSec: plan.questionSec, qStarts: autoQStarts(plan) };
+  const next = liveVerdicts({ players: local.players, keysByPos, speed });
+  const changed = changedVerdicts(hostVerdictCache, next);
+  if (!Object.keys(changed).length) return;
+  await writeVerdicts({ code: local.code, verdicts: changed });
+  Object.assign(hostVerdictCache, changed);
+}
+
 async function hostAutoDuties() {
   const room = local.room;
   if (dutyBusy || !room || role() !== "host" || !isAutoRoom(room)) return;
+  // Отдельная ветка: две логики (общее расписание и личные ленты) не смешиваются.
+  if (isSelfPaced(room)) return hostSelfDuties();
   if (room.status !== "active" || !room.autoStartedAt || !local.keysReady) return;
   if (!navigator.onLine) return;
   const nowMs = serverNowMs();
   const plan = autoPlan(room);
+  if (room.instantVerdict === true && room.liveState === "in_progress") {
+    dutyBusy = true;
+    try { await hostInstantVerdicts(room, plan); }
+    catch (err) { console.error("Вердикты (ведущий):", err); }
+    finally { dutyBusy = false; }
+    if (dutyBusy) return;
+  }
   const todo = finalizablePositions({ plan, nowMs, reveals: local.reveals || {} });
   const lifecycle = roomLifecycle(room, nowMs);
   const needComplete = lifecycle === "completed" && room.liveState !== "completed";
@@ -709,7 +880,7 @@ function updateLiveTexts() {
   page.querySelectorAll("[data-live-bar]").forEach(el => {
     const plan = li.plan;
     if (!plan || li.msLeft == null) { el.style.width = "0%"; return; }
-    const total = li.phase === "question" ? plan.questionMs : plan.gapMs;
+    const total = li.phase === "question" ? plan.questionMs : (plan.gapMs || 1);
     el.style.width = `${Math.max(0, Math.min(100, (1 - li.msLeft / total) * 100))}%`;
   });
 }
@@ -723,7 +894,13 @@ function statusText() {
   let text;
   if (!room) text = "Ждём комнату…";
   else if (li.lifecycle === "closed") text = "Комната закрыта";
-  else if (li.auto) {
+  else if (li.self) {
+    text = li.lifecycle === "waiting" ? "Ожидание начала теста"
+      : li.lifecycle === "completed" ? "Тест завершён"
+      : role() === "player"
+        ? (li.ownDone ? "Вы ответили на все вопросы" : `Вопрос ${li.position + 1} из ${total}`)
+        : "Тест идёт · каждый в своём темпе";
+  } else if (li.auto) {
     text = li.lifecycle === "waiting" ? "Ожидание начала теста"
       : li.lifecycle === "completed" ? "Тест завершён"
       : li.phase === "question" ? `Вопрос ${li.position + 1} из ${total}`
@@ -747,7 +924,7 @@ function fillStatusBar() {
   statusRef.append(statusText(), soundToggle());
 }
 
-function scheduleRender(page) {
+function scheduleRender(page, { tick = false } = {}) {
   if (page) pageRef = page;
   const target = page || pageRef;
   const sig = signature();
@@ -757,8 +934,12 @@ function scheduleRender(page) {
     manageAutoClose();
   }
   fillStatusBarIfChanged();
-  updateLeaderboard();
-  updateStreakMeter();
+  // Рейтинг перерисовывается по событию (снапшот scores → wake); тикер —
+  // страховка раз в 2 секунды.
+  if (!tick || tickCount % 4 === 0) {
+    updateLeaderboard();
+    updateStreakMeter();
+  }
   updateReactionBar();
   showFloats();
   ensureTickTimer();
@@ -811,10 +992,12 @@ function onStateUpdate(page, isScreen) {
       play("start");
     }
     // Верность моего ответа: только когда вопрос закрылся и есть reveal.
-    if (reveal && !prev.reveal) {
+    // Если комната отдаёт мгновенный вердикт, реакция уже сыграла (verdictFx).
+    if (reveal && !prev.reveal && local.room?.instantVerdict !== true) {
       const verdict = myAnswerVerdict(reveal, mine);
       if (verdict === true) {
         play("correct"); vibrate("correct"); flash(page, "room-flash-correct");
+        miniConfetti(page);
       } else if (verdict === false) {
         play("wrong"); vibrate("wrong"); flash(page, "room-flash-wrong", true);
       }
@@ -841,7 +1024,33 @@ function onStateUpdate(page, isScreen) {
       if (!boardData().length) play("final");
     }
   }
+  verdictFx(page);
   prev = { ...now, ids, reveal: Boolean(reveal), rank: myRank, streak: myStreak, status: room?.status || "" };
+}
+
+// Маленькое конфетти у верного ответа (только у участника).
+function miniConfetti(page, power = 0.3) {
+  if (!page || reducedMotion() || isScreenRoute()) return;
+  runConfetti(page, { duration: 1500, power });
+}
+
+// Реакция на мгновенный вердикт ведущего: звук, вибрация, вспышка. Верно —
+// зелёная вспышка и конфетти, неверно — дрожание карточки. Каждый вердикт
+// отыгрывается один раз; то, что пришло при загрузке страницы (после
+// перезагрузки), только запоминается, без эффектов.
+function verdictFx(page) {
+  const map = local.verdicts?.v;
+  if (!local.verdictsReady || !map) return;
+  const fresh = Object.keys(map).filter(qid => !verdictFxSeen.has(qid));
+  if (!fresh.length) return;
+  fresh.forEach(qid => verdictFxSeen.add(qid));
+  const last = fresh.sort((a, b) => Number(a) - Number(b)).pop();
+  if (role() !== "player") return;
+  if (map[last].c === true) {
+    play("correct"); vibrate("correct"); flash(page, "room-flash-correct"); miniConfetti(page);
+  } else {
+    play("wrong"); vibrate("wrong"); flash(page, "room-flash-wrong", true);
+  }
 }
 
 // rankOf: место моего uid в таблице (по очкам).
@@ -961,13 +1170,15 @@ function boardData() {
   const room = local.room;
   const li = liveInfo();
   const revealIds = Object.keys(local.reveals || {}).sort((a, b) => Number(a) - Number(b));
-  const finished = li.plan ? finishedPositions(li.plan, serverNowMs()).length : revealIds.length;
+  const finished = li.plan && !li.self ? finishedPositions(li.plan, serverNowMs()).length : revealIds.length;
   const rows = ratingRows({
     scores: local.scores,
     players: local.players,
     questionCount: room?.questionCount || 0,
     finished,
-    lifecycle: li.lifecycle
+    lifecycle: li.lifecycle,
+    // Участник-администратор виден в рейтинге только самому себе.
+    viewerUid: State.user?.uid || null
   });
   const mine = role() === "player" ? myPlayer() : null;
   for (const row of rows) {
@@ -1008,6 +1219,13 @@ function syncBoardFrame() {
   });
   const prevCur = frame.cur;
   frame = { sig, at: now, prev: prevCur, cur: mk() };
+  // Лидер сменился — короткое конфетти и звук (не при первом кадре).
+  const leader = rows[0] && (rows[0].score ?? 0) > 0 ? rows[0].uid : null;
+  if (leader && lastLeaderUid && leader !== lastLeaderUid && pageRef) {
+    miniConfetti(pageRef, isScreenRoute() ? 0.6 : 0.35);
+    play("up");
+  }
+  if (leader) lastLeaderUid = leader;
   if (prevCur) {
     for (const row of rows) {
       const old = prevCur.places.get(row.uid);
@@ -1033,7 +1251,11 @@ function leaderCtx({ board = false } = {}) {
     prevScores: fresh ? new Map(frame.prev.scores) : new Map(),
     prevStreaks: fresh ? new Map(frame.prev.streaks) : new Map(),
     statusLabel: RATING_STATUS_LABEL,
-    board
+    board,
+    // Полоса очков: ширина пропорциональна баллам (от лидера); прошлый кадр
+    // нужен, чтобы полоса «выросла» из прежней длины.
+    maxScore: Math.max(1, ...(frame.cur ? [...frame.cur.scores.values()] : [0])),
+    prevMaxScore: fresh && frame.prev ? Math.max(1, ...frame.prev.scores.values()) : null
   };
 }
 
@@ -1215,10 +1437,24 @@ async function initRoomQR(room, root) {
 
 // ---------- Аватары ----------
 
+// Цвет кольца аватара — по группе участника (стабильный оттенок из groupId).
+// Без группы (гость) кольцо нейтральное.
+function groupColor(groupId) {
+  if (!groupId) return null;
+  let acc = 0;
+  for (const ch of String(groupId)) acc = (acc * 31 + ch.charCodeAt(0)) >>> 0;
+  return `hsl(${acc % 360} 70% 48%)`;
+}
+
 function avatarChip(entry) {
   // Гость не имеет publicProfiles — аватар берём из его players-документа.
   const profile = local.profiles.get(entry.uid);
-  return avatarChipEl(profile?.avatar || entry.avatar, entry.name);
+  const groupId = entry.groupId || local.players.find(p => p.uid === entry.uid)?.groupId || null;
+  const chip = avatarChipEl(profile?.avatar || entry.avatar, entry.name, "avatar-ring");
+  const color = groupColor(groupId);
+  if (color) chip.style.setProperty("--ring", color);
+  else chip.classList.add("avatar-ring-none");
+  return chip;
 }
 
 // ---------- Подиум и конфетти ----------
@@ -1413,7 +1649,7 @@ function hostHeader(wrap, room) {
       h("p", { class: "page-sub" }, `Код комнаты: `),
     ),
     h("div", { class: "room-head-tools" },
-      themeToggle(),
+      appearanceTools(),
       h("a", { class: "btn secondary", href: `#room/${room.code || room.id}/screen` },
         "Экран проектора"))
   ));
@@ -1639,7 +1875,7 @@ function playerView() {
       h("h1", {}, room.testTitle || "Комната"),
       h("p", { class: "page-sub" }, `Код комнаты: ${room.code || room.id}`)
     ),
-    h("div", { class: "room-head-tools" }, themeToggle())
+    h("div", { class: "room-head-tools" }, appearanceTools())
   ));
 
   const currentId = room.phase === "opened" || room.phase === "closed"
@@ -1816,7 +2052,14 @@ async function submitAnswer(room, questionId, value, message, submitBtn, focusEl
       lastSignature = null;
     }
     submitBtn.textContent = "Ответ отправлен";
-    toast("Ответ записан", "success");
+    if (isSelfPaced(local.room)) {
+      // Пауза с вердиктом, затем следующий вопрос: личный таймер следующего
+      // вопроса стартует только когда он покажется (shown/{позиция}).
+      const now = Date.now();
+      local.selfHold = { pos: Number(questionId), until: now + SELF_HOLD_MS, max: now + SELF_HOLD_MS + 2500 };
+    } else {
+      toast("Ответ записан", "success");
+    }
     scheduleRender(null);
   } catch (err) {
     console.error("Не удалось отправить ответ:", err);
@@ -1951,6 +2194,14 @@ function screenView() {
   if (finishedRoom) {
     const podium = finalSequence({ projector: true });
     if (podium) wrap.appendChild(podium);
+  } else if (li.self && li.lifecycle === "in_progress") {
+    // «В своём темпе»: общего вопроса нет — на проекторе ход теста и лидеры.
+    const done = (local.scores || []).filter(r => r.done === true && !r.isAdminPlayer).length;
+    const people = local.players.filter(p => roleOfPlayer(p) !== ROLE_OBSERVER && !isAdminPlayerFlag(p)).length;
+    wrap.appendChild(h("div", { class: "panel screen-wait-panel" },
+      h("div", { class: "empty-state" },
+        h("h2", {}, "Тест идёт — каждый в своём темпе"),
+        h("p", { class: "page-sub" }, `Закончили ${done} из ${people}`))));
   } else if (!question) {
     // Ожидание первого вопроса — момент входа участников: крупный QR,
     // чтобы каждый мог отсканировать его камерой телефона.
@@ -1986,8 +2237,11 @@ function screenView() {
   const boardRowsList = boardRows();
   if (boardRowsList.length && !finishedRoom) {
     syncBoardFrame();
+    // Лидер — крупно сверху, с подсветкой; остальные — строками табло.
+    const [top, ...others] = boardRowsList;
     wrap.appendChild(h("div", { class: "screen-board-wrap" },
-      leaderListFor(boardRowsList.slice(0, 8), { board: true })));
+      (top.score ?? 0) > 0 ? leaderHero(top) : null,
+      leaderListFor((top.score ?? 0) > 0 ? others.slice(0, 7) : boardRowsList.slice(0, 8), { board: true })));
   }
 
   // Комната активна, вопрос уже открыт: маленький QR под таблицей —
@@ -2002,6 +2256,20 @@ function screenView() {
     ));
   }
   return wrap;
+}
+
+// Крупный лидер на проекторе: аватар с кольцом, имя, очки и серия.
+function leaderHero(row) {
+  const scoreEl = h("span", { class: "hero-score-num" }, String(row.score ?? 0));
+  const prevScore = frame.prev?.scores?.get(row.uid);
+  if (typeof prevScore === "number" && prevScore !== (row.score ?? 0)) animateNumber(scoreEl, prevScore, row.score ?? 0);
+  return h("div", { class: "leader-hero", "data-uid": row.uid, "aria-label": `Лидер: ${row.name}, ${row.score} баллов` },
+    h("div", { class: "hero-crown", "aria-hidden": "true" }, "🥇"),
+    avatarChip(row),
+    h("div", { class: "hero-main" },
+      h("div", { class: "hero-label" }, "Лидирует"),
+      h("div", { class: "hero-name" }, row.name || "Участник")),
+    h("div", { class: "hero-score" }, scoreEl, h("span", { class: "hero-unit" }, " б.")));
 }
 
 // ---------- Автономный режим: рейтинг и виды ----------
@@ -2024,7 +2292,29 @@ function ratingPanel({ title = "Общий рейтинг", limit = null, rows =
   return panel;
 }
 
+// «В своём темпе»: прогресс игрока или общая сводка для ведущего/наблюдателя.
+function selfProgressPanel(li, room) {
+  const total = room.questionCount || 0;
+  const mineRunning = role() === "player" && li.lifecycle === "in_progress" && !li.ownDone;
+  const label = li.lifecycle === "waiting" ? "Тест ещё не начался"
+    : li.lifecycle !== "in_progress" ? "Тест завершён"
+    : role() !== "player" ? "Тест идёт — каждый в своём темпе"
+    : li.ownDone ? "Вы ответили на все вопросы"
+    : li.phase === "verdict" ? `Вопрос ${li.position + 1} из ${total} · ответ принят`
+    : `Вопрос ${li.position + 1} из ${total}`;
+  return h("section", { class: "panel live-progress" },
+    h("div", { class: "panel-head" },
+      h("h2", {}, label),
+      mineRunning && li.phase === "question" && li.msLeft != null
+        ? h("span", { class: "timer badge badge-neutral", "data-live-clock": "1" }, formatClockMs(li.msLeft))
+        : null),
+    mineRunning
+      ? h("div", { class: "live-bar", "aria-hidden": "true" }, h("div", { class: "live-bar-fill", "data-live-bar": "1" }))
+      : null);
+}
+
 function progressPanel(li, room) {
+  if (li.self) return selfProgressPanel(li, room);
   const total = room.questionCount || 0;
   const label = li.lifecycle === "waiting" ? "Тест ещё не начался"
     : li.lifecycle === "in_progress"
@@ -2051,6 +2341,10 @@ function peopleChips(list, emptyText) {
 }
 
 function settingsSummary(room) {
+  if (isSelfPaced(room)) {
+    const minutes = Math.round(((room.questionCount || 0) * (room.questionSec || 0)) / 60);
+    return `Вопросов: ${room.questionCount || 0} · каждый в своём темпе: ${room.questionSec} с на вопрос, следующий — сразу после ответа · верно/неверно видно сразу · бонус за скорость: ${room.speedBonus === false ? "нет" : "да"} · до ≈ ${minutes} мин на участника`;
+  }
   const order = room.shuffleQuestions ? "случайный" : "последовательный";
   const totalMin = Math.round(((room.questionCount || 0) * ((room.questionSec || 0) + (room.gapSec || 0))) / 60);
   return `Вопросов: ${room.questionCount || 0} · ${room.questionSec} с на вопрос + пауза ${room.gapSec} с · порядок: ${order} · бонус за скорость: ${room.speedBonus === false ? "нет" : "да"} · ≈ ${totalMin} мин`;
@@ -2119,6 +2413,9 @@ function autoHostView() {
         startBtn,
         h("p", { class: "form-hint" },
           "Кнопка нажимается один раз: дальше вопросы выдаются автоматически."))));
+  } else if (li.lifecycle === "in_progress" && li.self) {
+    wrap.appendChild(selfHostPanel(li, room, participants, playersCount, regOpen));
+    wrap.appendChild(ratingPanel());
   } else if (li.lifecycle === "in_progress") {
     const question = questionFor(li.position);
     const answered = answeredCount(participants, li.qid);
@@ -2155,7 +2452,9 @@ function autoHostView() {
     const rows = ratingSource();
     const sum = summarizeRating(rows);
     const plan = li.plan;
-    const positions = plan ? finishedPositions(plan, serverNowMs()) : [];
+    const positions = li.self
+      ? Array.from({ length: room.questionCount || 0 }, (_, i) => i)
+      : plan ? finishedPositions(plan, serverNowMs()) : [];
     const acc = questionAccuracy({
       players: local.players,
       keysByPos: local.keysReady ? keysByPosition(local.keys, room) : [],
@@ -2193,13 +2492,54 @@ function autoHostView() {
   return wrap;
 }
 
+// Ведущий в режиме «в своём темпе»: таймеры вопросов он не закрывает, а видит,
+// сколько участников ответило на каждый вопрос и кто уже закончил.
+function selfHostPanel(li, room, participants, playersCount, regOpen) {
+  const total = room.questionCount || 0;
+  const rows = participants.filter(p => !isAdminPlayerFlag(p));
+  const doneCount = (local.scores || []).filter(r => r.done === true && !r.isAdminPlayer).length;
+  const finishBtn = h("button", { type: "button", class: "btn secondary" }, "Завершить тест");
+  finishBtn.addEventListener("click", async () => {
+    if (!window.confirm("Завершить тест для всех сейчас? Неотвеченные вопросы засчитаются пропущенными.")) return;
+    finishBtn.disabled = true;
+    try {
+      await finishAutoTest(local.code, { early: true });
+      toast("Тест завершён", "success");
+    } catch (err) {
+      toast(err?.message || "Не удалось завершить тест", "error");
+      finishBtn.disabled = false;
+    }
+  });
+  const regBtn = h("button", { type: "button", class: "btn secondary" },
+    regOpen ? "Закрыть регистрацию" : "Открыть регистрацию");
+  regBtn.addEventListener("click", () => {
+    regBtn.disabled = true;
+    setRegistrationOpen(local.code, !regOpen).catch(err => toast(err?.message || "Ошибка", "error"));
+  });
+  const perQuestion = Array.from({ length: total }, (_, position) => {
+    const answered = answeredCount(participants, String(position));
+    return h("li", {}, `Вопрос ${position + 1}: ответили ${answered} из ${playersCount}`);
+  });
+  return h("section", { class: "panel" },
+    h("div", { class: "panel-head" },
+      h("h2", {}, "Тест идёт — каждый в своём темпе"),
+      h("span", { class: "badge badge-neutral" }, `закончили ${doneCount} из ${rows.length}`)),
+    h("div", { class: "panel-body" },
+      h("div", { class: "btn-row" }, finishBtn, regBtn),
+      h("p", { class: "form-hint" },
+        "Вопросы по таймеру закрывать не нужно: у каждого участника свой таймер. Страницу лучше держать открытой — она проверяет ответы и обновляет рейтинг. Когда все закончат и регистрация закрыта, тест завершится сам."),
+      h("ol", { class: "live-accuracy" }, perQuestion)));
+}
+
+function isAdminPlayerFlag(p) { return p?.isAdminPlayer === true; }
+
 function playerHead(room, label) {
   return h("div", { class: "page-head" },
     h("div", {},
       h("div", { class: "eyebrow" }, `Live-комната · ${label}`),
       h("h1", {}, room.testTitle || "Комната"),
       h("p", { class: "page-sub" }, `Код комнаты: ${room.code || room.id}`)),
-    h("div", { class: "room-head-tools" }, themeToggle()));
+    h("div", { class: "room-head-tools" }, appearanceTools()));
 }
 
 function lobbyPanel(room, who) {
@@ -2240,6 +2580,9 @@ function autoPlayerView() {
     wrap.appendChild(waitPanel("Синхронизируем время с сервером…"));
     return wrap;
   }
+  if (li.lifecycle === "in_progress" && li.self) {
+    return selfPlayerBody(wrap, room, li);
+  }
   if (li.lifecycle === "in_progress") {
     const question = questionFor(li.position);
     const my = me?.answers?.[li.qid];
@@ -2248,6 +2591,8 @@ function autoPlayerView() {
       wrap.appendChild(waitPanel("Загружаем вопрос…"));
     } else if (li.phase === "question" && my == null) {
       wrap.appendChild(answerForm(question, li.qid));
+    } else if (li.phase === "question" && room.instantVerdict === true) {
+      wrap.appendChild(verdictCard(li.qid, { hint: "Следующий вопрос появится автоматически." }));
     } else if (li.phase === "question") {
       wrap.appendChild(h("div", { class: "panel" },
         h("div", { class: "empty-state" },
@@ -2265,6 +2610,45 @@ function autoPlayerView() {
   return finishedPlayerView(wrap, room, li);
 }
 
+// Карточка вердикта: «Верно! +16 б.» / «Неверно» — приходит от ведущего без
+// ключа ответа. Класс verdict-correct / verdict-wrong запускает реакцию
+// карточки (вспышка и конфетти / дрожание, только transform и opacity).
+function verdictCard(qid, { hint = "" } = {}) {
+  const { verdict, points } = verdictFromDoc(local.verdicts, qid);
+  const title = verdict === null ? "Ответ принят — проверяем…"
+    : verdict ? "Верно!" : "Неверно";
+  const cls = verdict === null ? "" : verdict ? " verdict-correct" : " verdict-wrong";
+  return h("div", { class: `panel verdict-card${cls}`, role: "status" },
+    h("div", { class: "empty-state" },
+      h("h2", { class: verdict === true ? "live-ok" : verdict === false ? "live-bad" : "" }, title),
+      verdict === true ? h("p", { class: "verdict-points" }, `+${points} б.`) : null,
+      verdict === false ? h("p", { class: "muted" }, "Правильный ответ откроется после завершения теста.") : null,
+      hint ? h("p", { class: "muted" }, hint) : null));
+}
+
+// Вид участника в режиме «в своём темпе».
+function selfPlayerBody(wrap, room, li) {
+  wrap.appendChild(selfProgressPanel(li, room));
+  if (!local.shownReady) {
+    wrap.appendChild(waitPanel("Загружаем вопрос…"));
+  } else if (li.ownDone) {
+    wrap.appendChild(h("div", { class: "panel" },
+      h("div", { class: "empty-state" },
+        h("div", { class: "empty-state-icon", innerHTML: icons.check }),
+        h("h2", {}, "Вы ответили на все вопросы"),
+        h("p", { class: "muted" }, "Ждём остальных участников. Итоги и правильные ответы появятся, когда тест завершится."))));
+  } else if (li.phase === "verdict") {
+    wrap.appendChild(verdictCard(li.qid, { hint: "Следующий вопрос — сейчас…" }));
+  } else if (li.needsShow) {
+    wrap.appendChild(waitPanel("Готовим вопрос…"));
+  } else {
+    const question = questionFor(li.position);
+    wrap.appendChild(question ? answerForm(question, li.qid) : waitPanel("Загружаем вопрос…"));
+  }
+  if (room.showLeaderboard === true) wrap.appendChild(ratingPanel({ title: "Рейтинг", limit: 10 }));
+  return wrap;
+}
+
 // Мои результаты по закрытым вопросам с разбивкой очков по единой формуле
 // (core/rooms-logic.js): «Верно: 10 · Серия ×1.2 · Скорость +4 = 16 б.».
 function myResults() {
@@ -2272,7 +2656,7 @@ function myResults() {
   if (!me) return [];
   const li = liveInfo();
   const times = normalizePlayerTimes(me).times || {};
-  const starts = li.plan ? autoQStarts(li.plan) : qStartsMs(local.room);
+  const starts = li.self ? (local.myShown || {}) : li.plan ? autoQStarts(li.plan) : qStartsMs(local.room);
   const duration = li.plan ? li.plan.questionSec : questionDurationSec(local.test, local.room?.settings);
   const speedOn = local.room?.speedBonus !== false;
   const ids = Object.keys(local.reveals || {}).sort((a, b) => Number(a) - Number(b));
@@ -2361,8 +2745,10 @@ function autoObserverView() {
     h("div", { class: "quick-action" }, h("b", {}, String(participants.length)), h("span", {}, "участников")),
     h("div", { class: "quick-action" }, h("b", {}, String(observers)), h("span", {}, "наблюдателей")),
     h("div", { class: "quick-action" },
-      h("b", {}, `${Math.max(0, li.lifecycle === "waiting" ? 0 : li.position + (li.phase === "gap" || li.phase === "done" ? 1 : 0))}/${room.questionCount || 0}`),
-      h("span", {}, "вопросов пройдено"))));
+      li.self
+        ? h("b", {}, `${(local.scores || []).filter(r => r.done === true && !r.isAdminPlayer).length}`)
+        : h("b", {}, `${Math.max(0, li.lifecycle === "waiting" ? 0 : li.position + (li.phase === "gap" || li.phase === "done" ? 1 : 0))}/${room.questionCount || 0}`),
+      h("span", {}, li.self ? "закончили тест" : "вопросов пройдено"))));
   if (li.lifecycle === "waiting") {
     wrap.appendChild(lobbyPanel(room, "observer"));
   } else {

@@ -1,7 +1,7 @@
 import { h } from "../../shared/dom.js";
 import { State, saveOwnProfile } from "../../core/auth.js";
 import { validateFullName } from "../../core/profile.js";
-import { getThemeMode, setThemeMode, subscribeTheme } from "../../shared/theme.js";
+import { getThemeMode, setThemeMode, subscribeTheme, getPalette, subscribePalette } from "../../shared/theme.js";
 import { toast } from "../../ui/components/toast.js";
 
 const MODES = [
@@ -52,7 +52,13 @@ export default function SettingsPage() {
   const skinSelect = h("select", { id: "skin" },
     SKINS.map(([value, label, hint]) => h("option", { value }, `${label} — ${hint}`))
   );
-  skinSelect.value = profile.ui || "education";
+  skinSelect.value = profile.ui || getPalette();
+  // Палитра — одна настройка на устройство (shared/theme.js): если её сменили
+  // переключателем в комнате, список здесь показывает то же значение.
+  const unsubPalette = subscribePalette(value => { skinSelect.value = value; });
+  if (typeof window !== "undefined") {
+    window.addEventListener("hashchange", () => unsubPalette(), { once: true });
+  }
   skinSelect.addEventListener("change", async () => {
     try {
       await saveOwnProfile({ ui: skinSelect.value });

@@ -42,3 +42,57 @@ test('сохранённый выбор читается при следующе
   assert.equal(theme.getThemeMode(), 'dark');
   assert.equal(theme.resolveTheme('dark'), 'dark');
 });
+
+// ---------- Палитра (скин) гостя ----------
+
+function setupPalette(initial = {}) {
+  const env = setup(initial);
+  globalThis.window.dispatchEvent = () => {};
+  return env;
+}
+
+test('палитра: по умолчанию education, выбор гостя сохраняется и применяется', async () => {
+  const { store, attrs } = setupPalette();
+  const theme = await import('../shared/theme.js?palette1');
+  assert.equal(theme.getPalette(), 'education');
+  assert.equal(theme.setPalette('depot'), 'depot');
+  assert.equal(store['sb-palette'], 'depot');
+  assert.equal(attrs['data-ui'], 'depot');
+  assert.equal(theme.getPalette(), 'depot');
+});
+
+test('палитра: неизвестное значение заменяется палитрой по умолчанию', async () => {
+  const { store, attrs } = setupPalette();
+  const theme = await import('../shared/theme.js?palette2');
+  assert.equal(theme.setPalette('neon'), 'education');
+  assert.equal(store['sb-palette'], 'education');
+  assert.equal(attrs['data-ui'], 'education');
+});
+
+test('палитра: initTheme поднимает сохранённый выбор, applyPalette ничего не пишет', async () => {
+  const { store, attrs } = setupPalette({ 'sb-palette': 'operations' });
+  const theme = await import('../shared/theme.js?palette3');
+  theme.initTheme();
+  assert.equal(attrs['data-ui'], 'operations');
+  // applyPalette (профиль из Firestore) только применяет, localStorage не трогает.
+  theme.applyPalette('depot');
+  assert.equal(attrs['data-ui'], 'depot');
+  assert.equal(store['sb-palette'], 'operations');
+});
+
+test('палитра: список совпадает со скинами профиля (VALID_UI)', async () => {
+  setupPalette();
+  const theme = await import('../shared/theme.js?palette4');
+  const { VALID_UI } = await import('../core/registration.js');
+  assert.deepEqual([...theme.PALETTES], [...VALID_UI]);
+  for (const p of theme.PALETTES) assert.ok(theme.PALETTE_META[p].label);
+});
+
+test('палитра не сбрасывает светлую/тёмную тему', async () => {
+  const { attrs } = setupPalette({ 'sb-theme': 'dark' });
+  const theme = await import('../shared/theme.js?palette5');
+  theme.applyThemeMode('dark');
+  theme.setPalette('depot');
+  assert.equal(attrs['data-theme'], 'dark');
+  assert.equal(attrs['data-ui'], 'depot');
+});
