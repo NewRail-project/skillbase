@@ -8,11 +8,7 @@ export default function ContactPage() {
     eyebrow: "Связь",
     title: "Контакты NewRail",
     subtitle: "Мы открыты к конструктивной обратной связи и сотрудничеству.",
-    extra: [
-      h("a", { href: "#contact-en" }, "English version"),
-      " · ",
-      h("a", { href: "mailto:bujlenkovdaniil@gmail.com" }, "Сообщить об ошибке")
-    ],
+    sections: [
       {
         id: "intro",
         title: "Свяжитесь с нами",
@@ -83,7 +79,7 @@ export default function ContactPage() {
             "Год: 2026", h("br"),
             "Сайт: ", h("a", { href: "https://newrail-project.github.io/skillbase/#/" }, "newrail-project.github.io/skillbase")
           ),
-          h("p", { style: "font-style: italic; margin-top: var(--space-4); font-weight: 500;" }, "«Skillbase — знания, которые движут отрасль вперёд»")
+          h("p", { style: "font-style: italic; margin-top: var(--space-4); font-weight: 500;" }, "«Skillbase — знания, которые движут отрасль вперёр»")
         ]
       }
     ]
