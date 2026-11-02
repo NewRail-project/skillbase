@@ -1,100 +1,94 @@
 // ui/pages/contact.js — Контакты и обратная связь Skillbase.
 import { h } from "../../shared/dom.js";
-import { docPage } from "../components/doc-page.js";
+import { docPage, scrollToDocSection } from "../components/doc-page.js";
+import { State } from "../../core/auth.js";
 
 export default function ContactPage() {
   const page = docPage({
-    eyebrow: "Контакты",
-    title: "Контакты и обратная связь",
-    subtitle: "Свяжитесь с командой Skillbase по любым вопросам.",
-    sections: [
+    eyebrow: "Связь",
+    title: "Контакты NewRail",
+    subtitle: "Мы открыты к конструктивной обратной связи и сотрудничеству.",
+    extra: [
+      h("a", { href: "#contact-en" }, "English version"),
+      " · ",
+      h("a", { href: "mailto:bujlenkovdaniil@gmail.com" }, "Сообщить об ошибке")
+    ],
       {
-        title: "Основные контакты",
+        id: "intro",
+        title: "Свяжитесь с нами",
         blocks: [
-          h("p", {},=" Команда Skillbase всегда готова ответить на ваши вопросы и помочь с использованием платформы."),
-          h("p", {},=" Основной способ связи — Telegram. Мы стараемся отвечать в течение 24 часов.")
+          h("p", {}, "Есть вопросы по работе Skillbase, предложения по развитию платформы или сообщения об обнаруженных ошибках? Свяжитесь с командой NewRail удобным для вас способом. Мы ценим мнение каждого пользователя."),
+          h("div", { class: "contact-main", style: "margin: var(--space-4) 0; padding: var(--space-4); background: var(--ok-bg); border: 1px solid var(--ok-border); border-radius: var(--radius-m);" },
+            h("div", { style: "font-weight: 700; color: var(--ok); margin-bottom: var(--space-1);" }, "Основной канал связи — Telegram"),
+            h("a", {
+              href: "https://t.me/Frozencode_f",
+              target: "_blank",
+              style: "font-size: 1.25rem; font-weight: 700; text-decoration: none; color: var(--ok);"
+            }, "@Frozencode_f")
+          )
         ]
       },
       {
-        title: "Способы связи",
+        id: "channels",
+        title: "Все способы связи",
         blocks: [
-          h("ul", {},
-            h("li", {},={},
-              h("strong", {},="Telegram (основной):"),
-              " ",
-              h("a", { href: "https://t.me/Frozencode_f", target: "_blank", rel: "noopener" }, "@Frozencode_f")
+          h("div", { style: "display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-3);" },
+            h("div", { class: "card", style: "margin: 0;" },
+              h("b", { style: "display: block; margin-bottom: var(--space-1)" }, "Telegram (дополнительный)"),
+              h("a", { href: "https://t.me/YourAssistantWeb", target: "_blank" }, "@YourAssistantWeb")
             ),
-            h("li", {},={},
-              h("strong", {},="Telegram (дополнительный):"),
-              " ",
-              h("a", { href: "https://t.me/YourAssistantWeb", target: "_blank", rel: "noopener" }, "@YourAssistantWeb")
-            ),
-            h("li", {},={},
-              h("strong", {},="Email:"),
-              " ",
+            h("div", { class: "card", style: "margin: 0;" },
+              h("b", { style: "display: block; margin-bottom: var(--space-1)" }, "Электронная почта"),
               h("a", { href: "mailto:bujlenkovdaniil@gmail.com" }, "bujlenkovdaniil@gmail.com")
             ),
-            h("li", {},={},
-              h("strong", {},="Instagram:"),
-              " ",
-              h("a", { href: "https://www.instagram.com/core.singl?psln=MWkzcXg1YWoxNnVyZA==", target: "_blank", rel: "noopener" }, "@core.singl")
+            h("div", { class: "card", style: "margin: 0;" },
+              h("b", { style: "display: block; margin-bottom: var(--space-1)" }, "Instagram"),
+              h("a", { href: "https://www.instagram.com/core.singl?psln=MWkzcXg1YWoxNnVyZA==", target: "_blank" }, "@core.singl")
             ),
-            h("li", {},={},
-              h("strong", {},="GitHub:"),
-              " ",
-              h("a", { href: "https://github.com/NewRail-project/skillbase", target: "_blank", rel: "noopener" }, "NewRail-project/skillbase")
+            h("div", { class: "card", style: "margin: 0;" },
+              h("b", { style: "display: block; margin-bottom: var(--space-1)" }, "GitHub"),
+              h("a", { href: "https://github.com/NewRail-project/skillbase", target: "_blank" }, "Проект на GitHub")
             )
           )
         ]
       },
       {
-        title:=" Вопросы по технической поддержке",
+        id: "team",
+        title: "Команда проекта",
         blocks: [
-          h("p", {},=" Для технических вопросов и проблем с использованием платформы используйте Telegram или email."),
-          h("p", {},=" Описывайте проблему подробно: что именно не работает, какие действия приводят к ошибке, какие сообщения появляются.")
-        ]
-      },
-      {
-        title:=" Вопросы по содержанию и функционалу",
-        blocks: [
-          h("p", {},=" Если у вас есть предложения по улучшению платформы или вопросы по новым функциям, обращайтесь через указанные каналы связи."),
-          h("p", {},=" Мы ценим каждое предложение и рассматриваем все идеи для дальнейшего развития Skillbase.")
-        ]
-      },
-      {
-        title:=" Юридические вопросы",
-        blocks: [
-          h("p", {},=" Вопросы, связанные с политикой конфиденциальности, пользовательским соглашением или правилами использования, направляйте на email или Telegram."),
-          h("p", {},=" Разработчик предоставит полную информацию по всем юридическим аспектам использования платформы.")
-        ]
-      },
-      {
-        title:=" Удаление данных",
-        blocks: [
-          h("p", {},=" Если вы хотите запросить удаление своих персональных данных из Платформы, свяжитесь с разработчиком через указанные контакты."),
-          h("p", {},=" После получения запроса данные будут удалены в течение 30 дней в соответствии с политикой конфиденциальности.")
-        ]
-      },
-      {
-        title:=" Время ответа",
-        blocks: [
-          h("p", {},=" Среднее время ответа на сообщения:"),
-          h("ul", {},
-            h("li", {},=" Telegram: до 24 часов;"),
-            h("li", {},=" Email: до 48 часов;"),
-            h("li", {},=" GitHub Issues: до 72 часов.")
+          h("ul", { style: "list-style: none; padding: 0;" },
+            h("li", { style: "margin-bottom: var(--space-3)" },
+              h("b", {}, "Буйленков Даниил Дмитриевич"), h("br"),
+              h("span", { class: "muted" }, "Главный разработчик: архитектура, программирование, техническая организация.")
+            ),
+            h("li", { style: "margin-bottom: var(--space-3)" },
+              h("b", {}, "Голубятников Никита"), h("br"),
+              h("span", { class: "muted" }, "Продукт и дизайн: интерфейс, визуальная концепция, анализ возможностей.")
+            ),
+            h("li", { style: "margin-bottom: var(--space-3)" },
+              h("b", {}, "Черный Богдан"), h("br"),
+              h("span", { class: "muted" }, "Продукт и презентация: идеи развития, концепции, подготовка презентаций.")
+            )
           )
         ]
       },
       {
-        title:=" Режим работы",
+        id: "info",
+        title: "Информация о платформе",
         blocks: [
-          h("p", {},=" Поддержка работает в режиме 24/7, но ответы могут быть задержаны в выходные и праздничные дни."),
-          h("p", {},=" В экстренных случаях (например, проблемы с доступом к платформе) мы стараемся реагировать немедленно.")
+          h("p", { class: "muted" },
+            "Проект: Skillbase", h("br"),
+            "Команда: NewRail", h("br"),
+            "Версия: 1.0.0", h("br"),
+            "Год: 2026", h("br"),
+            "Сайт: ", h("a", { href: "https://newrail-project.github.io/skillbase/#/" }, "newrail-project.github.io/skillbase")
+          ),
+          h("p", { style: "font-style: italic; margin-top: var(--space-4); font-weight: 500;" }, "«Skillbase — знания, которые движут отрасль вперёд»")
         ]
       }
     ]
   });
 
+  scrollToDocSection(page, State.routeParam);
   return page;
 }

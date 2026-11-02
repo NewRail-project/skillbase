@@ -35,7 +35,7 @@ import { avatarChip as avatarChipEl } from "../components/avatar.js";
 import { play, soundEnabled, setSoundEnabled, vibrate } from "../../shared/sound.js";
 import { REACTIONS, REACTION_COOLDOWN_MS, canSendReaction } from "../../shared/reactions.js";
 import { reactionGlyph, reactionLabel } from "../components/reaction-icons.js";
-import { leaderList, captureRects, playFlip, animateNumber, MOVE_VISIBLE_MS } from "../components/leaderboard.js";
+import { leaderList, captureRects, playFlip, animateNumber, MOVE_VISIBLE_MS, patchLeaderboard } from "../components/leaderboard.js";
 import { streakMeter } from "../components/streak.js";
 import { ringTimer, updateRings, pulseRings, gapCountdown, updateGap } from "../components/ring-timer.js";
 import { buildPodium, playPodium, showPodiumNow, podiumOrder, STEP_MS } from "../components/podium.js";
@@ -345,21 +345,7 @@ function signature() {
   const revealId = li.legacyPhase === "closed" && li.qid !== ""
     ? (local.reveals?.[li.qid] ? "on" : "off")
     : "-";
-  const answers = (local.players || [])
-    .filter(p => roleOfPlayer(p) !== ROLE_OBSERVER)
-    .map(p => `${String(p.uid).slice(0, 6)}:${Object.keys(p.answers || {}).length}`)
-    .sort()
-    .join(",");
-  const ids = (local.players || []).map(p => String(p.uid).slice(0, 6)).sort().join(",");
   const me = role();
-  // Игрок, который отвечает на вопрос: не перерисовываем из-за чужих
-  // данных — поле ввода не должно терять текст и фокус.
-  const typing = me === "player" && li.phase === "question" && myAnswer == null;
-  const crowd = typing ? "-" : [
-    String(local.players.length), `ids=${ids}`, `answers=${answers}`,
-    `scores=${(local.scores || []).map(s => `${String(s.uid).slice(0, 6)}:${s.score}:${s.finished ?? 0}`).sort().join(",")}`,
-    `reveals=${Object.keys(local.reveals || {}).length}`
-  ].join("~");
   return [
     room ? room.status : "no-room",
     connState(),
@@ -369,7 +355,6 @@ function signature() {
     String(room?.qStartedMs ?? ""),
     `reg=${room?.registrationOpen === false ? 0 : 1}`,
     `clock=${local.clockReady ? 1 : 0}`,
-    `crowd=${crowd}`,
     `reveal=${revealId}`,
     `me=${myAnswer != null ? 1 : 0}`,
     `vd=${Object.keys(local.verdicts?.v || {}).length}:${local.shownReady ? 1 : 0}:${li.needsShow ? 1 : 0}`,
@@ -865,7 +850,7 @@ async function hostAutoDuties() {
   }
 }
 
-// Обновление таймеров «на месте», без перерисовки (поле ответа не теряет фокус).
+// Обновление таймеров и счетчиков «на месте», без перерисовки.
 function updateLiveTexts() {
   const page = pageRef;
   if (!page) return;
@@ -883,6 +868,27 @@ function updateLiveTexts() {
     const total = li.phase === "question" ? plan.questionMs : (plan.gapMs || 1);
     el.style.width = `${Math.max(0, Math.min(100, (1 - li.msLeft / total) * 100))}%`;
   });
+
+  // Счетчики участников и ответов
+  const players = local.players.filter(p => roleOfPlayer(p) !== ROLE_OBSERVER);
+  const pCount = players.length;
+  const oCount = local.players.length - pCount;
+  const answered = li.qid !== "" ? answeredCount(players, li.qid) : 0;
+  const doneCount = (local.scores || []).filter(r => r.done === true && !r.isAdminPlayer).length;
+
+  page.querySelectorAll("[data-live-players-count]").forEach(el => { el.textContent = String(pCount); });
+  page.querySelectorAll("[data-live-observers-count]").forEach(el => { el.textContent = String(oCount); });
+  page.querySelectorAll("[data-live-answered-count]").forEach(el => { el.textContent = `${answered} из ${pCount}`; });
+  page.querySelectorAll("[data-live-done-count]").forEach(el => { el.textContent = String(doneCount); });
+
+  if (li.self) {
+    const total = local.room?.questionCount || 0;
+    page.querySelectorAll("[data-live-done-summary]").forEach(el => { el.textContent = `Закончили ${doneCount} из ${pCount}`; });
+  } else {
+    const total = local.room?.questionCount || 0;
+    const progress = Math.max(0, li.lifecycle === "waiting" ? 0 : li.position + (li.phase === "gap" || li.phase === "done" ? 1 : 0));
+    page.querySelectorAll("[data-live-questions-progress]").forEach(el => { el.textContent = `${progress}/${total}`; });
+  }
 }
 
 // ---------- Каркас ----------
@@ -934,10 +940,10 @@ function scheduleRender(page, { tick = false } = {}) {
     manageAutoClose();
   }
   fillStatusBarIfChanged();
-  // Рейтинг перерисовывается по событию (снапшот scores → wake); тикер —
-  // страховка раз в 2 секунды.
+  // Рейтинг и списки обновляются «на месте» по событию; тикер — страховка.
   if (!tick || tickCount % 4 === 0) {
     updateLeaderboard();
+    updateLobbyPeople();
     updateStreakMeter();
   }
   updateReactionBar();
@@ -1268,44 +1274,142 @@ function leaderSignature(rows) {
     `${row.uid}:${row.place}:${row.score ?? 0}:${row.correctCount ?? 0}:${row.streak ?? 0}:${row.percent}:${row.answered}`).join(",");
 }
 
+function updateLobbyPeople() {
+  const page = pageRef;
+  if (!page) return;
+  const participants = local.players.filter(p => roleOfPlayer(p) !== ROLE_OBSERVER);
+
+  // 1. Заголовки "Участники (N)"
+  page.querySelectorAll("[data-live-players-title]").forEach(el => {
+    el.textContent = `Участники (${participants.length})`;
+  });
+
+  // 2. Чипсы участников в лобби
+  page.querySelectorAll(".live-people[data-live-people]").forEach(container => {
+    patchPeopleChips(container, participants);
+  });
+
+  // 3. Сетка участников в lobbyPanel
+  page.querySelectorAll(".lobby-players-grid[data-live-players-grid]").forEach(container => {
+    patchPeopleChips(container, participants, { grid: true });
+  });
+}
+
+function patchPeopleChips(container, list, { grid = false } = {}) {
+  const existingMap = new Map();
+  container.querySelectorAll("[data-uid]").forEach(el => {
+    existingMap.set(el.getAttribute("data-uid"), el);
+  });
+
+  if (!list.length) {
+    if (container.textContent !== "") container.textContent = "";
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  list.forEach(p => {
+    const existing = existingMap.get(p.uid);
+    if (existing) {
+      fragment.appendChild(existing);
+    } else {
+      const chip = grid
+        ? h("div", {
+            class: "chip",
+            "data-uid": p.uid,
+            style: "display:flex;align-items:center;gap:6px;padding:4px 10px;background:var(--surface-2);border-radius:16px"
+          }, avatarChip(p), h("span", {}, p.name || "Участник"))
+        : h("span", { class: "chip live-chip", "data-uid": p.uid }, avatarChip(p), p.name || "Участник");
+      fragment.appendChild(chip);
+    }
+  });
+
+  container.textContent = "";
+  container.appendChild(fragment);
+}
+
+function updateScreenBoard(container, rows) {
+  const top = rows[0];
+  const hero = container.querySelector(".leader-hero[data-live-hero]");
+  if (hero && top) {
+    if (hero.getAttribute("data-uid") !== top.uid) {
+       // Лидер сменился — проще перерисовать героя
+       const nextHero = leaderHero(top);
+       nextHero.setAttribute("data-live-hero", "1");
+       hero.replaceWith(nextHero);
+    } else {
+       // Тот же лидер — обновим в месте
+       const scoreEl = hero.querySelector(".hero-score-num");
+       const prevScore = frame.prev?.scores?.get(top.uid);
+       const currentScore = top.score ?? 0;
+       if (scoreEl && scoreEl.textContent !== String(currentScore)) {
+         if (typeof prevScore === "number" && prevScore !== currentScore) {
+           animateNumber(scoreEl, prevScore, currentScore);
+         } else {
+           scoreEl.textContent = String(currentScore);
+         }
+       }
+       const nameEl = hero.querySelector(".hero-name");
+       if (nameEl && nameEl.textContent !== (top.name || "Участник")) {
+         nameEl.textContent = top.name || "Участник";
+       }
+    }
+  }
+
+  const listRows = (top && top.score > 0) ? rows.slice(1, 8) : rows.slice(0, 8);
+  patchLeaderboard(container, listRows, leaderCtx({ board: true }));
+}
+
 function updateLeaderboard() {
-  const host = leaderRef;
-  if (!host) return;
-  // На проекторе рейтинг построен в screenView — здесь не дублируем.
-  if (isScreenRoute()) return;
-  // Автономный режим: общий рейтинг — часть самого вида (ratingPanel).
-  if (isAutoRoom(local.room)) {
-    if (host.textContent) host.textContent = "";
-    host.classList.add("room-leaderboard-empty");
-    lastBoardSig = null;
-    return;
-  }
+  const page = pageRef;
+  if (!page) return;
   const room = local.room;
+  if (!room) return;
+
   const roleHere = role();
-
-  // Участнику рейтинг — только по настройке теста showLeaderboard.
+  const isScreen = isScreenRoute();
   syncBoardFrame();
-  const rows = Boolean(room)
-    && (roleHere !== "player" || room.showLeaderboard === true)
-    ? boardRows()
-    : [];
-  if (!rows.length) {
-    host.classList.add("room-leaderboard-empty");
-    if (host.textContent) host.textContent = "";
-    lastBoardSig = null;
-    return;
-  }
-  host.classList.remove("room-leaderboard-empty");
-  const sig = leaderSignature(rows);
-  if (host.querySelector(".lb-list") && sig === lastBoardSig) return;
 
-  // FLIP: запомнить позиции ДО перерисовки, доехать ПОСЛЕ.
-  const oldTops = captureRects(host);
-  host.textContent = "";
-  host.appendChild(h("h2", { class: "lb-title" }, "Рейтинг"));
-  host.appendChild(leaderListFor(rows));
-  lastBoardSig = sig;
-  playFlip(host, oldTops);
+  const showBoard = isScreen || roleHere !== "player" || room.showLeaderboard === true;
+  const rows = showBoard ? boardRows() : [];
+
+  const sig = leaderSignature(rows);
+  const sigChanged = sig !== lastBoardSig;
+
+  // 1. Основной рейтинг (manual mode)
+  if (leaderRef && !isAutoRoom(room) && !isScreen) {
+    if (!rows.length) {
+      leaderRef.classList.add("room-leaderboard-empty");
+      leaderRef.textContent = "";
+    } else {
+      leaderRef.classList.remove("room-leaderboard-empty");
+      if (sigChanged || !leaderRef.querySelector(".lb-list")) {
+        patchLeaderboard(leaderRef, rows, leaderCtx());
+      }
+    }
+  }
+
+  // 2. Рейтинг в панели (auto mode / self-paced)
+  page.querySelectorAll(".live-rating[data-live-rating]").forEach(container => {
+    if (!rows.length) {
+      container.hidden = true;
+    } else {
+      container.hidden = false;
+      if (sigChanged || !container.querySelector(".lb-list")) {
+        const limitAttr = container.getAttribute("data-limit");
+        const limit = limitAttr ? Number(limitAttr) : null;
+        patchLeaderboard(container, limit ? rows.slice(0, limit) : rows, leaderCtx());
+      }
+    }
+  });
+
+  // 3. Рейтинг на проекторе
+  page.querySelectorAll(".screen-board-wrap[data-live-screen-board]").forEach(container => {
+    if (sigChanged || !container.querySelector(".lb-list")) {
+      updateScreenBoard(container, rows);
+    }
+  });
+
+  if (sigChanged) lastBoardSig = sig;
 }
 
 // Полоса серии над карточкой участника: огонь с 3, молния с 5.
@@ -1462,7 +1566,7 @@ function avatarChip(entry) {
 function livePodium() {
   const room = local.room;
   if (!room || room.status !== "active") return null;
-  
+
   // Показываем топ-3 в реальном времени для наблюдателей
   // или если в настройках включена таблица лидеров
   const roleHere = role();
@@ -1631,9 +1735,10 @@ function playersListWidget(players) {
   if (!activePlayers.length) {
     return h("div", { class: "form-hint", style: "text-align:center;margin-top:0.75rem" }, "Участники пока не подключились");
   }
-  return h("div", { class: "lobby-players-grid", style: "display:flex;flex-wrap:wrap;gap:var(--space-2);justify-content:center;margin-top:1rem" },
+  return h("div", { class: "lobby-players-grid", "data-live-players-grid": "1", style: "display:flex;flex-wrap:wrap;gap:var(--space-2);justify-content:center;margin-top:1rem" },
     activePlayers.map(p => h("div", {
       class: "chip",
+      "data-uid": p.uid,
       style: "display:flex;align-items:center;gap:6px;padding:4px 10px;background:var(--surface-2);border-radius:16px"
     }, avatarChip(p), h("span", {}, p.name || "Участник")))
   );
@@ -1703,11 +1808,11 @@ function hostHeader(wrap, room) {
   const observersCount = local.players.length - playersCount;
   wrap.appendChild(h("div", { class: "quick-actions" },
     h("div", { class: "quick-action" },
-      h("b", {}, String(playersCount)),
+      h("b", { "data-live-players-count": "1" }, String(playersCount)),
       h("span", {}, "участников")
     ),
     h("div", { class: "quick-action" },
-      h("b", {}, String(observersCount)),
+      h("b", { "data-live-observers-count": "1" }, String(observersCount)),
       h("span", {}, "наблюдателей")
     )
   ));
@@ -1759,7 +1864,7 @@ function hostView() {
       const controls = h("div", { class: "panel" },
         h("div", { class: "panel-head" },
           h("h2", {}, "Ответили"),
-          h("span", { class: "badge badge-neutral" }, `${counter} из ${playersCount}`)
+          h("span", { class: "badge badge-neutral", "data-live-answered-count": "1" }, `${counter} из ${playersCount}`)
         ),
         h("div", { class: "panel-body" },
           h("div", { class: "btn-row" },
@@ -2129,7 +2234,7 @@ function observerView() {
     wrap.appendChild(h("div", { class: "panel" },
       h("div", { class: "panel-head" },
         h("h2", {}, "Ответили"),
-        h("span", { class: "badge badge-neutral" },
+        h("span", { class: "badge badge-neutral", "data-live-answered-count": "1" },
           `${answeredCount(local.players.filter(p => !p.observer), currentId)} из ${playersCount}`)
       )
     ));
@@ -2201,7 +2306,7 @@ function screenView() {
     wrap.appendChild(h("div", { class: "panel screen-wait-panel" },
       h("div", { class: "empty-state" },
         h("h2", {}, "Тест идёт — каждый в своём темпе"),
-        h("p", { class: "page-sub" }, `Закончили ${done} из ${people}`))));
+        h("p", { class: "page-sub", "data-live-done-summary": "1" }, `Закончили ${done} из ${people}`))));
   } else if (!question) {
     // Ожидание первого вопроса — момент входа участников: крупный QR,
     // чтобы каждый мог отсканировать его камерой телефона.
@@ -2239,7 +2344,7 @@ function screenView() {
     syncBoardFrame();
     // Лидер — крупно сверху, с подсветкой; остальные — строками табло.
     const [top, ...others] = boardRowsList;
-    wrap.appendChild(h("div", { class: "screen-board-wrap" },
+    wrap.appendChild(h("div", { class: "screen-board-wrap", "data-live-screen-board": "1" },
       (top.score ?? 0) > 0 ? leaderHero(top) : null,
       leaderListFor((top.score ?? 0) > 0 ? others.slice(0, 7) : boardRowsList.slice(0, 8), { board: true })));
   }
@@ -2263,7 +2368,7 @@ function leaderHero(row) {
   const scoreEl = h("span", { class: "hero-score-num" }, String(row.score ?? 0));
   const prevScore = frame.prev?.scores?.get(row.uid);
   if (typeof prevScore === "number" && prevScore !== (row.score ?? 0)) animateNumber(scoreEl, prevScore, row.score ?? 0);
-  return h("div", { class: "leader-hero", "data-uid": row.uid, "aria-label": `Лидер: ${row.name}, ${row.score} баллов` },
+  return h("div", { class: "leader-hero", "data-uid": row.uid, "data-live-hero": "1", "aria-label": `Лидер: ${row.name}, ${row.score} баллов` },
     h("div", { class: "hero-crown", "aria-hidden": "true" }, "🥇"),
     avatarChip(row),
     h("div", { class: "hero-main" },
@@ -2279,7 +2384,7 @@ function leaderHero(row) {
 function ratingPanel({ title = "Общий рейтинг", limit = null, rows = null } = {}) {
   const all = rows || ratingSource();
   const list = limit ? all.slice(0, limit) : all;
-  const panel = h("section", { class: "panel live-rating", "aria-label": title },
+  const panel = h("section", { class: "panel live-rating", "aria-label": title, "data-live-rating": "1", ...(limit ? { "data-limit": String(limit) } : {}) },
     h("div", { class: "panel-head" },
       h("h2", {}, title),
       h("span", { class: "badge badge-neutral" }, `${all.length} уч.`)));
@@ -2336,8 +2441,8 @@ function progressPanel(li, room) {
 
 function peopleChips(list, emptyText) {
   if (!list.length) return h("p", { class: "form-hint", style: "text-align:center" }, emptyText);
-  return h("div", { class: "live-people" },
-    list.map(p => h("span", { class: "chip live-chip" }, avatarChip(p), p.name || "Участник")));
+  return h("div", { class: "live-people", "data-live-people": "1" },
+    list.map(p => h("span", { class: "chip live-chip", "data-uid": p.uid }, avatarChip(p), p.name || "Участник")));
 }
 
 function settingsSummary(room) {
@@ -2441,7 +2546,7 @@ function autoHostView() {
     wrap.appendChild(h("section", { class: "panel" },
       h("div", { class: "panel-head" },
         h("h2", {}, question?.text || "Вопрос"),
-        h("span", { class: "badge badge-neutral" }, `ответили ${answered} из ${playersCount}`)),
+        h("span", { class: "badge badge-neutral", "data-live-answered-count": "1" }, `ответили ${answered} из ${playersCount}`)),
       h("div", { class: "panel-body" },
         h("div", { class: "btn-row" }, finishBtn, regBtn),
         h("p", { class: "form-hint" },
@@ -2718,7 +2823,7 @@ function finishedPlayerView(wrap, room, li) {
         ? h("div", { class: "quick-actions" },
             h("div", { class: "quick-action" }, h("b", {}, `${mine.place}`), h("span", {}, "место")),
             h("div", { class: "quick-action" }, h("b", {}, `${mine.score}`), h("span", {}, "баллов")),
-            h("div", { class: "quick-action" }, h("b", {}, `${mine.percent}%`), h("span", {}, "верных"))) 
+            h("div", { class: "quick-action" }, h("b", {}, `${mine.percent}%`), h("span", {}, "верных")))
         : h("p", { class: "muted" }, "Ваш результат появится, как только ведущий подведёт итоги."),
       mine ? h("p", { class: "muted" }, `Верных ответов: ${mine.correctCount} из ${room.questionCount || 0}`) : null)));
   const results = myResults();
@@ -2742,12 +2847,12 @@ function autoObserverView() {
   const participants = local.players.filter(p => roleOfPlayer(p) !== ROLE_OBSERVER);
   const observers = local.players.length - participants.length;
   wrap.appendChild(h("div", { class: "quick-actions" },
-    h("div", { class: "quick-action" }, h("b", {}, String(participants.length)), h("span", {}, "участников")),
-    h("div", { class: "quick-action" }, h("b", {}, String(observers)), h("span", {}, "наблюдателей")),
+    h("div", { class: "quick-action" }, h("b", { "data-live-players-count": "1" }, String(participants.length)), h("span", {}, "участников")),
+    h("div", { class: "quick-action" }, h("b", { "data-live-observers-count": "1" }, String(observers)), h("span", {}, "наблюдателей")),
     h("div", { class: "quick-action" },
       li.self
-        ? h("b", {}, `${(local.scores || []).filter(r => r.done === true && !r.isAdminPlayer).length}`)
-        : h("b", {}, `${Math.max(0, li.lifecycle === "waiting" ? 0 : li.position + (li.phase === "gap" || li.phase === "done" ? 1 : 0))}/${room.questionCount || 0}`),
+        ? h("b", { "data-live-done-count": "1" }, `${(local.scores || []).filter(r => r.done === true && !r.isAdminPlayer).length}`)
+        : h("b", { "data-live-questions-progress": "1" }, `${Math.max(0, li.lifecycle === "waiting" ? 0 : li.position + (li.phase === "gap" || li.phase === "done" ? 1 : 0))}/${room.questionCount || 0}`),
       h("span", {}, li.self ? "закончили тест" : "вопросов пройдено"))));
   if (li.lifecycle === "waiting") {
     wrap.appendChild(lobbyPanel(room, "observer"));
