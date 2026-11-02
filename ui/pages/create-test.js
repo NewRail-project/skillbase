@@ -523,7 +523,7 @@ export default async function CreateTestPage() {
     };
   }
 
-  const actions = h("div", { class: "btn-row", hidden: "hidden" },
+  const actions = h("div", { class: "btn-row" },
     h("button", { type: "button", class: "btn secondary", id: "save-btn" }, saveLabel),
     h("button", { type: "button", class: "btn primary", id: "publish-btn" }, "Опубликовать")
   );
@@ -645,11 +645,9 @@ export default async function CreateTestPage() {
         .map(item => item.message);
       sayWarnings(warningsFound);
       const ok = parsed.questions.length && !(parsed.errors && parsed.errors.length);
-      actions.hidden = !ok;
-      if (!ok) say("Исправьте ошибки в вопросах — публикация недоступна.", true);
+      if (!ok) say("Исправьте ошибки в вопросах — публикация и сохранение недоступны.", true);
       else say(`Распознано вопросов: ${parsed.questions.length}.`, false);
     } catch (e) {
-      actions.hidden = true;
       say(e.message, true);
     }
   }
