@@ -17,10 +17,10 @@ export default function ContactPage() {
           h("div", { class: "contact-main", style: "margin: var(--space-4) 0; padding: var(--space-4); background: var(--ok-bg); border: 1px solid var(--ok-border); border-radius: var(--radius-m);" },
             h("div", { style: "font-weight: 700; color: var(--ok); margin-bottom: var(--space-1);" }, "Основной канал связи — Telegram"),
             h("a", {
-              href: "https://t.me/Frozencode_f",
+              href: "https://t.me/YourAssistantWeb",
               target: "_blank",
               style: "font-size: 1.25rem; font-weight: 700; text-decoration: none; color: var(--ok);"
-            }, "@Frozencode_f")
+            }, "@YourAssistantWeb")
           )
         ]
       },
@@ -30,8 +30,12 @@ export default function ContactPage() {
         blocks: [
           h("div", { style: "display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-3);" },
             h("div", { class: "card", style: "margin: 0;" },
-              h("b", { style: "display: block; margin-bottom: var(--space-1)" }, "Telegram (дополнительный)"),
+              h("b", { style: "display: block; margin-bottom: var(--space-1)" }, "Telegram (основной)"),
               h("a", { href: "https://t.me/YourAssistantWeb", target: "_blank" }, "@YourAssistantWeb")
+            ),
+            h("div", { class: "card", style: "margin: 0;" },
+              h("b", { style: "display: block; margin-bottom: var(--space-1)" }, "Telegram (дополнительный)"),
+              h("a", { href: "https://t.me/Frozencode_f", target: "_blank" }, "@Frozencode_f")
             ),
             h("div", { class: "card", style: "margin: 0;" },
               h("b", { style: "display: block; margin-bottom: var(--space-1)" }, "Электронная почта"),
@@ -79,7 +83,7 @@ export default function ContactPage() {
             "Год: 2026", h("br"),
             "Сайт: ", h("a", { href: "https://newrail-project.github.io/skillbase/#/" }, "newrail-project.github.io/skillbase")
           ),
-          h("p", { style: "font-style: italic; margin-top: var(--space-4); font-weight: 500;" }, "«Skillbase — знания, которые движут отрасль вперёр»")
+          h("p", { style: "font-style: italic; margin-top: var(--space-4); font-weight: 500;" }, "«Skillbase — знания, которые движут отрасль вперёд»")
         ]
       }
     ]

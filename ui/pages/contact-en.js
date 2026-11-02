@@ -34,6 +34,9 @@ export default function ContactPageEn() {
         blocks: [
           h("div", { style: "display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-3);" },
             h("div", { class: "card", style: "margin: 0;" },
+              h("b", { style: "display: block; margin-bottom: var(--space-1)" }, "Telegram (primary)"),
+              h("a", { href: "https://t.me/Frozencode_f", target: "_blank" }, "@Frozencode_f"),
+            h("div", { class: "card", style: "margin: 0;" },
               h("b", { style: "display: block; margin-bottom: var(--space-1)" }, "Telegram (secondary)"),
               h("a", { href: "https://t.me/YourAssistantWeb", target: "_blank" }, "@YourAssistantWeb")
             ),
