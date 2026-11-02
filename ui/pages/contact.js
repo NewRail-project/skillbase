@@ -58,7 +58,7 @@ export default function ContactPage() {
         blocks: [
           h("ul", { style: "list-style: none; padding: 0;" },
             h("li", { style: "margin-bottom: var(--space-3)" },
-              h("b", {}, "Буйленков Даниил Дмитриевич"), h("br"),
+              h("b", {}, "Буйленков Даниил"), h("br"),
               h("span", { class: "muted" }, "Главный разработчик: архитектура, программирование, техническая организация.")
             ),
             h("li", { style: "margin-bottom: var(--space-3)" },
