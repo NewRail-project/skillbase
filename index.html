@@ -118,5 +118,40 @@
       <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M4.22 19.78l1.41-1.42M18.36 4.22l-1.42 1.42M19.78 18.36l-1.42-1.42"/>
     </svg>
   </div>
+  <script>
+    // Keyboard avoid: при фокусе на инпуте/текстовое поле страницы скроллит вверх,
+    // чтобы текст не перекрывался клавиатурой. Работает на Android/iOS.
+    (function() {
+      let ticking = false;
+      const inputs = document.querySelectorAll('input, textarea');
+      const adjust = () => {
+        if (!ticking) {
+          requestAnimationFrame(() => {
+            const rect = document.documentElement.getBoundingClientRect();
+            const keyboardHeight = window.innerHeight - rect.height;
+            if (keyboardHeight > 40) {
+              // Есть открытая клавиатура — делаем скролл, чтобы фокусированный элемент был виден
+              const focused = document.activeElement;
+              if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA')) {
+                const targetScroll = focused.getBoundingClientRect().bottom - window.innerHeight + 20;
+                window.scrollTo({ top: window.scrollY + targetScroll, behavior: 'smooth' });
+              }
+            } else {
+              // Клавиатура закрыта — возвращаемся в начало
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+            ticking = false;
+          });
+          ticking = true;
+        }
+      };
+      window.addEventListener('resize', adjust);
+      // Also handle programmatic focus scenarios
+      inputs.forEach(input => {
+        input.addEventListener('focus', adjust, { passive: true });
+        input.addEventListener('blur', adjust, { passive: true });
+      });
+    })();
+  </script>
 </body>
 </html>
