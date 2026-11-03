@@ -13,8 +13,10 @@ import {
   loadMaterial, saveMaterial
 } from "../../core/materials.js";
 import {
-  pageFillRatio, pageTextLength, IMAGE_MAX_BYTES, IMAGE_MAX_DIM, CALLOUT_KINDS
+  pageFillRatio, pageTextLength, IMAGE_MAX_BYTES, IMAGE_MAX_DIM, CALLOUT_KINDS,
+  paginateText, validatePage
 } from "../../core/material-logic.js";
+import { confirmAction } from "../components/confirm.js";
 
 const EXAMPLE = `1. Какой сигнал разрешает движение?
 A) Красный
@@ -89,6 +91,14 @@ async function compressImageFile(file, targetBytes = IMAGE_MAX_BYTES) {
   }
 }
 
+// .txt/.md с устройства: UTF-8, а при «кракозябрах» — windows-1251.
+async function readTextFile(file) {
+  const buffer = await file.arrayBuffer();
+  let text = new TextDecoder("utf-8").decode(buffer);
+  if (text.includes("\uFFFD")) text = new TextDecoder("windows-1251").decode(buffer);
+  return text;
+}
+
 function buildMaterialEditor(editing) {
   const section = h("section", { class: "panel", id: "material-editor" });
   section.appendChild(h("div", { class: "panel-head" },
@@ -96,6 +106,82 @@ function buildMaterialEditor(editing) {
     h("button", { type: "button", class: "btn secondary", id: "material-save" }, "Сохранить материал"),
   ));
   const message = h("div", { class: "form-hint", role: "status" });
+
+  // ---- Вставка сплошного текста: автоматически режется на страницы ----
+  const bulkInput = h("textarea", {
+    rows: "8",
+    placeholder: "Вставьте сюда весь учебный материал одним текстом. "
+      + "Пустая строка — новый абзац; короткая строка без точки или строка с «#» — заголовок; "
+      + "строки с «-» — список."
+  });
+  const bulkInfo = h("div", { class: "form-hint" }, "Текст ещё не вставлен.");
+  const bulkFile = h("input", { type: "file", accept: ".txt,.md,text/plain" });
+  const replaceBtn = h("button", { type: "button", class: "btn primary" }, "Разбить и заменить страницы");
+  const appendBtn = h("button", { type: "button", class: "btn secondary" }, "Добавить в конец книги");
+
+  function updateBulkInfo() {
+    const text = bulkInput.value;
+    if (!text.trim()) { bulkInfo.textContent = "Текст ещё не вставлен."; return; }
+    const count = paginateText(text).length;
+    bulkInfo.textContent = `${text.length} симв. → получится страниц: ${count}.`;
+  }
+  bulkInput.addEventListener("input", updateBulkInfo);
+
+  bulkFile.addEventListener("change", async () => {
+    const file = bulkFile.files?.[0];
+    if (!file) return;
+    try {
+      bulkInput.value = await readTextFile(file);
+      updateBulkInfo();
+    } catch (err) {
+      message.textContent = err?.message || "Не удалось прочитать файл.";
+      message.className = "form-error";
+    }
+  });
+
+  async function applyBulk(mode) {
+    message.className = "form-hint";
+    const newPages = paginateText(bulkInput.value);
+    if (!newPages.length) {
+      message.textContent = "Вставьте текст материала.";
+      message.className = "form-error";
+      return;
+    }
+    const hasContent = pages.some(blocks => pageTextLength(blocks) > 0);
+    if (mode === "replace" && hasContent) {
+      const ok = await confirmAction({
+        title: "Заменить страницы?",
+        text: `Текущие страницы (${pages.length}) будут заменены новыми (${newPages.length}). `
+          + "До нажатия «Сохранить материал» изменения не записываются.",
+        confirmLabel: "Заменить",
+        tone: "danger"
+      });
+      if (!ok) return;
+    }
+    if (mode === "replace" || !hasContent) pages.length = 0;
+    else if (pages.length && !pageTextLength(pages[pages.length - 1])) pages.pop();
+    const firstNew = pages.length;
+    pages.push(...newPages);
+    pageIndex = firstNew;
+    bulkInput.value = "";
+    bulkInfo.textContent = "Текст ещё не вставлен.";
+    paintPagesNav();
+    paintEditor();
+    const bad = newPages.map((b, i) => validatePage(b).length ? i + 1 : null).filter(Boolean);
+    message.textContent = `Готово: ${newPages.length} стр. Проверьте и нажмите «Сохранить материал».`
+      + (bad.length ? ` Слишком короткие страницы: ${bad.join(", ")} — дополните текст.` : "");
+    if (bad.length) message.className = "form-error";
+  }
+  replaceBtn.addEventListener("click", () => applyBulk("replace"));
+  appendBtn.addEventListener("click", () => applyBulk("append"));
+
+  const bulkBox = h("details", { class: "field", open: "open" },
+    h("summary", {}, "Вставить весь текст (разбить на страницы автоматически)"),
+    h("label", {}, "Текст материала"), bulkInput,
+    h("label", {}, "или файл .txt / .md"), bulkFile,
+    bulkInfo,
+    h("div", { class: "btn-row", style: "flex-wrap:wrap;margin-top:var(--space-2)" }, replaceBtn, appendBtn));
+
   const pagesNav = h("div", { class: "btn-row", style: "flex-wrap:wrap" });
   const editorPane = h("div", { class: "field" });
 
@@ -321,7 +407,7 @@ function buildMaterialEditor(editing) {
   }
   init();
 
-  section.append(h("div", { class: "panel-body" }, pagesNav, editorPane, message));
+  section.append(h("div", { class: "panel-body" }, bulkBox, pagesNav, editorPane, message));
   return section;
 }
 

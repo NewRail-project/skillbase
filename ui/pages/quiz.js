@@ -11,7 +11,7 @@ import {
 } from "../../core/attempts.js";
 import { getAssignment, getStudentAssignments } from "../../core/assign.js";
 import { effectiveSettings } from "../../core/settings.js";
-import { materialCompleted } from "../../core/materials.js";
+import { materialCompleted, hasMaterial } from "../../core/materials.js";
 import { isDeadlinePassed, attemptDeadlineMs as calcAttemptDeadlineMs } from "../../core/timing.js";
 import { db, doc, getDoc } from "../../shared/firebase.js";
 import { saveReturnTo } from "../../shared/return-to.js";
@@ -308,6 +308,12 @@ export default async function QuizPage() {
     } catch (_) {
       needMaterialRead = true;
     }
+  }
+
+  // Добровольное чтение перед тестом (обычный тест с книгой-материалом).
+  let canReadMaterial = false;
+  if (!staff && !needMaterialRead) {
+    canReadMaterial = await hasMaterial(test.id);
   }
 
   if (!staff) {
@@ -675,6 +681,12 @@ export default async function QuizPage() {
       }
 
       actions.append(h("div", { class: "btn-row" }, startBtn));
+
+      if (canReadMaterial && !blocked) {
+        actions.append(h("div", { class: "btn-row" },
+          h("a", { class: "btn secondary", href: `#material/${encodeURIComponent(test.id)}/free` },
+            "Прочитать материал перед тестом")));
+      }
 
       if (limitReached) {
         actions.append(h("p", { class: "muted" },

@@ -28,6 +28,17 @@ export async function loadMaterial(testId) {
   return { ...meta, pageCount: meta.pageCount || pages.length, pages };
 }
 
+// Есть ли у теста книга хотя бы с одной страницей (без загрузки всех страниц).
+export async function hasMaterial(testId) {
+  if (!testId) return false;
+  try {
+    const snap = await getDoc(doc(db, "materials", testId));
+    return snap.exists() && (snap.data()?.pageCount || 0) > 0;
+  } catch (_) {
+    return false; // нет доступа (идёт попытка) или сеть — кнопку не показываем
+  }
+}
+
 // Сохранить (создать или обновить) книгу целиком: перезаписывает страницы.
 export async function saveMaterial(testId, { title, orgId, authorId, pages }) {
   requireOnline("Нет подключения к интернету. Материал не сохранён.");

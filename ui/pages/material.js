@@ -56,7 +56,10 @@ function imgEl(src) {
 
 export default async function MaterialPage() {
   const page = h("div", { class: "reader" });
-  const testId = decodeURIComponent((State.routeParam || "").split("/")[0] || "");
+  const routeParts = (State.routeParam || "").split("/");
+  const testId = decodeURIComponent(routeParts[0] || "");
+  // #material/<id>/free — добровольное чтение: выйти к тесту можно в любой момент.
+  const freeMode = routeParts[1] === "free";
 
   let material = null;
   let progress = { lastPage: 0, completed: false };
@@ -80,7 +83,7 @@ export default async function MaterialPage() {
     return page;
   }
 
-  if (!material.pages?.length) {
+  if (!material?.pages?.length) {
     page.appendChild(h("div", { class: "reader-stage" },
       h("div", { class: "book" }, h("div", { class: "book-page" },
         h("h1", { class: "book-h" }, "Материала пока нет"),
@@ -96,12 +99,14 @@ export default async function MaterialPage() {
   let exitRequested = false;
 
   // Хеш-страж: любые смены хеша, кроме разрешённого выхода, откатываются.
-  setHashGuard(nextHash => {
-    if (exitRequested || nextHash.startsWith(`#material/${testId}/`)) {
-      return true;
-    }
-    return false;
-  });
+  if (!freeMode) {
+    setHashGuard(nextHash => {
+      if (exitRequested || nextHash.startsWith(`#material/${testId}/`)) {
+        return true;
+      }
+      return false;
+    });
+  }
 
   document.body.classList.add("reading-mode");
 
@@ -134,9 +139,15 @@ export default async function MaterialPage() {
     nextBtn.textContent = isLast ? "" : "→";
     nextBtn.setAttribute("aria-label", isLast ? "Последняя страница" : "Следующая страница");
 
-    // Кнопка выхода появляется только на последней странице.
+    // Кнопка выхода: в обязательном режиме только на последней странице,
+    // в добровольном (#material/<id>/free) — всегда.
     exitRow.textContent = "";
-    if (isLast) {
+    if (freeMode && !isLast) {
+      exitRow.appendChild(h("button", {
+        type: "button", class: "btn secondary",
+        onclick: () => exitTo("#quiz/" + testId)
+      }, "К тесту"));
+    } else if (isLast) {
       exitRow.appendChild(h("button", {
         type: "button", class: "btn primary",
         onclick: () => exitTo("#quiz/" + testId)
@@ -149,7 +160,7 @@ export default async function MaterialPage() {
 
     // Прогресс: последняя страница и флаг completed — materialProgress.
     const state = materialProgress(material.pages, index);
-    saveMaterialProgress(State.user.uid, testId, state).catch(err => {
+    if (!freeMode || state.completed) saveMaterialProgress(State.user.uid, testId, state).catch(err => {
       console.error("Не удалось сохранить прогресс:", err);
     });
   }

@@ -4,7 +4,7 @@ import {
   validateBlock, validatePage, validateMaterial,
   pageTextLength, pageFillRatio, hasImageWithCaption,
   materialProgress, markerReleased,
-  PAGE_MIN_TEXT, PAGE_MAX_TEXT
+  PAGE_MIN_TEXT, PAGE_MAX_TEXT, paginateText, textToBlocks, PAGE_TARGET_TEXT
 } from "../core/material-logic.js";
 
 const longText = (n, ch = "а") => ch.repeat(n);
@@ -99,4 +99,63 @@ test("pageTextLength: список и подпись считаются, заг�
   assert.ok(t > 0);
   // 60-й заголовок даёт только 20 символов сверх 40.
   assert.equal(t, 20 + "один два три".length + 1 + "четыре".length + "подпись".length);
+});
+
+const sample = (n) => "Тормозная система предназначена для остановки поезда. ".repeat(n);
+
+test("paginateText: пустой текст — нет страниц", () => {
+  assert.deepEqual(paginateText(""), []);
+  assert.deepEqual(paginateText("   \n\n  "), []);
+});
+
+test("paginateText: длинный текст режется, каждая страница проходит validatePage", () => {
+  const text = [
+    "Тормозная система",
+    sample(30),
+    "Основные узлы\n- Компрессор\n- Кран машиниста\n- Воздухораспределитель",
+    "Проверка",
+    sample(40),
+    sample(12)
+  ].join("\n\n");
+  const pages = paginateText(text);
+  assert.ok(pages.length >= 3);
+  pages.forEach((blocks, i) => {
+    assert.deepEqual(validatePage(blocks), [], `страница ${i + 1}`);
+    assert.ok(pageTextLength(blocks.filter(b => b.type !== "heading")) <= PAGE_MAX_TEXT);
+  });
+});
+
+test("paginateText: заголовок не остаётся один в конце страницы", () => {
+  const pages = paginateText([sample(16), "Новый раздел", sample(16)].join("\n\n"));
+  pages.forEach(blocks => {
+    assert.notEqual(blocks[blocks.length - 1].type, "heading");
+  });
+});
+
+test("paginateText: один огромный абзац без точек режется без потерь символов", () => {
+  const word = "слово ";
+  const text = word.repeat(1000).trim();
+  const pages = paginateText(text);
+  const joined = pages.flat().map(b => b.text).join(" ");
+  assert.equal(joined.replace(/\s+/g, " "), text);
+  pages.forEach(blocks => assert.deepEqual(validatePage(blocks), []));
+});
+
+test("textToBlocks: # заголовок, список, склейка строк с переносами", () => {
+  const blocks = textToBlocks("# Глава 1\n\n- один\n- два\n\nпервая строка\nвторая строка.");
+  assert.deepEqual(blocks.map(b => b.type), ["heading", "list", "paragraph"]);
+  assert.deepEqual(blocks[1].items, ["один", "два"]);
+  assert.equal(blocks[2].text, "первая строка вторая строка.");
+});
+
+test("paginateText: текст без пустых строк — каждая строка абзац", () => {
+  const pages = paginateText([sample(8), sample(8), sample(8)].join("\n"));
+  assert.ok(pages.flat().every(b => b.type === "paragraph"));
+  assert.ok(pages.length >= 2);
+});
+
+test("paginateText: короткий хвост приклеивается к предыдущей странице", () => {
+  const pages = paginateText(sample(17) + "\n\n" + "Конец раздела, итоговое замечание.");
+  pages.forEach(blocks => assert.ok(pageTextLength(blocks) >= PAGE_MIN_TEXT || pages.length === 1));
+  assert.ok(PAGE_TARGET_TEXT < PAGE_MAX_TEXT);
 });
