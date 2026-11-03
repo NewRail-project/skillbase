@@ -129,7 +129,7 @@ export default async function MaterialPage() {
   progressEl.appendChild(progressFill);
 
   // Заголовок книги (running header)
-  const title = h("div", { class: "reader-title" }, material.title || "Материал");
+  const title = h("div", { class: "reader-title", style: "opacity: 0" }, material.title || "Материал");
 
   // Навигация и контейнер страниц
   const pageNumEl = h("div", { class: "reader-page-num" });
@@ -143,6 +143,12 @@ export default async function MaterialPage() {
   const exitRow = h("div", { class: "reader-exit" });
 
   page.append(progressEl, title, stage, prevBtn, nextBtn, pageNumEl, exitRow);
+
+  // Fade-in заголовка при монтировании — плавное появление
+  requestAnimationFrame(() => {
+    title.style.opacity = "1";
+    title.style.transition = "opacity .3s ease";
+  });
 
   // Обложка книги (типографический фронтиспис)
   function coverEl() {
