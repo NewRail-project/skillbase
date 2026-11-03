@@ -835,12 +835,30 @@ body.sidebar-open { overflow: hidden; }
   align-items: center;
   padding: var(--space-4, 20px);
 }
+/* Прогресс-бар */
+.reader-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: rgba(28, 26, 23, 0.1);
+  z-index: 100;
+}
+.reader-progress-fill {
+  height: 100%;
+  background: var(--accent, #1B5A7A);
+  transition: width 0.3s ease;
+  max-width: 100%;
+}
 .reader-title {
   font-family: Georgia, "Times New Roman", serif;
   font-size: 1rem;
   letter-spacing: .02em;
   opacity: .75;
   margin-bottom: var(--space-3);
+  text-align: center;
+  max-width: 600px;
 }
 .reader-stage {
   position: relative;
@@ -849,6 +867,7 @@ body.sidebar-open { overflow: hidden; }
   display: flex;
   justify-content: center;
   overflow: hidden;
+  padding-top: 24px; /* место для прогресс-бара */
 }
 /* Ширина строки ≈62 символа при 20 px Georgia */
 .book {
@@ -863,6 +882,47 @@ body.sidebar-open { overflow: hidden; }
   /* Лёгкая тень краёв как у печатной страницы */
   box-shadow: inset 18px 0 24px -18px rgba(60, 42, 10, .18),
               inset -18px 0 24px -18px rgba(60, 42, 10, .18);
+}
+/* Обложка книги */
+.book-cover {
+  text-align: center;
+  padding: var(--space-8, 64px) var(--space-6, 48px);
+  margin-bottom: var(--space-6, 32px);
+}
+.book-cover-title {
+  font-size: 2.5em;
+  font-weight: 700;
+  line-height: 1.2;
+  margin-bottom: var(--space-4, 16px);
+  letter-spacing: -0.02em;
+}
+.book-cover-subtitle {
+  font-size: 1.2em;
+  font-weight: 400;
+  line-height: 1.4;
+  margin-bottom: var(--space-4, 16px);
+  opacity: 0.8;
+}
+.book-cover-author {
+  font-size: 1em;
+  font-style: italic;
+  margin-bottom: var(--space-5, 24px);
+  opacity: 0.7;
+}
+.book-cover-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.9em;
+  opacity: 0.6;
+  border-top: 1px solid rgba(28, 26, 23, 0.2);
+  padding-top: 16px;
+  margin-top: 16px;
+}
+.book-cover-chapter,
+.book-cover-pages,
+.book-cover-date {
+  text-align: center;
 }
 .book-page p { orphans: 2; widows: 2; }
 .book-h {
@@ -925,12 +985,127 @@ body.sidebar-open { overflow: hidden; }
   width: 46px; height: 46px;
   font-size: 1.2rem;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+.reader-arrow:hover:not(:disabled) {
+  background: rgba(28, 26, 23, .1);
+  transform: translateY(-50%) scale(1.05);
 }
 .reader-arrow:disabled { opacity: .25; cursor: default; }
 .reader-arrow.left { left: 12px; }
 .reader-arrow.right { right: 12px; }
 .reader-exit { margin: var(--space-3) 0; display: grid; gap: var(--space-2); justify-items: center; }
 .reader-hint { max-width: 30em; text-align: center; font-family: Georgia, serif; }
+
+/* Адаптив для мобильных устройств */
+@media (max-width: 720px) {
+  .reader {
+    padding-bottom: 80px; /* место для навигации */
+  }
+  
+  .reader-arrow {
+    position: fixed;
+    bottom: 20px;
+    top: auto;
+    transform: none;
+    width: 44px;
+    height: 44px;
+    font-size: 1.1rem;
+  }
+  
+  .reader-arrow.left { left: 16px; }
+  .reader-arrow.right { right: 16px; }
+  
+  .reader-page-num {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    margin: 0;
+    background: rgba(28, 26, 23, 0.05);
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+  }
+  
+  .book {
+    padding-bottom: 100px; /* место для навигации */
+  }
+  
+  .book-cover {
+    padding: var(--space-6, 32px) var(--space-4, 16px);
+  }
+  
+  .book-cover-title {
+    font-size: 2em;
+  }
+}
+
+/* Тёмная тема для читалки */
+html[data-theme="dark"] .reader {
+  background: #0d1218;
+  color: #e7edf3;
+}
+
+html[data-theme="dark"] .book {
+  background: #151c24;
+  color: #e7edf3;
+}
+
+html[data-theme="dark"] .book-cover {
+  background: transparent;
+}
+
+html[data-theme="dark"] .book-cover-title {
+  color: #e7edf3;
+}
+
+html[data-theme="dark"] .book-cover-subtitle,
+html[data-theme="dark"] .book-cover-author,
+html[data-theme="dark"] .book-cover-meta {
+  color: #a3b2bf;
+}
+
+html[data-theme="dark"] .reader-progress {
+  background: rgba(231, 237, 243, 0.1);
+}
+
+html[data-theme="dark"] .reader-progress-fill {
+  background: var(--accent, #79C0E0);
+}
+
+html[data-theme="dark"] .reader-arrow {
+  background: rgba(231, 237, 243, 0.1);
+  border-color: rgba(231, 237, 243, 0.2);
+  color: #e7edf3;
+}
+
+html[data-theme="dark"] .reader-arrow:hover:not(:disabled) {
+  background: rgba(231, 237, 243, 0.2);
+}
+
+html[data-theme="dark"] .reader-page-num {
+  background: rgba(231, 237, 243, 0.1);
+  color: #e7edf3;
+}
+
+html[data-theme="dark"] .book-callout {
+  background: #1e2833;
+  border-color: #2e3b48;
+}
+
+html[data-theme="dark"] .book-callout.warning {
+  background: #2a2416;
+  border-left-color: #f0b45a;
+}
+
+html[data-theme="dark"] .book-callout.rule {
+  background: #1a251f;
+  border-left-color: #63c7ae;
+}
 
 /* ---------- Редактор материала в create-test ---------- */
 .material-block {

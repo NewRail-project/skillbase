@@ -6,6 +6,7 @@
 // Тёмная тема в читалке не применяется.
 import { h } from "../../shared/dom.js";
 import { State } from "../../core/auth.js";
+import { db, doc, getDoc } from "../../shared/firebase.js";
 import { loadMaterial, loadMaterialProgress, saveMaterialProgress } from "../../core/materials.js";
 import { materialProgress } from "../../core/material-logic.js";
 import { setHashGuard, leaveWithHash } from "../../shared/app.js";
@@ -63,9 +64,21 @@ export default async function MaterialPage() {
 
   let material = null;
   let progress = { lastPage: 0, completed: false };
+  let authorName = null;
   try {
     material = await loadMaterial(testId);
     progress = await loadMaterialProgress(State.user.uid, testId);
+    // Получаем имя автора из publicProfiles
+    if (material.authorId) {
+      try {
+        const pub = await getDoc(doc(db, "publicProfiles", material.authorId));
+        if (pub.exists()) {
+          authorName = pub.data().displayName || null;
+        }
+      } catch (pubErr) {
+        console.warn("Автор недоступен:", pubErr);
+      }
+    }
   } catch (err) {
     // Нет доступа — материал закрыт правилом (идёт попытка?):
     page.appendChild(h("div", { class: "reader-stage" },
@@ -110,7 +123,15 @@ export default async function MaterialPage() {
 
   document.body.classList.add("reading-mode");
 
+  // Прогресс-бар
+  const progressEl = h("div", { class: "reader-progress" });
+  const progressFill = h("div", { class: "reader-progress-fill" });
+  progressEl.appendChild(progressFill);
+
+  // Заголовок книги (running header)
   const title = h("div", { class: "reader-title" }, material.title || "Материал");
+
+  // Навигация и контейнер страниц
   const pageNumEl = h("div", { class: "reader-page-num" });
   const stage = h("div", { class: "reader-stage" });
   const book = h("article", { class: "book" });
@@ -121,16 +142,55 @@ export default async function MaterialPage() {
 
   const exitRow = h("div", { class: "reader-exit" });
 
-  page.append(title, stage, prevBtn, nextBtn, pageNumEl, exitRow);
+  page.append(progressEl, title, stage, prevBtn, nextBtn, pageNumEl, exitRow);
+
+  // Обложка книги (типографический фронтиспис)
+  function coverEl() {
+    const cover = h("div", { class: "book-cover" });
+    cover.appendChild(h("h1", { class: "book-cover-title" }, material.title || "Учебный материал"));
+    
+    // Подзаголовок/информация
+    if (material.description) {
+      cover.appendChild(h("p", { class: "book-cover-subtitle" }, material.description));
+    }
+    
+    // Автор
+    if (authorName) {
+      cover.appendChild(h("div", { class: "book-cover-author" }, `Преподаватель: ${authorName}`));
+    }
+    
+    // Информация о материале
+    const meta = h("div", { class: "book-cover-meta" });
+    meta.appendChild(h("div", { class: "book-cover-chapter" }, `Глава ${index + 1}`));
+    meta.appendChild(h("div", { class: "book-cover-pages" }, `${material.pages.length} страниц`));
+    if (material.updatedAt) {
+      const date = new Date(material.updatedAt.seconds * 1000).toLocaleDateString("ru-RU");
+      meta.appendChild(h("div", { class: "book-cover-date" }, `Обновлено: ${date}`));
+    }
+    cover.appendChild(meta);
+    
+    return cover;
+  }
 
   function paintPage() {
     book.style.transition = REDUCED ? "none" : "transform .25s ease";
     book.textContent = "";
+    
+    // На первой странице добавляем обложку
+    if (index === 0) {
+      const cover = coverEl();
+      book.appendChild(cover);
+    }
+    
     const blocks = material.pages[index];
     const body = h("div", { class: "book-page" },
       ...blocks.map(blockEl).filter(Boolean));
     book.appendChild(body);
 
+    // Обновляем прогресс-бар
+    const progress = (index + 1) / material.pages.length;
+    progressFill.style.width = `${progress * 100}%`;
+    
     pageNumEl.textContent = `${index + 1} / ${material.pages.length}`;
     prevBtn.disabled = index === 0;
 
