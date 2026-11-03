@@ -1,6 +1,7 @@
 // ui/pages/terms.js — Пользовательское соглашение Skillbase.
 import { h } from "../../shared/dom.js";
 import { docPage, scrollToDocSection } from "../components/doc-page.js";
+import { DOC_VERSIONS } from "../../core/consent-docs.js";
 import { State } from "../../core/auth.js";
 
 export default function TermsPage() {
@@ -8,7 +9,8 @@ export default function TermsPage() {
     eyebrow: "Документы",
     title: "Пользовательское соглашение",
     subtitle: "Правила использования образовательной платформы Skillbase.",
-    updated: "02.11.2026",
+    updated: DOC_VERSIONS.terms,
+    version: DOC_VERSIONS.terms,
     toc: true,
     extra: [
       h("a", { href: "#terms-en" }, "English version"),

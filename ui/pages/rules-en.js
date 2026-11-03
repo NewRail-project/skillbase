@@ -1,6 +1,7 @@
 // ui/pages/rules-en.js — Usage Guidelines (English).
 import { h } from "../../shared/dom.js";
 import { docPage, scrollToDocSection } from "../components/doc-page.js";
+import { DOC_VERSIONS } from "../../core/consent-docs.js";
 import { State } from "../../core/auth.js";
 
 export default function RulesPageEn() {
@@ -8,7 +9,9 @@ export default function RulesPageEn() {
     eyebrow: "Documents",
     title: "Usage Guidelines",
     subtitle: "Practical advice and prohibitions for working with the platform.",
-    updated: "02.11.2026",
+    updated: DOC_VERSIONS.rules,
+    version: DOC_VERSIONS.rules,
+    versionPrefix: "Revision dated",
     toc: true,
     extra: [
       h("a", { href: "#rules" }, "Русская версия"),

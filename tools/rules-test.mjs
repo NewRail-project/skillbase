@@ -3001,6 +3001,173 @@ function selfPaceCases() {
     ];
 }
 
+// ---------- Согласия (consents) ----------
+//
+// Доказательство принятия документов: create только про себя, версии
+// документов непустые строки, время ставит сервер, изменение — запрещено.
+
+function consentCases() {
+    const guestAuth = { uid: "guest1", token: { firebase: { sign_in_provider: "anonymous" } } };
+    const consentDoc = (uid, type) => ({
+        uid,
+        type,
+        docs: { privacy: "02.11.2026", terms: "02.11.2026" },
+        acceptedAt: ISO
+    });
+
+    return [
+        {
+            name: "Согласие: гость сохраняет согласие на гостевой тест — разрешено",
+            expectation: "ALLOW",
+            request: {
+                auth: guestAuth,
+                path: `${DB}/consents/c1`,
+                method: "create",
+                resource: { data: consentDoc("guest1", "guest-test") },
+                time: ISO
+            },
+            functionMocks: []
+        },
+        {
+            name: "Согласие: гость сохраняет согласие на Live-комнату — разрешено",
+            expectation: "ALLOW",
+            request: {
+                auth: guestAuth,
+                path: `${DB}/consents/c2`,
+                method: "create",
+                resource: { data: consentDoc("guest1", "live-room") },
+                time: ISO
+            },
+            functionMocks: []
+        },
+        {
+            name: "Согласие: пользователь сохраняет согласие при регистрации — разрешено",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student9" },
+                path: `${DB}/consents/c3`,
+                method: "create",
+                resource: { data: consentDoc("student9", "signup") },
+                time: ISO
+            },
+            functionMocks: []
+        },
+        {
+            name: "Согласие: пользователь читает своё согласие — разрешено",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/consents/c1`,
+                method: "get"
+            },
+            resource: { data: consentDoc("student1", "signup") },
+            functionMocks: []
+        },
+        {
+            name: "Согласие: пользователь не читает чужое согласие — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/consents/c1`,
+                method: "get"
+            },
+            resource: { data: consentDoc("guest1", "guest-test") },
+            functionMocks: []
+        },
+        {
+            name: "Согласие: запись с uid другого пользователя подменой отклоняется — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/consents/c4`,
+                method: "create",
+                resource: { data: consentDoc("guest1", "guest-test") },
+                time: ISO
+            },
+            functionMocks: []
+        },
+        {
+            name: "Согласие: неизвестный тип отклоняется — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/consents/c5`,
+                method: "create",
+                resource: { data: consentDoc("student1", "quiz-cheat") },
+                time: ISO
+            },
+            functionMocks: []
+        },
+        {
+            name: "Согласие: пустая версия документа отклоняется — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/consents/c6`,
+                method: "create",
+                resource: {
+                    data: { ...consentDoc("student1", "signup"), docs: { privacy: "", terms: "02.11.2026" } }
+                },
+                time: ISO
+            },
+            functionMocks: []
+        },
+        {
+            name: "Согласие: подделка времени принятия (не request.time) отклоняется — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/consents/c7`,
+                method: "create",
+                resource: { data: consentDoc("student1", "signup") },
+                time: "2026-06-01T00:00:00Z"
+            },
+            functionMocks: []
+        },
+        {
+            name: "Согласие: лишнее поле в записи отклоняется — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/consents/c8`,
+                method: "create",
+                resource: {
+                    data: { ...consentDoc("student1", "signup"), role: "admin" }
+                },
+                time: ISO
+            },
+            functionMocks: []
+        },
+        {
+            name: "Согласие: изменять своё согласие нельзя — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/consents/c1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: { data: consentDoc("student1", "signup") },
+            newDoc: {
+                ...consentDoc("student1", "signup"),
+                docs: { privacy: "99.99.9999", terms: "02.11.2026" }
+            },
+            functionMocks: []
+        },
+        {
+            name: "Согласие: удалять свой документ нельзя — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/consents/c1`,
+                method: "delete"
+            },
+            resource: { data: consentDoc("student1", "signup") },
+            functionMocks: []
+        }
+    ];
+}
+
 async function main() {
     const rules = readFileSync(
         join(ROOT, "firestore.rules"),
@@ -3009,7 +3176,7 @@ async function main() {
 
     const project = projectId();
     const token = await accessToken();
-    const cases = [...testCases(), ...testDeleteCases(), ...selfPaceCases()];
+    const cases = [...testCases(), ...testDeleteCases(), ...selfPaceCases(), ...consentCases()];
 
     const testSuite = cases.map((item) => {
         const request = { ...item.request };

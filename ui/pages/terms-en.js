@@ -1,6 +1,7 @@
 // ui/pages/terms-en.js — Terms of Use (English).
 import { h } from "../../shared/dom.js";
 import { docPage, scrollToDocSection } from "../components/doc-page.js";
+import { DOC_VERSIONS } from "../../core/consent-docs.js";
 import { State } from "../../core/auth.js";
 
 export default function TermsPageEn() {
@@ -8,7 +9,9 @@ export default function TermsPageEn() {
     eyebrow: "Documents",
     title: "Terms of Use",
     subtitle: "Rules and conditions for using the Skillbase educational platform.",
-    updated: "02.11.2026",
+    updated: DOC_VERSIONS.terms,
+    version: DOC_VERSIONS.terms,
+    versionPrefix: "Revision dated",
     toc: true,
     extra: [
       h("a", { href: "#terms" }, "Русская версия"),

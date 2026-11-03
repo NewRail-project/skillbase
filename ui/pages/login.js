@@ -106,6 +106,7 @@ export default function LoginPage() {
     e.preventDefault();
     errorBox.textContent = "";
     submit.disabled = true;
+    submit.setAttribute("aria-busy", "true");
     submit.textContent = "Проверяем…";
 
     try {
@@ -133,6 +134,7 @@ export default function LoginPage() {
       password.focus();
     } finally {
       submit.disabled = false;
+      submit.removeAttribute("aria-busy");
       submit.textContent = "Войти";
     }
   });

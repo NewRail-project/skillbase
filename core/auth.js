@@ -485,6 +485,22 @@ export async function signInGuestForTest(fullName) {
   return user;
 }
 
+// Анонимная аутентификация без входа в комнату: нужен гостевым экранам,
+// которые между входом и работой выполняют промежуточное действие —
+// например, сохраняют согласие с документами (uid = идентификатор
+// гостевой сессии в записи consents). Повторный вызов для уже
+// анонимной сессии просто возвращает того же пользователя.
+export async function ensureAnonymousAuth() {
+  if (State.user?.isAnonymous !== true) {
+    // Требует включённого провайдера Anonymous в Firebase Console.
+    await signInAnonymously(auth);
+  }
+  const user = auth.currentUser;
+  if (!user?.uid) throw new Error("Не удалось войти как гость.");
+  await loadProfile(user);
+  return user;
+}
+
 export async function logout() {
   await signOut(auth);
   // С гостевой сессией заканчивается и её ФИО: следующий гость на этом

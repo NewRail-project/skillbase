@@ -165,6 +165,40 @@ service cloud.firestore {
         && validAvatar();
     }
 
+    // ---------- consents ----------
+
+    // Доказательства принятия документов (регистрация и гостевые входы).
+    // Записи неизменяемы: только create и чтение собственных — так
+    // пользователь не сможет скрыть или «переписать» своё согласие.
+    match /consents/{id} {
+      function consentTypes() {
+        return ["signup", "guest-test", "live-room"];
+      }
+
+      function validVersions() {
+        // Версии документов — непустые строки (редакция датой); дату и
+        // время принятия ставит сервер: acceptedAt == request.time.
+        return request.resource.data.docs.keys().hasOnly(["privacy", "terms"])
+          && request.resource.data.docs.privacy is string
+          && request.resource.data.docs.privacy.size() > 0
+          && request.resource.data.docs.terms is string
+          && request.resource.data.docs.terms.size() > 0;
+      }
+
+      allow read: if signedIn()
+        && resource.data.uid == request.auth.uid;
+
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(
+          ["uid", "type", "docs", "acceptedAt"])
+        && request.resource.data.type in consentTypes()
+        && validVersions()
+        && request.resource.data.acceptedAt == request.time;
+
+      allow update, delete: if false;
+    }
+
     // ---------- tests ----------
 
     match /tests/{id} {

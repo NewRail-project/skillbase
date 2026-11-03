@@ -128,6 +128,35 @@ input[type="number"], input[type="search"], input[type="datetime-local"], select
 .form-error { border-color: var(--danger); }
 input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; min-height: 0; accent-color: var(--accent); }
 
+/* ===== Согласие с документами ===== */
+.consent-box {
+  margin: var(--space-3) 0;
+  padding: var(--space-3);
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+}
+.consent-box.has-error { border-color: var(--danger); }
+.consent-label {
+  display: flex; align-items: flex-start; gap: var(--space-2);
+  cursor: pointer;
+}
+.consent-label input[type="checkbox"] { flex: none; margin-top: 2px; }
+.consent-text { font-size: .875rem; line-height: 1.5; color: var(--text); }
+.consent-text a { color: var(--accent); text-decoration: underline; }
+.consent-error { margin: var(--space-2) 0 0; color: var(--danger); font-size: .8125rem; }
+
+/* ===== Состояние загрузки кнопки ===== */
+/* Спиннер рядом с текстом: кнопки уже задают aria-busy при отправке форм. */
+button[aria-busy="true"]::after, .btn[aria-busy="true"]::after {
+  content: ""; flex: none;
+  width: .875rem; height: .875rem;
+  border: 2px solid currentColor; border-right-color: transparent;
+  border-radius: 50%;
+  animation: btn-spin .8s linear infinite;
+}
+@keyframes btn-spin { to { transform: rotate(360deg); } }
+
 /* ===== Таблицы ===== */
 .table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: var(--space-4); }
 .table { width: 100%; border-collapse: collapse; min-width: 500px; }
@@ -360,6 +389,7 @@ input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; min-hei
 }
 .toast.success { background: var(--ok-bg); color: var(--ok); border-color: var(--ok-border); }
 .toast.error { background: var(--danger-bg); color: var(--danger); border-color: var(--danger-border); }
+.toast.info { background: var(--warn-bg); color: var(--warn); border-color: var(--warn-border); }
 
 @keyframes fadeIn { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
 .modal-content, .modal-overlay { animation: none; }

@@ -584,6 +584,11 @@ main#app {
   color: var(--text);
   text-decoration: underline;
 }
+.footer-docs-meta {
+  margin-top: var(--space-1);
+  font-size: .75rem;
+  color: var(--text-2);
+}
 
 .footer-base {
   display: flex;
@@ -612,6 +617,7 @@ main#app {
 }
 .docs-section li::marker { color: var(--text-2); }
 .docs-section h3 { margin: var(--space-4) 0 var(--space-2); font-size: .9375rem; }
+.doc-version { margin: var(--space-2) 0 0; font-size: .8125rem; letter-spacing: .02em; }
 .docs-fillin {
   margin: var(--space-2) 0 var(--space-4);
   padding: var(--space-3);

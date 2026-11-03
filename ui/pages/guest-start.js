@@ -11,6 +11,9 @@ import { appearanceTools } from "../components/theme-toggle.js";
 import { h } from "../../shared/dom.js";
 import { State, signInGuestForTest, logout } from "../../core/auth.js";
 import { getGuestName, validateGuestForm } from "../../core/guest.js";
+import { saveConsent } from "../../core/consents.js";
+import { hasConsentMarker, markConsent } from "../../core/consent-docs.js";
+import { consentCheckbox } from "../../ui/components/consent.js";
 import { loadTest } from "../../core/editor.js";
 import { startAttempt, listMyAttemptsForTest } from "../../core/attempts.js";
 import { effectiveSettings } from "../../core/settings.js";
@@ -116,6 +119,16 @@ export default async function GuestStartPage() {
   const patronymic = h("input", { type: "text", id: "guest-patronymic", autocomplete: "additional-name", placeholder: "Иванович" });
   const submit = h("button", { type: "submit", class: "btn primary btn-block" }, "Начать тест");
 
+  // Согласие с документами перед началом гостевой работы. Анонимная
+  // сессия переживает обновление страницы, поэтому уже согласившемуся
+  // гостю (маркер ставится только после записи в Firestore) не показываем
+  // чекбокс повторно.
+  const guestUid = State.user?.isAnonymous === true ? State.user.uid : null;
+  const consentNeeded = !guestUid || !hasConsentMarker(guestUid, "guest-test");
+  const consent = consentNeeded
+    ? consentCheckbox({ idPrefix: "guest" })
+    : null;
+
   // Уже знакомое ФИО не запрашиваем заново: поля заполняются им,
   // гость может сразу нажать «Начать тест».
   const knownName = State.user?.isAnonymous === true ? getGuestName() : "";
@@ -148,6 +161,7 @@ export default async function GuestStartPage() {
       h("label", { for: "guest-patronymic" }, "Отчество (необязательно)"),
       patronymic
     ),
+    consent ? consent.el : null,
     submit,
     h("p", { class: "muted", style: "margin:0;font-size:.875rem" },
       "Есть аккаунт? ", h("a", { href: "#login" }, "Войти"))
@@ -171,10 +185,32 @@ export default async function GuestStartPage() {
       return;
     }
 
+    // Гость не продолжит без согласия: чекбокс обязателен, когда его
+    // показывают (согласия в Firestore для этой сессии ещё нет).
+    if (consent && !consent.checked()) {
+      consent.setError("Чтобы продолжить, подтвердите согласие с Политикой конфиденциальности и Пользовательским соглашением.");
+      consent.input.focus();
+      return;
+    }
+
     submit.disabled = true;
+    submit.setAttribute("aria-busy", "true");
     submit.textContent = "Готовим тест…";
     try {
       const user = await signInGuestForTest(check.value);
+
+      // Сохраняем согласие ДО начала теста: без записи в Firestore
+      // гостевая работа не продолжается (нет доступа к тестам).
+      if (consentNeeded) {
+        try {
+          await saveConsent({ uid: user.uid, type: "guest-test" });
+          markConsent(user.uid, "guest-test");
+        } catch (consentErr) {
+          console.error("Согласие гостя не сохранено:", consentErr);
+          throw new Error("Не удалось сохранить согласие с документами. Проверьте интернет и попробуйте ещё раз.");
+        }
+      }
+
       // Ссылка отработана: обычный вход после гостя не должен вернуть
       // сюда повторно.
       clearReturnTo();
@@ -225,6 +261,7 @@ export default async function GuestStartPage() {
           ? authErrorMessage(err)
           : (err?.message || authErrorMessage(err));
       submit.disabled = false;
+      submit.removeAttribute("aria-busy");
       submit.textContent = "Начать тест";
     }
   });

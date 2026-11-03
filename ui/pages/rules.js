@@ -1,6 +1,7 @@
 // ui/pages/rules.js — Правила использования Skillbase.
 import { h } from "../../shared/dom.js";
 import { docPage, scrollToDocSection } from "../components/doc-page.js";
+import { DOC_VERSIONS } from "../../core/consent-docs.js";
 import { State } from "../../core/auth.js";
 
 export default function RulesPage() {
@@ -8,7 +9,8 @@ export default function RulesPage() {
     eyebrow: "Документы",
     title: "Правила использования",
     subtitle: "Практические рекомендации и запреты при работе с платформой.",
-    updated: "02.11.2026",
+    updated: DOC_VERSIONS.rules,
+    version: DOC_VERSIONS.rules,
     toc: true,
     extra: [
       h("a", { href: "#rules-en" }, "English version"),

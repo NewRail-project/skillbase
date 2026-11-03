@@ -8,13 +8,14 @@
 //           если совпал с id секции, страница прокручивается к ней.
 import { h } from "../../shared/dom.js";
 
-export function docPage({ eyebrow, title, subtitle, sections, updated, extra = [], toc = false }) {
+export function docPage({ eyebrow, title, subtitle, sections, updated, version, versionPrefix, extra = [], toc = false }) {
   const page = h("div", { class: "page docs-page" });
 
   page.appendChild(h("div", { class: "page-head" },
     h("div", {},
       h("div", { class: "eyebrow" }, eyebrow),
       h("h1", {}, title),
+      version ? h("p", { class: "doc-version muted" }, `${versionPrefix || "Редакция от"} ${version}`) : null,
       h("p", { class: "page-sub" }, subtitle)
     )
   ));

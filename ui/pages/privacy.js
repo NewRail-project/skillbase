@@ -1,6 +1,7 @@
 // ui/pages/privacy.js — Политика конфиденциальности Skillbase.
 import { h } from "../../shared/dom.js";
 import { docPage, scrollToDocSection } from "../components/doc-page.js";
+import { DOC_VERSIONS } from "../../core/consent-docs.js";
 import { State } from "../../core/auth.js";
 
 export default function PrivacyPage() {
@@ -8,7 +9,8 @@ export default function PrivacyPage() {
     eyebrow: "Документы",
     title: "Политика конфиденциальности",
     subtitle: "Как мы обрабатываем и защищаем ваши данные в Skillbase.",
-    updated: "02.11.2026",
+    updated: DOC_VERSIONS.privacy,
+    version: DOC_VERSIONS.privacy,
     toc: true,
     extra: [
       h("a", { href: "#privacy-en" }, "English version"),
