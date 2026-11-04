@@ -111,6 +111,14 @@ body.has-sidebar .theme-toggle { margin-left: auto; }
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent);
   font-weight: 650;
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-s);
+  min-height: var(--tap);
+  overflow: hidden;
+  text-decoration: none;
 }
 .sidebar-item.active::before,
 .sidebar-item[aria-current="page"]::before {
@@ -123,6 +131,7 @@ body.has-sidebar .theme-toggle { margin-left: auto; }
   height: 22px;
   border-radius: 0 3px 3px 0;
   background: var(--accent);
+  display: block;
 }
 .sidebar-profile {
   background: var(--elevated);

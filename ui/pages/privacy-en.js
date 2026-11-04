@@ -24,7 +24,7 @@ export default function PrivacyPageEn() {
         title: "1. General Provisions",
         blocks: [
           h("p", {}, "This Privacy Policy describes how Skillbase educational platform (hereinafter — «Platform») collects, uses, and protects information."),
-          h("p", {}, "The Platform is developed by the NewRail team. The developer and data controller is Daniil Buylyenkov."),
+          h("p", {}, "The Platform is developed as an independent educational solution. The developer and data controller is Daniil Buylyenkov."),
           h("p", {}, "By using the Platform, you agree to the terms of this Policy.")
         ]
       },

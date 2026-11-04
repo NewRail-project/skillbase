@@ -56,7 +56,7 @@ const routes = {
   "rules-en":     { file: "ui/pages/rules-en.js",          title: "Usage Guidelines" },
   "contact":      { file: "ui/pages/contact.js",           title: "Контакты и обратная связь" },
   "contacts":     { file: "ui/pages/contact.js",           title: "Контакты и обратная связь" },
-  "contact-en":   { file: "ui/pages/contact-en.js",        title: "Contact NewRail" },
+  "contact-en":   { file: "ui/pages/contact-en.js",        title: "Contact Us" },
   "about":        { file: "ui/pages/about.js",             title: "О проекте" },
   "about-en":     { file: "ui/pages/about-en.js",          title: "About the project" },
   // guest: маршрут открыт анонимному гостю (участие в live-комнате —

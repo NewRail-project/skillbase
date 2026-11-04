@@ -11,7 +11,7 @@ const GROUPS = [
     label: "Обучение",
     items: [
       { id: "home", label: "Главная", icon: icons.home, route: "#home" },
-      { id: "about", label: "О проекте", icon: icons.info, route: "#about" },
+      { id: "about", label: "О проекте", icon: icons.info, route: "#about", "aria-current": "page" },
       { id: "assignments", label: "Задания", icon: icons.clipboard, route: "#assignments", auth: true },
       { id: "tests", label: "Каталог тестов", icon: icons.book, route: "#tests", auth: true },
       { id: "join", label: "Войти по коду", icon: icons.qr, route: "#join", auth: true },

@@ -1,4 +1,4 @@
-// ui/pages/contact-en.js — Contact NewRail (English version).
+// ui/pages/contact-en.js — Contact Us (English version).
 import { h } from "../../shared/dom.js";
 import { docPage, scrollToDocSection } from "../components/doc-page.js";
 import { State } from "../../core/auth.js";
@@ -6,7 +6,7 @@ import { State } from "../../core/auth.js";
 export default function ContactPageEn() {
   const page = docPage({
     eyebrow: "Connection",
-    title: "Contact NewRail",
+    title: "Contact Us",
     subtitle: "We are open to constructive feedback and collaboration.",
     updated: "02.11.2026",
     extra: [
@@ -17,7 +17,7 @@ export default function ContactPageEn() {
         id: "intro",
         title: "Get in Touch",
         blocks: [
-          h("p", {}, "Questions about Skillbase, development suggestions, or bug reports? Contact the NewRail team via your preferred method. We value every user's feedback."),
+          h("p", {}, "Questions about Skillbase, development suggestions, or bug reports? Contact us via your preferred method. We value every user's feedback."),
           h("div", { class: "contact-main", style: "margin: var(--space-4) 0; padding: var(--space-4); background: var(--ok-bg); border: 1px solid var(--ok-border); border-radius: var(--radius-m);" },
             h("div", { style: "font-weight: 700; color: var(--ok); margin-bottom: var(--space-1);" }, "Main Communication Channel — Telegram"),
             h("a", {
@@ -81,7 +81,7 @@ export default function ContactPageEn() {
         blocks: [
           h("p", { class: "muted" },
             "Project: Skillbase", h("br"),
-            "Team: NewRail", h("br"),
+            "Team: Independent Developers", h("br"),
             "Version: 1.0.0", h("br"),
             "Year: 2026", h("br"),
             "Site: ", h("a", { href: "https://newrail-project.github.io/skillbase/#/" }, "newrail-project.github.io/skillbase")

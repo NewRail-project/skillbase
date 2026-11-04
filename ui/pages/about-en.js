@@ -34,7 +34,7 @@ export default function AboutPageEn() {
       {
         title: "Skillbase",
         blocks: [
-          h("p", {}, "Skillbase is a unified educational platform for auxiliary learning, knowledge assessment, and professional development in the railway industry."),
+          h("p", {}, "Skillbase is a unified educational platform for auxiliary learning, knowledge assessment, and professional development."), 
           h("p", {}, "The platform covers the entire learning cycle: material creation, testing, assessment, and results analysis. Our main goal is to improve the quality of education and professional training in the railway sector through modern digital tools.")
         ]
       },
@@ -62,9 +62,9 @@ export default function AboutPageEn() {
         ]
       },
       {
-        title: "NewRail Team",
+        title: "Development Team",
         blocks: [
-          h("p", {}, "Skillbase is developed by the NewRail team, based in the Republic of Kazakhstan:"),
+          h("p", {}, "Skillbase is developed by a team of professionals based in the Republic of Kazakhstan:"),
           h("ul", {},
             h("li", {},
               h("b", {}, "Daniil Buylyenkov"), h("br"),

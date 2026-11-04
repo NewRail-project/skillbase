@@ -51,7 +51,7 @@ export default function TermsPageEn() {
         id: "copyright",
         title: "4. Intellectual Property",
         blocks: [
-          h("p", {}, "All rights to the platform architecture, code, design, and original content belong to the NewRail team."),
+          h("p", {}, "All rights to the platform architecture, code, design, and original content belong to the developers."),
           h("p", {}, "Educational materials may be used for personal study and presentations with proper attribution.")
         ]
       },
