@@ -33,7 +33,178 @@ input, textarea, select { font-size: 16px; }
 textarea { min-height: 96px; resize: vertical; }
 details > summary { cursor: pointer; padding: var(--space-2) 0; }
 
-:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+/* Глобальные стили доступности */
+:focus-visible { 
+  outline: 2px solid var(--focus); 
+  outline-offset: 2px; 
+}
+
+/* Улучшенные стили для интерактивных элементов */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Стили для disabled состояний */
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+button:disabled:hover,
+input:disabled:hover,
+select:disabled:hover,
+textarea:disabled:hover {
+  background-color: var(--bg-elevated);
+}
+
+/* Улучшенная контрастность для интерактивных элементов */
+.btn, .btn-primary, .btn-secondary {
+  --focus-contrast: var(--focus);
+  outline: 2px solid var(--focus-contrast);
+  outline-offset: 2px;
+}
+
+.btn:focus-visible, .btn-primary:focus-visible, .btn-secondary:focus-visible {
+  outline: 2px solid var(--focus-contrast);
+  outline-offset: 2px;
+}
+
+/* ARIA live regions для важных изменений */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Улучшенная навигация клавиатурой */
+.keyboard-nav {
+  position: relative;
+}
+
+.keyboard-nav:focus-visible::after {
+  content: '';
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  right: -4px;
+  bottom: -4px;
+  border: 2px solid var(--focus);
+  border-radius: var(--radius-s);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Улучшенные стили для кнопок с иконками */
+.btn-icon {
+  position: relative;
+}
+
+.btn-icon:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.btn-icon .sr-only {
+  position: static;
+  width: auto;
+  height: auto;
+  padding: var(--space-1) var(--space-2);
+  margin: 0;
+  overflow: visible;
+  clip: none;
+  white-space: normal;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  font-size: 0.875rem;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* Улучшенные стили для форм */
+.form-group {
+  margin-bottom: var(--space-4);
+}
+
+.form-group label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: var(--space-1);
+  color: var(--text);
+}
+
+.form-group input,
+.form-group textarea,
+.form-group select {
+  width: 100%;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--bg-elevated);
+  color: var(--text);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.form-group input:focus-visible,
+.form-group textarea:focus-visible,
+.form-group select:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
+}
+
+.form-group.error input,
+.form-group.error textarea,
+.form-group.error select {
+  border-color: var(--error);
+}
+
+.form-group.error .error-message {
+  color: var(--error);
+  font-size: 0.875rem;
+  margin-top: var(--space-1);
+  display: block;
+}
+
+/* Улучшенные стили для таблиц */
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+th, td {
+  padding: var(--space-2);
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+th {
+  font-weight: 600;
+  background: var(--bg-elevated);
+  position: sticky;
+  top: 0;
+}
+
+th:focus-visible,
+td:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
 
 .skip-link {
   position: absolute; left: var(--space-2); top: -100px; z-index: 3000;

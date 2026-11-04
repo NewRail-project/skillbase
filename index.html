@@ -37,7 +37,23 @@
   <link rel="stylesheet" href="ui/css/result-styles.css?v=17">
   <link rel="stylesheet" href="ui/css/brand.css?v=17">
   <link rel="stylesheet" href="ui/css/live.css?v=17">
+  <link rel="stylesheet" href="ui/css/print.css?v=17" media="print">
   <script type="module" src="shared/main.js?v=17"></script>
+  
+  <!-- Service Worker Registration -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then(registration => {
+            console.log('ServiceWorker registration successful with scope: ', registration.scope);
+          })
+          .catch(error => {
+            console.log('ServiceWorker registration failed: ', error);
+          });
+      });
+    }
+  </script>
   <script>
     // Тема применяется до первой отрисовки, чтобы не было вспышки светлого фона.
     (function () {

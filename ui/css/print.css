@@ -1,0 +1,111 @@
+/* ui/css/print.css — Стили для печати полезных страниц */
+
+@media print {
+  /* Скрываем всё лишнее */
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 12pt !important;
+  }
+  
+  header,
+  footer,
+  .topbar,
+  .site-footer,
+  #sidebar-container,
+  #sidebar-backdrop,
+  .sidebar-backdrop,
+  button,
+  .btn,
+  .nav,
+  .question-actions,
+  .form-actions,
+  .no-print {
+    display: none !important;
+  }
+  
+  /* Контейнеры на всю ширину */
+  .shell, #app, .page, .card {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: transparent !important;
+  }
+  
+  /* Типографика для печати */
+  h1, h2, h3, h4 {
+    color: black !important;
+    page-break-after: avoid;
+  }
+  
+  h1 { font-size: 18pt !important; }
+  h2 { font-size: 14pt !important; }
+  h3 { font-size: 12pt !important; }
+  
+  p, li {
+    font-size: 11pt !important;
+    line-height: 1.4 !important;
+    orphans: 3;
+    widows: 3;
+  }
+  
+  /* Таблицы не должны обрываться не вовремя */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    page-break-inside: avoid;
+  }
+  
+  th, td {
+    border: 1px solid #ccc !important;
+    padding: 6pt !important;
+    font-size: 10pt !important;
+    color: black !important;
+  }
+  
+  th {
+    background: #eee !important;
+    font-weight: bold !important;
+  }
+  
+  tr {
+    page-break-inside: avoid;
+  }
+  
+  /* QR-коды и изображения */
+  img, svg {
+    max-width: 100% !important;
+    page-break-inside: avoid;
+  }
+  
+  .qr-container, .print-qr {
+    display: block !important;
+    text-align: center !important;
+    page-break-inside: avoid;
+    margin: 20pt auto !important;
+  }
+  
+  /* Ссылки */
+  a {
+    color: black !important;
+    text-decoration: underline !important;
+  }
+  
+  /* Добавляем колонтитулы */
+  @page {
+    margin: 2cm;
+    @bottom-right {
+      content: "Стр. " counter(page) " из " counter(pages);
+      font-size: 9pt;
+      color: #666;
+    }
+    @bottom-left {
+      content: "Skillbase — NewRail";
+      font-size: 9pt;
+      color: #666;
+    }
+  }
+}

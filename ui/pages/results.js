@@ -60,7 +60,15 @@ export default async function ResultsPage() {
   page.appendChild(head);
 
   const exportBtn = h("button", { type: "button", class: "btn secondary", disabled: "disabled" }, "Экспорт CSV");
-  head.querySelector(".page-head-actions").appendChild(exportBtn);
+  const printBtn = h("button", {
+    type: "button",
+    class: "btn secondary no-print",
+    onclick: () => window.print(),
+    "aria-label": "Распечатать результаты"
+  }, "Печать");
+  const actions = head.querySelector(".page-head-actions");
+  actions.appendChild(exportBtn);
+  actions.appendChild(printBtn);
 
   const stats = h("section", { class: "stat-grid" });
   page.appendChild(stats);

@@ -4,6 +4,7 @@ import { renderSidebar, initSidebar, setSidebarOpen } from '../ui/components/sid
 import { initTheme, toggleTheme, getTheme, subscribeTheme } from './theme.js';
 import { icons } from './icons.js';
 import { DOC_VERSIONS } from '../core/consent-docs.js';
+import { initNetworkStatus } from '../ui/components/network-status.js';
 
 // Редакция документов в подвале: из того же источника, что показывают
 // страницы #privacy/#terms/#rules и записывают согласия (consents).
@@ -57,6 +58,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   initThemeToggle();
   initSidebar();
   paintFooterDocsVersion();
+  
+  // Инициализируем индикатор сети
+  const cleanupNetworkStatus = initNetworkStatus();
+  
   // Если Firestore не отвечает, не оставляем пустой экран: через 8 с
   // запускаем роутер, а профиль дозагрузится сам.
   await Promise.race([
@@ -82,4 +87,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   document.body.classList.add("ready");
+  
+  // Сохраняем функцию очистки для использования при необходимости
+  window.cleanupNetworkStatus = cleanupNetworkStatus;
 });

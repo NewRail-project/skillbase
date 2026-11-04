@@ -983,7 +983,13 @@ export default async function QuizPage() {
     if (!staff) writeLocal(attempt.id, current.answers);
 
     content.textContent = "";
-    const saveState = h("div", { class: "form-hint", role: "status", "aria-live": "polite" }, "Ответы сохраняются автоматически");
+    const saveState = h("div", {
+  class: "form-hint",
+  role: "status",
+  "aria-live": "polite",
+  "aria-atomic": "true",
+  "aria-relevant": "additions text"
+}, "Ответы сохраняются автоматически");
     const errorBox = h("div", { class: "form-error", role: "alert" });
     const timerEl = h("span", { class: "badge badge-neutral" }, "—");
     const progressBar = h("div", { class: "progress-bar" });
@@ -1134,7 +1140,12 @@ export default async function QuizPage() {
       if (questionTimerId) { clearInterval(questionTimerId); questionTimerId = null; }
       if (perQuestionSec == null || isLockedQuestion(key)) return null;
       questionDeadline = Date.now() + perQuestionSec * 1000;
-      const el = h("span", { class: "badge badge-neutral", "aria-label": "Осталось времени на вопрос" });
+      const el = h("span", {
+  class: "badge badge-neutral",
+  "aria-label": "Осталось времени на вопрос",
+  "aria-live": "polite",
+  "aria-atomic": "true"
+});
       const update = () => {
         const left = questionDeadline - Date.now();
         if (left <= 0) {
@@ -1212,7 +1223,13 @@ export default async function QuizPage() {
       const options = Array.isArray(question.options) ? question.options : [];
 
       questionBox.textContent = "";
-      const headLine = h("div", { class: "eyebrow", style: "margin-top:var(--space-4)" },
+      const questionTitleId = `q-title-${current.index}`;
+      const questionDescId = `q-desc-${current.index}`;
+      const headLine = h("div", {
+        class: "eyebrow",
+        style: "margin-top:var(--space-4)",
+        id: questionDescId
+      },
         `Вопрос ${current.index + 1} · ${TYPE_LABEL[question.type] || "Вопрос"} · ${question.points || 1} б.`
       );
       const clockEl = questionClock(key);
@@ -1222,7 +1239,10 @@ export default async function QuizPage() {
       }
       questionBox.append(
         headLine,
-        h("h2", { style: "margin-top:var(--space-2)" }, question.text || "Вопрос без текста"),
+        h("h2", {
+          style: "margin-top:var(--space-2)",
+          id: questionTitleId
+        }, question.text || "Вопрос без текста"),
         question.explanation && staff
           ? h("p", { class: "muted" }, question.explanation)
           : null
@@ -1260,10 +1280,14 @@ export default async function QuizPage() {
         });
       } else if (question.type === "short") {
         const source = finalPolicy ? draft : answer;
+        const inputId = `short-answer-${current.index}`;
         const input = h("textarea", {
           rows: "4",
           placeholder: "Введите ответ",
-          maxlength: "4000"
+          maxlength: "4000",
+          id: inputId,
+          "aria-labelledby": questionTitleId,
+          "aria-describedby": questionDescId
         });
         input.value = typeof source === "string" ? source : "";
         input.addEventListener("input", () => {
@@ -1271,7 +1295,7 @@ export default async function QuizPage() {
           else { current.answers[key] = input.value; queueSave(); }
         });
         questionBox.append(h("div", { class: "field", style: "margin-top:var(--space-3)" },
-          h("label", {}, "Ваш ответ"), input));
+          h("label", { for: inputId }, "Ваш ответ"), input));
       } else {
         const multiple = question.type === "multiple";
         const source = finalPolicy ? draft : answer;
