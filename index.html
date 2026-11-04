@@ -7,15 +7,20 @@
   <meta name="description" content="Skillbase — корпоративная платформа обучения и проверки знаний для железнодорожной отрасли.">
   <meta name="theme-color" content="#F5F3EF">
   <link rel="icon" type="image/svg+xml" href="ui/brand/favicon.svg">
-  <link rel="stylesheet" href="ui/css/tokens.css?v=16">
-  <link rel="stylesheet" href="ui/css/themes/education.css?v=16">
-  <link rel="stylesheet" href="ui/css/themes/operations.css?v=16">
-  <link rel="stylesheet" href="ui/css/themes/depot.css?v=16">
-  <link rel="stylesheet" href="ui/css/base.css?v=16">
-  <link rel="stylesheet" href="ui/css/components.css?v=16">
-  <link rel="stylesheet" href="ui/css/brand.css?v=16">
-  <link rel="stylesheet" href="ui/css/live.css?v=16">
-  <script type="module" src="shared/main.js?v=16"></script>
+  <!-- Раннее открытие соединений с Firebase: TLS-рукопожатие начинается
+       до загрузки модулей, а не после. -->
+  <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>
+  <link rel="dns-prefetch" href="https://firebasestorage.googleapis.com">
+  <link rel="stylesheet" href="ui/css/tokens.css?v=17">
+  <link rel="stylesheet" href="ui/css/themes/education.css?v=17">
+  <link rel="stylesheet" href="ui/css/themes/operations.css?v=17">
+  <link rel="stylesheet" href="ui/css/themes/depot.css?v=17">
+  <link rel="stylesheet" href="ui/css/base.css?v=17">
+  <link rel="stylesheet" href="ui/css/components.css?v=17">
+  <link rel="stylesheet" href="ui/css/brand.css?v=17">
+  <link rel="stylesheet" href="ui/css/live.css?v=17">
+  <script type="module" src="shared/main.js?v=17"></script>
   <script>
     // Тема применяется до первой отрисовки, чтобы не было вспышки светлого фона.
     (function () {
@@ -119,37 +124,111 @@
     </svg>
   </div>
   <script>
-    // Keyboard avoid: при фокусе на инпуте/текстовое поле страницы скроллит вверх,
-    // чтобы текст не перекрывался клавиатурой. Работает на Android/iOS.
-    (function() {
-      let ticking = false;
-      const inputs = document.querySelectorAll('input, textarea');
-      const adjust = () => {
-        if (!ticking) {
-          requestAnimationFrame(() => {
-            const rect = document.documentElement.getBoundingClientRect();
-            const keyboardHeight = window.innerHeight - rect.height;
-            if (keyboardHeight > 40) {
-              // Есть открытая клавиатура — делаем скролл, чтобы фокусированный элемент был виден
-              const focused = document.activeElement;
-              if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA')) {
-                const targetScroll = focused.getBoundingClientRect().bottom - window.innerHeight + 20;
-                window.scrollTo({ top: window.scrollY + targetScroll, behavior: 'smooth' });
-              }
-            } else {
-              // Клавиатура закрыта — возвращаемся в начало
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }
-            ticking = false;
-          });
-          ticking = true;
+    // Клавиатура и прокрутка: страница не должна прыгать при вводе.
+    //
+    // Принципы:
+    //  - детекция клавиатуры по visualViewport (сжатие видимой области
+    //    относительно базовой высоты), а не по высоте документа;
+    //  - поле подтягивается в видимую зону ТОЛЬКО если оно реально
+    //    перекрыто (минимальный сдвиг, без скролла «на всякий случай»);
+    //  - при закрытии клавиатуры возвращается ровно тот сдвиг прокрутки,
+    //    который сделали мы сами — никаких scrollTo(0) и скачков;
+    //  - поля ловятся делегированием (focusin): в SPA они создаются
+    //    динамически, навешивать слушатели на каждый инпут нельзя.
+    (function () {
+      var vv = window.visualViewport;
+      if (!vv) return; // старый браузер: оставляем нативное поведение
+
+      var baseline = vv.height;   // высота видимой области без клавиатуры
+      var keyboardOpen = false;
+      var scrolledByUs = false;
+      var savedScrollY = 0;
+      var ensureTimer = 0;
+
+      function isEditable(el) {
+        return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")
+          && !["button", "submit", "checkbox", "radio", "file", "range", "color"].includes(el.type)
+          && !el.readOnly && !el.disabled;
+      }
+
+      function focusedField() {
+        var el = document.activeElement;
+        return isEditable(el) ? el : null;
+      }
+
+      // Ближайший прокручиваемый предок (модалки, панели со своим скроллом).
+      function scrollableAncestor(el) {
+        var node = el.parentElement;
+        while (node && node !== document.body) {
+          var oy = getComputedStyle(node).overflowY;
+          if ((oy === "auto" || oy === "scroll") && node.scrollHeight > node.clientHeight + 1) {
+            return node;
+          }
+          node = node.parentElement;
         }
-      };
-      window.addEventListener('resize', adjust);
-      // Also handle programmatic focus scenarios
-      inputs.forEach(input => {
-        input.addEventListener('focus', adjust, { passive: true });
-        input.addEventListener('blur', adjust, { passive: true });
+        return null;
+      }
+
+      // Аккуратный минимальный сдвиг: только если поле скрыто клавиатурой.
+      function ensureVisible() {
+        var el = focusedField();
+        if (!el || !keyboardOpen) return;
+        var rect = el.getBoundingClientRect();
+        var visibleTop = vv.offsetTop + 8;
+        var visibleBottom = vv.offsetTop + vv.height - 8;
+        var delta = 0;
+        if (rect.bottom > visibleBottom) {
+          delta = rect.bottom - visibleBottom;
+        } else if (rect.top < visibleTop) {
+          delta = rect.top - visibleTop;
+        } else {
+          return; // поле и так видно — не трогаем прокрутку
+        }
+        var container = scrollableAncestor(el);
+        if (container) {
+          // Поле внутри внутреннего скролла (модальное окно и т.п.):
+          // двигаем контейнер, layout-прокрутку страницы не трогаем.
+          container.scrollBy({ top: Math.ceil(delta), behavior: "smooth" });
+        } else {
+          window.scrollBy({ top: Math.ceil(delta), behavior: "smooth" });
+          scrolledByUs = true;
+        }
+      }
+
+      vv.addEventListener("resize", function () {
+        var kb = baseline - vv.height;
+        if (kb > 80 && focusedField()) {
+          // Клавиатура открылась (или сменилось поле/поворот экрана).
+          if (!keyboardOpen) {
+            keyboardOpen = true;
+            savedScrollY = window.scrollY;
+            scrolledByUs = false;
+          }
+          clearTimeout(ensureTimer);
+          // Даём браузеру завершить его собственную прокрутку к полю,
+          // затем докидываем только недостающее.
+          ensureTimer = setTimeout(ensureVisible, 150);
+        } else if (kb < 8) {
+          baseline = vv.height; // калибровка: поворот, зум, обычный ресайз
+          if (keyboardOpen) {
+            keyboardOpen = false;
+            clearTimeout(ensureTimer);
+            if (scrolledByUs) {
+              // Возвращаем только собственный сдвиг — без прыжка к началу.
+              window.scrollTo({ top: savedScrollY, behavior: "auto" });
+              scrolledByUs = false;
+            }
+            // Если не скроллили — ничего не делаем: нативное поведение
+            // Android (resizes-visual) само возвращает вид без скачка.
+          }
+        }
+      });
+
+      // Переключение между полями при открытой клавиатуре.
+      document.addEventListener("focusin", function (e) {
+        if (!isEditable(e.target) || !keyboardOpen) return;
+        clearTimeout(ensureTimer);
+        ensureTimer = setTimeout(ensureVisible, 60);
       });
     })();
   </script>

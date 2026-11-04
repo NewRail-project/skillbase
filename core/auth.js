@@ -94,9 +94,20 @@ async function loadProfile(user) {
   State.initialProfileLoad = true;
 
   try {
-    const docSnap = await getDoc(doc(db, "users", user.uid));
+    // users и publicProfiles не зависят друг от друга: читаем параллельно,
+    // чтобы не платить два сетевых раунд-трипа на каждый вход (особенно
+    // заметно на мобильном интернете).
+    const [docSnap, pubSnap] = await Promise.all([
+      getDoc(doc(db, "users", user.uid)),
+      getDoc(doc(db, "publicProfiles", user.uid)).catch(pubErr => {
+        if (pubErr?.code !== "permission-denied") {
+          console.warn("Публичный профиль недоступен:", pubErr);
+        }
+        return null;
+      })
+    ]);
     if (token !== loadToken) return;
-    
+
     if (docSnap.exists()) {
       State.profile = normalizeProfile(docSnap.data(), user);
       State.profileStatus = "ready";
@@ -104,20 +115,12 @@ async function loadProfile(user) {
       // правило users не разрешает поле avatar. Ошибку чтения игнорируем —
       // без аватара профиль остаётся рабочим.
       let publicName = null;
-      try {
-        const pub = await getDoc(doc(db, "publicProfiles", user.uid));
-        if (token !== loadToken) return;
-        if (pub.exists()) {
-          const pubData = pub.data();
-          if (pubData.avatar) State.profile.avatar = pubData.avatar;
-          if (pubData.displayName) {
-            State.profile.publicDisplayName = pubData.displayName;
-            publicName = pubData.displayName;
-          }
-        }
-      } catch (pubErr) {
-        if (pubErr.code !== "permission-denied") {
-          console.warn("Публичный профиль недоступен:", pubErr);
+      if (pubSnap?.exists()) {
+        const pubData = pubSnap.data();
+        if (pubData.avatar) State.profile.avatar = pubData.avatar;
+        if (pubData.displayName) {
+          State.profile.publicDisplayName = pubData.displayName;
+          publicName = pubData.displayName;
         }
       }
 

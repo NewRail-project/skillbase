@@ -52,7 +52,27 @@ function imgEl(src) {
   if (String(src || "").startsWith("data:")) {
     return h("img", { src, alt: "" });
   }
-  return h("img", { src, alt: "", referrerpolicy: "no-referrer" });
+  // loading="lazy" — картинки ниже экрана не грузятся до прокрутки,
+  // decoding="async" — декодирование не блокирует поток отрисовки.
+  return h("img", { src, alt: "", referrerpolicy: "no-referrer", loading: "lazy", decoding: "async" });
+}
+
+// Кэш публичных имён авторов на сессию: одна книга может открываться
+// несколько раз за визит, и каждый раз ходить в Firestore за именем не нужно.
+const authorNameCache = new Map();
+
+async function loadAuthorName(authorId) {
+  if (!authorId) return null;
+  if (authorNameCache.has(authorId)) return authorNameCache.get(authorId);
+  try {
+    const pub = await getDoc(doc(db, "publicProfiles", authorId));
+    const name = pub.exists() ? (pub.data().displayName || null) : null;
+    authorNameCache.set(authorId, name);
+    return name;
+  } catch (pubErr) {
+    console.warn("Автор недоступен:", pubErr);
+    return null;
+  }
 }
 
 export default async function MaterialPage() {
@@ -66,18 +86,15 @@ export default async function MaterialPage() {
   let progress = { lastPage: 0, completed: false };
   let authorName = null;
   try {
-    material = await loadMaterial(testId);
-    progress = await loadMaterialProgress(State.user.uid, testId);
-    // Получаем имя автора из publicProfiles
-    if (material.authorId) {
-      try {
-        const pub = await getDoc(doc(db, "publicProfiles", material.authorId));
-        if (pub.exists()) {
-          authorName = pub.data().displayName || null;
-        }
-      } catch (pubErr) {
-        console.warn("Автор недоступен:", pubErr);
-      }
+    // Материал и прогресс не зависят друг от друга — читаем параллельно.
+    // Имя автора зависит от authorId из меты, поэтому идёт вторым шагом
+    // (и кэшируется: повторное открытие книги не ходит в Firestore снова).
+    [material, progress] = await Promise.all([
+      loadMaterial(testId),
+      loadMaterialProgress(State.user.uid, testId)
+    ]);
+    if (material?.authorId) {
+      authorName = await loadAuthorName(material.authorId);
     }
   } catch (err) {
     // Нет доступа — материал закрыт правилом (идёт попытка?):

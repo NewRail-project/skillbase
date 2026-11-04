@@ -16,11 +16,15 @@ export function materialDocId(uid, testId) {
 }
 
 // Все страницы материала (упорядоченно). Отсутствие книги — null.
+// Мета и страницы не зависят друг от друга — читаем параллельно:
+// на мобильном интернете это минус один раунд-трип на открытие книги.
 export async function loadMaterial(testId) {
-  const snap = await getDoc(doc(db, "materials", testId));
+  const [snap, pagesSnap] = await Promise.all([
+    getDoc(doc(db, "materials", testId)),
+    getDocs(collection(db, "materials", testId, "pages"))
+  ]);
   if (!snap.exists()) return null;
   const meta = { id: snap.id, ...snap.data() };
-  const pagesSnap = await getDocs(collection(db, "materials", testId, "pages"));
   const pages = pagesSnap.docs
     .map(item => ({ n: Number(item.id), blocks: item.data()?.blocks ?? [] }))
     .sort((a, b) => a.n - b.n)

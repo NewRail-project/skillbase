@@ -98,11 +98,14 @@ export default async function GuestStartPage() {
 
   // Анонимный гость уже есть: разрешаем читать published тест.
   // Проверяем доступность заранее, чтобы не уводить гостя в тупик
-  // после отправки формы.
+  // после отправки формы. Результат переиспользуется в submit —
+  // без повторного чтения того же документа из Firestore.
   let testTitle = "";
+  let prefetchedTest = null;
   if (State.user?.isAnonymous === true && testId) {
     try {
       const test = await loadTest(testId);
+      prefetchedTest = test;
       testTitle = test?.title || "";
       if (test?.status !== "published") {
         errorBox.textContent = "Тест снят с публикации. Преподаватель может дать ссылку повторно.";
@@ -220,7 +223,7 @@ export default async function GuestStartPage() {
         return;
       }
 
-      const test = await loadTest(testId);
+      const test = prefetchedTest || await loadTest(testId);
       if (test?.status !== "published") {
         throw new Error("Тест снят с публикации. Преподаватель может дать ссылку повторно.");
       }
