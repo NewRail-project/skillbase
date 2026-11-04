@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" fill="none" role="img" aria-label="Skillbase">
+  <title>Skillbase</title>
+  <!-- Фирменная палитра NewRail: тёмно-синий #1B5A7A (рельсы, шпалы, фон) и жёлтый #F2B233 (сигнал) -->
+  <rect width="32" height="32" rx="8" fill="#1B5A7A"/>
+  <!-- Шпалы с выносом за рельсы: укорачиваются к горизонту -->
+  <path d="M6.86 25 H25.14" stroke="#F2B233" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M8.74 20 H23.26" stroke="#F2B233" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M10.63 15 H21.37" stroke="#F2B233" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M12.52 10 H19.48" stroke="#F2B233" stroke-width="1.5" stroke-linecap="round"/>
+  <!-- Колея в перспективе: рельсы сходятся к горизонту — путь и рост -->
+  <path d="M7.5 27 L16 4.5 L24.5 27" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Сигнал -->
+  <circle cx="28" cy="6" r="2" fill="#F2B233"/>
+</svg>

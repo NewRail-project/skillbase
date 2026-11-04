@@ -284,14 +284,48 @@ main#app {
   padding: var(--space-2) var(--space-3);
   min-width: 104px;
 }
-.hero-stat b { display: block; font-size: 1.125rem; color: var(--hero-ink); }
+ .hero-stat b { display: block; font-size: 1.125rem; color: var(--hero-ink); }
 .hero-stat span { font-size: .75rem; color: var(--text-2); }
+
+/* Компактная строка возможностей под кнопками Hero: иконка + подпись,
+   разделители — точки. Только реальные функции платформы. */
+.hero-features {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  margin-top: var(--space-3);
+}
+.hero-feature {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .8125rem;
+  font-weight: 500;
+  color: var(--hero-ink);
+  opacity: .72;
+}
+.hero-feature svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  stroke: var(--accent);
+}
+.hero-feature:not(:last-child)::after {
+  content: "";
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: .45;
+  margin-left: var(--space-2);
+}
 
 @media (max-width: 780px) {
   .hero { min-height: 0; flex-direction: column; }
   .hero-inner { padding: var(--space-5) var(--space-4); max-width: 100%; }
   .hero::after {
-    background: linear-gradient(180deg, rgba(245,243,239,.94) 0%, rgba(245,243,239,.9) 55%, rgba(245,243,239,.55) 100%);
+    background: linear-gradient(180deg, rgba(246,249,252,.94) 0%, rgba(246,249,252,.9) 55%, rgba(246,249,252,.55) 100%);
   }
   html[data-theme="dark"] .hero::after {
     background: linear-gradient(180deg, rgba(13,18,24,.94) 0%, rgba(13,18,24,.88) 55%, rgba(13,18,24,.5) 100%);
@@ -525,6 +559,7 @@ main#app {
   border-top: 1px solid var(--border);
   color: var(--text-2);
   font-size: .8125rem;
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 .footer-main {
@@ -599,6 +634,7 @@ main#app {
   max-width: var(--content-max);
   margin: var(--space-5) auto 0;
   padding-top: var(--space-3);
+  padding-bottom: env(safe-area-inset-bottom);
   border-top: 1px solid var(--border);
 }
 .footer-base-links { display: flex; gap: var(--space-3); }
@@ -648,6 +684,29 @@ main#app {
 }
 .page > * {
   animation: sb-rise var(--dur-slow) var(--ease) both;
+}
+
+@keyframes sb-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.page > *:nth-child(2) { animation-delay: 60ms; }
+.page > *:nth-child(3) { animation-delay: 110ms; }
+.page > *:nth-child(4) { animation-delay: 160ms; }
+.page > *:nth-child(n+5) { animation-delay: 200ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .page > *, .course-card, .quick-action, .brand-mark { animation: none !important; transition: none !important; transform: none !important; }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .page > * {
+    transition: opacity 0.3s ease, transform 0.3s ease;
+  }
+  .page > *:hover {
+    transform: translateY(-2px);
+  }
 }
 .page > *:nth-child(2) { animation-delay: 60ms; }
 .page > *:nth-child(3) { animation-delay: 110ms; }

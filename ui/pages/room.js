@@ -45,6 +45,7 @@ import { buildExpress, expressStations, EXPRESS_STOP_MS } from "../components/ex
 import { appearanceTools } from "../components/theme-toggle.js";
 import { icons } from "../../shared/icons.js";
 import { toast } from "../components/toast.js";
+import { confirmAction } from "../components/confirm.js";
 import { generateQRSvg } from "../../shared/qr.js";
 
 let unsubs = [];
@@ -2526,7 +2527,13 @@ function autoHostView() {
     const answered = answeredCount(participants, li.qid);
     const finishBtn = h("button", { type: "button", class: "btn secondary" }, "Завершить досрочно");
     finishBtn.addEventListener("click", async () => {
-      if (!window.confirm("Завершить тест для всех сейчас? Ответы на текущий вопрос перестанут приниматься.")) return;
+      const confirmed = await confirmAction({
+        title: "Завершить тест досрочно?",
+        text: "Неотвеченные вопросы засчитаются пропущенными.",
+        confirmLabel: "Завершить",
+        tone: "secondary"
+      });
+      if (!confirmed) return;
       finishBtn.disabled = true;
       try {
         await finishAutoTest(local.code, { early: true });
@@ -2585,7 +2592,13 @@ function autoHostView() {
   if (active) {
     const closeBtn = h("button", { type: "button", class: "btn secondary" }, "Закрыть комнату");
     closeBtn.addEventListener("click", async () => {
-      if (!window.confirm("Закрыть комнату? Новые подключения будут запрещены.")) return;
+      const confirmed = await confirmAction({
+        title: "Закрыть комнату?",
+        text: "Новые подключения будут запрещены.",
+        confirmLabel: "Закрыть",
+        tone: "secondary"
+      });
+      if (!confirmed) return;
       closeBtn.disabled = true;
       try { await closeRoom(local.code); toast("Комната закрыта", "success"); }
       catch (err) { toast("Не удалось закрыть комнату", "error"); closeBtn.disabled = false; }
@@ -2605,7 +2618,13 @@ function selfHostPanel(li, room, participants, playersCount, regOpen) {
   const doneCount = (local.scores || []).filter(r => r.done === true && !r.isAdminPlayer).length;
   const finishBtn = h("button", { type: "button", class: "btn secondary" }, "Завершить тест");
   finishBtn.addEventListener("click", async () => {
-    if (!window.confirm("Завершить тест для всех сейчас? Неотвеченные вопросы засчитаются пропущенными.")) return;
+    const confirmed = await confirmAction({
+      title: "Завершить тест?",
+      text: "Неотвеченные вопросы засчитаются пропущенными.",
+      confirmLabel: "Завершить",
+      tone: "secondary"
+    });
+    if (!confirmed) return;
     finishBtn.disabled = true;
     try {
       await finishAutoTest(local.code, { early: true });

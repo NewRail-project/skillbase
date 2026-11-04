@@ -9,10 +9,10 @@ html[data-ui="operations"] {
 }
 
 html[data-ui="operations"][data-theme="light"] {
-  --bg: #F2F4F3;
+  --bg: #F6F9FC;
   --surface: #FFFFFF;
-  --elevated: #E7EBE9;
-  --border: #CFD6D3;
+  --elevated: #F0F2F5;
+  --border: #E0E4E8;
   --text: #12201F;
   --text-2: #4E605D;
   --accent: #17565A;
@@ -33,7 +33,7 @@ html[data-ui="operations"][data-theme="light"] {
   --shadow: 0 1px 2px rgba(18, 32, 31, .05), 0 8px 22px rgba(18, 32, 31, .07);
   --shadow-lift: 0 2px 4px rgba(18, 32, 31, .07), 0 16px 36px rgba(18, 32, 31, .12);
   /* Строки рейтинга: фон и текст заданы ПАРОЙ, текст не наследуется от темы. */
-  --row-bg: #E7EBE9;
+  --row-bg: #F0F2F5;
   --row-text: #12201F;
   --row-text-2: #4E605D;
   --row-me-bg: #17565A;

@@ -2,22 +2,39 @@
 <html data-ui="education" lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Skillbase</title>
   <meta name="description" content="Skillbase — корпоративная платформа обучения и проверки знаний для железнодорожной отрасли.">
-  <meta name="theme-color" content="#F5F3EF">
+  <meta name="theme-color" content="#F6F9FC">
+
+  <!-- Open Graph / Telegram / VK -->
+  <meta property="og:title" content="Skillbase — Образовательная платформа команды NewRail">
+  <meta property="og:description" content="Корпоративная учебная среда: курсы, тестирование, Live-комнаты и аналитика результатов.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://newrail-project.github.io/skillbase/">
+  <meta property="og:image" content="https://newrail-project.github.io/skillbase/ui/brand/og-image.png">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Skillbase — Образовательная платформа команды NewRail">
+  <meta name="twitter:description" content="Корпоративная учебная среда: курсы, тестирование, Live-комнаты и аналитика результатов.">
+  <meta name="twitter:image" content="https://newrail-project.github.io/skillbase/ui/brand/og-image.png">
+  <link rel="manifest" href="ui/brand/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="ui/brand/icon-192.png">
   <link rel="icon" type="image/svg+xml" href="ui/brand/favicon.svg">
   <!-- Раннее открытие соединений с Firebase: TLS-рукопожатие начинается
        до загрузки модулей, а не после. -->
   <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
   <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>
   <link rel="dns-prefetch" href="https://firebasestorage.googleapis.com">
+  <link rel="stylesheet" href="ui/css/fonts.css?v=17">
   <link rel="stylesheet" href="ui/css/tokens.css?v=17">
   <link rel="stylesheet" href="ui/css/themes/education.css?v=17">
   <link rel="stylesheet" href="ui/css/themes/operations.css?v=17">
   <link rel="stylesheet" href="ui/css/themes/depot.css?v=17">
   <link rel="stylesheet" href="ui/css/base.css?v=17">
   <link rel="stylesheet" href="ui/css/components.css?v=17">
+  <link rel="stylesheet" href="ui/css/result-styles.css?v=17">
   <link rel="stylesheet" href="ui/css/brand.css?v=17">
   <link rel="stylesheet" href="ui/css/live.css?v=17">
   <script type="module" src="shared/main.js?v=17"></script>
@@ -41,7 +58,7 @@
       root.setAttribute("data-theme", theme);
       root.style.colorScheme = theme;
       var meta = document.querySelector('meta[name="theme-color"]');
-      if (meta) meta.setAttribute("content", theme === "dark" ? "#0D1218" : "#F5F3EF");
+      if (meta) meta.setAttribute("content", theme === "dark" ? "#0D1218" : "#F6F9FC");
     })();
   </script>
 </head>

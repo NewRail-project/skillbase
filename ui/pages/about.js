@@ -9,20 +9,20 @@ import { generateQRSvg } from "../../shared/qr.js";
 export default function AboutPage() {
   const siteUrl = "https://newrail-project.github.io/skillbase/";
 
-  // Настройки QR-кода: фирменные цвета Skillbase
+  // Настройки QR-кода: фирменные цвета Skillbase (тёмно-синий с жёлтым акцентом)
   const qrOptions = {
     width: 280,
     height: 280,
     ecc: "H",
     rounded: true,
-    dark: "#172817",        // тёмно-зелёные модули
-    light: "#F5F7ED",       // светлый фон QR
-    finderDark: "#101810"   // ещё более тёмные маркеры
+    dark: "#15212B",
+    light: "#F6F9FC",
+    finderDark: "#1B5A7A"
   };
 
   const qrWrapper = h("div", {
     class: "qr-wrapper",
-    style: "display: inline-block; background: #F5F7ED; padding: 1.25rem; border-radius: 1.5rem; box-shadow: 0 8px 24px rgba(0,0,0,0.2); line-height: 0; border: 2px solid #C5E747;"
+    style: "display: inline-block; background: #F6F9FC; padding: 1.25rem; border-radius: 1.5rem; box-shadow: 0 8px 24px rgba(0,0,0,0.1); line-height: 0; border: 2px solid var(--accent);"
   });
   qrWrapper.innerHTML = generateQRSvg(siteUrl, qrOptions);
 
@@ -32,11 +32,11 @@ export default function AboutPage() {
     subtitle: "Обучение, проверка знаний и live-занятия в железнодорожной отрасли.",
     extra: [
       "Документы: ",
-      h("a", { href: "#privacy" }, "политика конфиденциальности"),
+      h("a", { href: "#privacy", class: "link" }, "политика конфиденциальности"),
       " · ",
-      h("a", { href: "#terms" }, "пользовательское соглашение"),
+      h("a", { href: "#terms", class: "link" }, "пользовательское соглашение"),
       " · ",
-      h("a", { href: "#rules" }, "правила использования"),
+      h("a", { href: "#rules", class: "link" }, "правила использования"),
       "."
     ],
     sections: [
@@ -110,7 +110,7 @@ export default function AboutPage() {
         title: "Страна и проект",
         blocks: [
           h("p", {}, "Проект зародился и развивается в Республике Казахстан. Skillbase является независимым образовательным продуктом, направленным на цифровизацию вспомогательных процессов в железнодорожной отрасли."),
-          h("p", { class: "muted" }, "Версия: 1.0.0 · Год: 2026")
+          h("p", { class: "muted" }, "Редакция от 02.11.2026")
         ]
       },
       {
@@ -184,7 +184,7 @@ export default function AboutPage() {
           h("p", {}, "Адрес платформы для сотрудников и студентов. Отсканируйте QR, чтобы открыть Skillbase на телефоне — вход доступен и на устройстве, и на компьютере."),
           h("div", { class: "btn-row", style: "margin-top: var(--space-3);" },
             h("a", {
-              class: "btn",
+              class: "btn primary",
               href: siteUrl,
               target: "_blank",
               rel: "noopener"
@@ -193,19 +193,18 @@ export default function AboutPage() {
         ),
         h("div", {
           class: "brand-qr-card",
-          style: "text-align: center; margin-top: 1rem; padding: 2.5rem 1.5rem; background: linear-gradient(135deg, #101810 0%, #0a0f0a 100%); color: #fff; border-radius: 1.25rem; border: 1px solid #C5E747; box-shadow: var(--shadow-lg); position: relative; overflow: hidden;"
+          style: "text-align: center; margin-top: 1rem; padding: 2.5rem 1.5rem; background: var(--surface); color: var(--text); border-radius: 1.25rem; border: 1px solid var(--border); box-shadow: var(--shadow-lg); position: relative; overflow: hidden;"
         },
           h("div", { style: "margin-bottom: 1.25rem; position: relative;" },
-            h("div", { style: "font-family: var(--font-brand); font-weight: 800; font-size: 1.5rem; letter-spacing: 0.1em; color: #C5E747; text-shadow: 0 0 10px rgba(197, 231, 71, 0.3);" }, "SKILLBASE"),
+            h("div", { style: "font-family: var(--font-brand); font-weight: 800; font-size: 1.5rem; letter-spacing: 0.1em; color: var(--accent);" }, "SKILLBASE"),
             h("div", { style: "font-size: 0.8rem; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.25rem;" }, "Корпоративная платформа")
           ),
           qrWrapper,
           h("p", { style: "margin: 1.25rem 0; font-size: 0.95rem; opacity: 0.9; position: relative;" }, "Отсканируйте, чтобы открыть платформу"),
           h("div", { class: "btn-row", style: "justify-content: center; gap: 0.75rem; position: relative;" },
             h("button", {
-              class: "btn",
-              id: "download-qr-btn",
-              style: "background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); backdrop-filter: blur(10px);"
+              class: "btn secondary",
+              id: "download-qr-btn"
             }, "Скачать PNG")
           )
         )
@@ -229,12 +228,10 @@ export default function AboutPage() {
       const url = URL.createObjectURL(svgBlob);
 
       img.onload = () => {
-        // Увеличиваем размер для качественной печати (например, 1024x1024)
         const exportSize = 1024;
         canvas.width = exportSize;
         canvas.height = exportSize;
-        // Фон карточки: светлый цвет QR, чтобы сохранить дизайн при скачивании
-        ctx.fillStyle = "#F5F7ED";
+        ctx.fillStyle = "#F6F9FC";
         ctx.fillRect(0, 0, exportSize, exportSize);
         ctx.drawImage(img, 0, 0, exportSize, exportSize);
 
@@ -244,17 +241,17 @@ export default function AboutPage() {
           link.href = pngUrl;
           link.download = "skillbase-qr.png";
           document.body.appendChild(link);
-          link.click();
+        link.click();
           document.body.removeChild(link);
         } catch (err) {
           console.error("PNG export failed:", err);
-          alert("Не удалось сохранить PNG. Попробуйте сделать скриншот.");
+          showToast("Не удалось сохранить PNG. Попробуйте сделать скриншот.", "error");
         }
         URL.revokeObjectURL(url);
       };
       img.onerror = () => {
         URL.revokeObjectURL(url);
-        alert("Ошибка при подготовке изображения.");
+        showToast("Ошибка при подготовке изображения.", "error");
       };
       img.src = url;
     });

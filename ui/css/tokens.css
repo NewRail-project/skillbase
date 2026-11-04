@@ -35,10 +35,10 @@
   --radius-pill: 999px;
 
   /* Значения по умолчанию (education, светлая), если тема не загрузилась. */
-  --bg: #F5F3EF;
+  --bg: #F6F9FC;
   --surface: #FFFFFF;
-  --elevated: #EDE9E2;
-  --border: #D8D2C7;
+  --elevated: #F0F2F5;
+  --border: #E0E4E8;
   --text: #15212B;
   --text-2: #54626E;
   --accent: #1B5A7A;
@@ -60,18 +60,18 @@
   --shadow-lift: 0 2px 4px rgba(21, 33, 43, .06), 0 18px 44px rgba(21, 33, 43, .12);
 
   /* Шапка с железной дорогой */
-  --hero-sky-1: #D9E6F0;
-  --hero-sky-2: #EBE5DA;
-  --hero-sky-3: #F5F3EF;
+  --hero-sky-1: #DDEAF4;
+  --hero-sky-2: #EAF2F9;
+  --hero-sky-3: #F6F9FC;
   --hero-glow: #F2B233;
   --hero-far: #7C8A96;
   --hero-mast: #6A7885;
-  --hero-sleeper: #9A8B77;
+  --hero-sleeper: #8F9AAA;
   --hero-rail: #5A6874;
-  --hero-ballast-1: #BCB1A0;
-  --hero-ballast-2: #D6CDBE;
-  --hero-fade: rgba(245, 243, 239, .86);
-  --hero-scrim: linear-gradient(100deg, rgba(245, 243, 239, .97) 0%, rgba(245, 243, 239, .88) 42%, rgba(245, 243, 239, .35) 74%, rgba(245, 243, 239, 0) 100%);
+  --hero-ballast-1: #B8C3CE;
+  --hero-ballast-2: #D3DCE4;
+  --hero-fade: rgba(246, 249, 252, .86);
+  --hero-scrim: linear-gradient(100deg, rgba(246, 249, 252, .97) 0%, rgba(246, 249, 252, .88) 42%, rgba(246, 249, 252, .35) 74%, rgba(246, 249, 252, 0) 100%);
   --hero-ink: #15212B;
 }
 

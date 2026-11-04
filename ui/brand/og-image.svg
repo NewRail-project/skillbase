@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <!-- Градиент фона: глубокий тёмно-синий и ночной граффитовый -->
+    <linearGradient id="og-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0D1218"/>
+      <stop offset="50%" stop-color="#15212B"/>
+      <stop offset="100%" stop-color="#080D12"/>
+    </linearGradient>
+    <linearGradient id="og-accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#1B5A7A"/>
+      <stop offset="100%" stop-color="#0E6B5C"/>
+    </linearGradient>
+    <linearGradient id="og-glow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F2B233" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#F2B233" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Фон -->
+  <rect width="1200" height="630" fill="url(#og-bg)"/>
+
+  <!-- Декоративные рельсы / геометрия пути на заднем плане -->
+  <g stroke="#1B5A7A" stroke-opacity="0.3" fill="none" stroke-linecap="round">
+    <path d="M 900 630 L 1150 0" stroke-width="4"/>
+    <path d="M 1050 630 L 1200 150" stroke-width="4"/>
+    <!-- Шпалы -->
+    <line x1="880" y1="600" x2="1100" y2="580" stroke-width="3"/>
+    <line x1="910" y1="520" x2="1110" y2="500" stroke-width="3"/>
+    <line x1="940" y1="440" x2="1120" y2="420" stroke-width="2.5"/>
+    <line x1="970" y1="360" x2="1130" y2="340" stroke-width="2.5"/>
+    <line x1="1000" y1="280" x2="1140" y2="260" stroke-width="2"/>
+    <line x1="1030" y1="200" x2="1150" y2="180" stroke-width="2"/>
+  </g>
+
+  <!-- Светящийся сигнал в углу -->
+  <circle cx="1100" cy="120" r="180" fill="url(#og-glow)"/>
+  <circle cx="1100" cy="120" r="12" fill="#F2B233"/>
+
+  <!-- Верхняя плашка / категория -->
+  <rect x="100" y="90" width="220" height="38" rx="19" fill="#1B5A7A" fill-opacity="0.6" stroke="#2B7A9E" stroke-width="1"/>
+  <text x="120" y="115" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="15" font-weight="600" fill="#F2B233" letter-spacing="1">NEWRAIL PLATFORM</text>
+
+  <!-- Главное лого Skillbase со знаком колеи -->
+  <g transform="translate(100, 170)">
+    <!-- Знак колеи в перспективе -->
+    <g stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none">
+      <path d="M15 54 L32 9 L49 54"/>
+      <path d="M13.7 50 H50.3" stroke="#F2B233" stroke-width="3"/>
+      <path d="M17.5 40 H46.5" stroke="#F2B233" stroke-width="3"/>
+      <path d="M21.3 30 H42.7" stroke="#F2B233" stroke-width="3"/>
+      <path d="M25.0 20 H39.0" stroke="#F2B233" stroke-width="3"/>
+    </g>
+    <!-- Название Skillbase -->
+    <text x="75" y="48" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="58" font-weight="800" fill="#FFFFFF" letter-spacing="-1">Skillbase</text>
+  </g>
+
+  <!-- Главный заголовок / слоган -->
+  <text x="100" y="320" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="44" font-weight="700" fill="#FFFFFF" letter-spacing="-0.5">
+    Знания, которые держат движение
+  </text>
+
+  <!-- Подзаголовок -->
+  <text x="100" y="380" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="24" font-weight="400" fill="#A3B2BF">
+    Образовательная платформа команды NewRail
+  </text>
+  <text x="100" y="415" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="20" font-weight="400" fill="#79C0E0">
+    Курсы · Проверка знаний · Live-комнаты · Аналитика
+  </text>
+
+  <!-- Нижний футер со слоганом и бейджами -->
+  <line x1="100" y1="480" x2="1100" y2="480" stroke="#2E3B48" stroke-width="1"/>
+
+  <text x="100" y="530" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="18" font-weight="500" fill="#A3B2BF">
+    Корпоративная учебная среда для железнодорожной отрасли
+  </text>
+
+  <!-- Сигнальная жёлтая плашка внизу -->
+  <rect x="940" y="505" width="160" height="36" rx="8" fill="#F2B233"/>
+  <text x="1020" y="529" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="15" font-weight="700" fill="#0D1218" text-anchor="middle">newrail.app</text>
+</svg>

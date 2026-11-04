@@ -4,14 +4,16 @@
 // константами в firestore.rules:
 //   - orgId  — 'default-org'
 //   - groupId — 'default-group'
-//
-// Если меняете значения, обновите firestore.rules и docs/FIREBASE_SETUP.md,
-// иначе правило create для users/{uid} отклонит регистрацию.
-//
-// Сами документы organizations/{id} и groups/{id} не обязательны для работы
-// приложения: оно хранит только строковые идентификаторы. Их можно создать
-// в Firebase Console как справочник (см. docs/FIREBASE_SETUP.md).
 
 export const DEFAULT_ORG_ID = "default-org";
-
 export const DEFAULT_GROUP_ID = "default-group";
+
+export const ORGANIZATION_CONFIG = {
+  name: "Skillbase",
+  version: "1.0.0",
+  year: 2026,
+  docVersion: "02.11.2026",
+  author: "NewRail",
+  defaultOrgId: DEFAULT_ORG_ID,
+  defaultGroupId: DEFAULT_GROUP_ID
+};

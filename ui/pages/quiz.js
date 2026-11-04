@@ -450,32 +450,200 @@ export default async function QuizPage() {
 
   function resultPanel(attempt) {
     if (!attempt) return null;
+
     const score = scoreText(attempt);
-    if (score) {
-      const passed = settings.passScore != null ? score.percent >= Number(settings.passScore) : null;
-      return h("section", { class: "panel" },
-        h("div", { class: "section-title" },
-          h("h2", {}, "Результат"),
-          h("span", { class: "badge " + (passed === true ? "badge-success" : passed === false ? "badge-danger" : "badge-neutral") },
-            passed === true ? "Пройден" : passed === false ? "Не пройден" : "Проверен")
-        ),
-        h("p", { style: "font-size:1.5rem;margin:8px 0" },
-          `${score.score} из ${score.total} · ${score.percent}%`),
-        settings.passScore != null
-          ? h("p", { class: "muted" }, `Проходной балл: ${settings.passScore}%.`)
-          : null
-      );
+    if (!score) {
+      if (attempt.status === "submitted") {
+        return h("section", { class: "panel" },
+          h("div", { class: "notice" },
+            h("strong", {}, "Ответы отправлены. "),
+            "Преподаватель проверит их и выставит оценку. Правильные ответы ученику не показываются."
+          )
+        );
+      }
+      return null;
     }
 
-    if (attempt.status === "submitted") {
-      return h("section", { class: "panel" },
-        h("div", { class: "notice" },
-          h("strong", {}, "Ответы отправлены. "),
-          "Преподаватель проверит их и выставит оценку. Правильные ответы ученику не показываются."
-        )
-      );
+    const passed = settings.passScore != null ? score.percent >= Number(settings.passScore) : null;
+
+    const panel = h("section", { class: "panel" });
+
+    const title = h("div", { class: "section-title" },
+      h("h2", {}, "Результат"),
+      h("span", { class: "badge " + (passed === true ? "badge-success" : passed === false ? "badge-danger" : "badge-neutral") },
+        passed === true ? "Пройден" : passed === false ? "Не пройден" : "Проверен")
+    );
+
+    const progressCircle = createProgressCircle(score.percent, passed);
+
+    const stats = h("div", { class: "result-stats" },
+      h("div", { class: "stat" },
+        h("div", { class: "stat-value" }, `${score.score} из ${score.total}`),
+        h("div", { class: "stat-label" }, "правильных ответов")
+      ),
+      h("div", { class: "stat" },
+        h("div", { class: "stat-value" }, `${score.percent}%`),
+        h("div", { class: "stat-label" }, "итоговый результат")
+      )
+    );
+
+    const message = h("p", { class: "result-message" });
+    if (score.percent >= 90) {
+      message.textContent = "Отличный результат!";
+    } else if (score.percent >= 75) {
+      message.textContent = "Хорошая работа!";
+    } else if (score.percent >= 50) {
+      message.textContent = "Есть хороший прогресс";
+    } else {
+      message.textContent = "Есть над чем поработать";
     }
-    return null;
+
+    panel.appendChild(title);
+    panel.appendChild(progressCircle);
+    panel.appendChild(stats);
+    panel.appendChild(message);
+
+    if (passed === true) {
+      const confetti = createConfetti();
+      panel.appendChild(confetti);
+    }
+
+    const actions = h("div", { class: "result-actions" });
+
+    if (attempts.length < attemptsLimit) {
+      const retryButton = createRetryButton(attempts, attemptsLimit, test.id);
+      actions.appendChild(retryButton);
+    }
+
+    const shareButton = createShareButton(test, score);
+    actions.appendChild(shareButton);
+
+    panel.appendChild(actions);
+
+    return panel;
+  }
+
+  function createProgressCircle(percent, passed) {
+    const size = 120;
+    const strokeWidth = 10;
+    const radius = (size - strokeWidth) / 2;
+    const circumference = 2 * Math.PI * radius;
+    const offset = circumference - (percent / 100) * circumference;
+
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("width", size);
+    svg.setAttribute("height", size);
+    svg.setAttribute("viewBox", `0 0 ${size} ${size}`);
+    svg.setAttribute("class", "progress-circle");
+
+    const circleBg = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    circleBg.setAttribute("cx", size / 2);
+    circleBg.setAttribute("cy", size / 2);
+    circleBg.setAttribute("r", radius);
+    circleBg.setAttribute("fill", "none");
+    circleBg.setAttribute("stroke", "var(--elevated)");
+    circleBg.setAttribute("stroke-width", strokeWidth);
+
+    const circleProgress = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    circleProgress.setAttribute("cx", size / 2);
+    circleProgress.setAttribute("cy", size / 2);
+    circleProgress.setAttribute("r", radius);
+    circleProgress.setAttribute("fill", "none");
+    circleProgress.setAttribute("stroke", passed === true ? "var(--ok)" : passed === false ? "var(--danger)" : "var(--accent)");
+    circleProgress.setAttribute("stroke-width", strokeWidth);
+    circleProgress.setAttribute("stroke-linecap", "round");
+    circleProgress.setAttribute("stroke-dasharray", circumference);
+    circleProgress.setAttribute("stroke-dashoffset", circumference);
+    circleProgress.style.transform = "rotate(-90deg)";
+    circleProgress.style.transformOrigin = "50% 50%";
+
+    svg.appendChild(circleBg);
+    svg.appendChild(circleProgress);
+
+    const percentText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    percentText.setAttribute("x", size / 2);
+    percentText.setAttribute("y", size / 2 + 5);
+    percentText.setAttribute("text-anchor", "middle");
+    percentText.setAttribute("dominant-baseline", "middle");
+    percentText.setAttribute("font-size", "24");
+    percentText.setAttribute("font-weight", "700");
+    percentText.setAttribute("fill", "var(--text)");
+    percentText.textContent = `${percent}%`;
+
+    svg.appendChild(percentText);
+
+    // Анимация заполнения
+    setTimeout(() => {
+      circleProgress.style.transition = "stroke-dashoffset 1.2s ease";
+      circleProgress.setAttribute("stroke-dashoffset", offset);
+    }, 100);
+
+    return svg;
+  }
+
+  function createConfetti() {
+    const confettiContainer = h("div", { class: "confetti-container" });
+
+    for (let i = 0; i < 30; i++) {
+      const confetti = h("div", { class: "confetti" });
+      confetti.style.left = `${Math.random() * 100}%`;
+      confetti.style.backgroundColor = i % 3 === 0 ? "var(--signal)" : i % 3 === 1 ? "var(--accent)" : "var(--ok)";
+      confetti.style.animationDelay = `${Math.random() * 1.5}s`;
+      confettiContainer.appendChild(confetti);
+    }
+
+    return confettiContainer;
+  }
+
+  function createRetryButton(attempts, attemptsLimit, testId) {
+    const retryButton = h("button", { class: "btn primary", type: "button" });
+    retryButton.textContent = "Пройти ещё раз";
+
+    retryButton.addEventListener("click", async () => {
+      try {
+        const newAttemptId = await startAttempt({
+          test: { id: testId },
+          user: State.user,
+          profile: State.profile,
+          attemptNo: attempts.length + 1
+        });
+        window.location.hash = `#quiz/${encodeURIComponent(testId)}/${encodeURIComponent(newAttemptId)}`;
+        // Перезагружаем страницу для новой попытки
+        window.location.reload();
+      } catch (error) {
+        console.error("Ошибка при повторном прохождении:", error);
+        toast("Не удалось начать новую попытку. Попробуйте снова.", "error");
+      }
+    });
+
+    return retryButton;
+  }
+
+  function createShareButton(test, score) {
+    const shareButton = h("button", { class: "btn secondary", type: "button" });
+    shareButton.textContent = "Поделиться";
+
+    shareButton.addEventListener("click", async () => {
+      const shareText = `Я прошёл тест "${test.title}" на Skillbase и набрал ${score.percent}%! Попробуйте и вы: https://newrail-project.github.io/skillbase/#quiz/${encodeURIComponent(test.id)}`;
+
+      try {
+        if (navigator.share) {
+          await navigator.share({
+            title: `Результат теста: ${test.title}`,
+            text: shareText,
+            url: `https://newrail-project.github.io/skillbase/#quiz/${encodeURIComponent(test.id)}`
+          });
+        } else {
+          await navigator.clipboard.writeText(shareText);
+          toast("Результат скопирован в буфер обмена!", "success");
+        }
+      } catch (error) {
+        console.error("Ошибка при публикации результата:", error);
+        toast("Не удалось поделиться результатом.", "error");
+      }
+    });
+
+    return shareButton;
   }
 
   function historyPanel() {
