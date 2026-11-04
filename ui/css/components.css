@@ -54,11 +54,21 @@ main#app:focus { outline: none; }
 .sidebar-item .icon svg { width: 20px; height: 20px; }
 .sidebar-item:hover { background: var(--elevated); }
 .sidebar-item.active, .sidebar-item[aria-current="page"] { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.sidebar-item .label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .sidebar-profile {
   display: flex; align-items: center; gap: var(--space-3);
   padding-top: var(--space-3); border-top: 1px solid var(--border);
+  min-width: 0;
 }
-.profile-name { font-weight: 600; overflow-wrap: anywhere; }
+.sidebar-profile .profile-info {
+  min-width: 0;
+  overflow: hidden;
+}
+.profile-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-footer { display: flex; flex-direction: column; gap: var(--space-2); }
 
 .sidebar-backdrop {

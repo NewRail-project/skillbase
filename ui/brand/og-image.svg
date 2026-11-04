@@ -62,7 +62,7 @@
 
   <!-- Подзаголовок -->
   <text x="100" y="380" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="24" font-weight="400" fill="#A3B2BF">
-    Образовательная платформа команды NewRail
+    Образовательная платформа
   </text>
   <text x="100" y="415" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="20" font-weight="400" fill="#79C0E0">
     Курсы · Проверка знаний · Live-комнаты · Аналитика

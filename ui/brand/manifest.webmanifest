@@ -1,23 +1,22 @@
 {
   "name": "Skillbase",
   "short_name": "Skillbase",
-  "description": "Корпоративная платформа обучения и проверки знаний для железнодорожной отрасли",
-  "start_url": "/",
-  "scope": "/",
+  "description": "Корпоративная платформа обучения и проверки знаний для железнодорожной отрасли.",
+  "start_url": "/skillbase/",
+  "scope": "/skillbase/",
   "display": "standalone",
-  "background_color": "#F5F3EF",
+  "background_color": "#F6F9FC",
   "theme_color": "#1B5A7A",
   "icons": [
     {
-      "src": "ui/brand/icon-192.png",
+      "src": "/skillbase/ui/brand/icon-192.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "ui/brand/icon-512.png",
+      "src": "/skillbase/ui/brand/icon-512.png",
       "sizes": "512x512",
       "type": "image/png"
     }
-  ],
-  "splash_pages": null
+  ]
 }

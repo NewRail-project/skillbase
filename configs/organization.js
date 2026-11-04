@@ -13,7 +13,7 @@ export const ORGANIZATION_CONFIG = {
   version: "1.0.0",
   year: 2026,
   docVersion: "02.11.2026",
-  author: "NewRail",
+  author: "Independent Developers",
   defaultOrgId: DEFAULT_ORG_ID,
   defaultGroupId: DEFAULT_GROUP_ID
 };

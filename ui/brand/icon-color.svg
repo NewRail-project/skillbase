@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" fill="none" role="img" aria-label="Skillbase">
   <title>Skillbase</title>
-  <!-- Фирменная палитра NewRail: тёмно-синий #1B5A7A (рельсы, шпалы, фон) и жёлтый #F2B233 (сигнал) -->
+  <!-- Фирменная палитра: тёмно-синий #1B5A7A (рельсы, шпалы, фон) и жёлтый #F2B233 (сигнал) -->
   <rect width="32" height="32" rx="8" fill="#1B5A7A"/>
   <!-- Шпалы с выносом за рельсы: укорачиваются к горизонту -->
   <path d="M6.86 25 H25.14" stroke="#F2B233" stroke-width="1.5" stroke-linecap="round"/>

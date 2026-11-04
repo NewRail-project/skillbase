@@ -6,14 +6,14 @@ import { State } from "../../core/auth.js";
 export default function ContactPage() {
   const page = docPage({
     eyebrow: "Связь",
-    title: "Контакты NewRail",
+    title: "Контакты",
     subtitle: "Мы открыты к конструктивной обратной связи и сотрудничеству.",
     sections: [
       {
         id: "intro",
         title: "Свяжитесь с нами",
         blocks: [
-          h("p", {}, "Есть вопросы по работе Skillbase, предложения по развитию платформы или сообщения об обнаруженных ошибках? Свяжитесь с командой NewRail удобным для вас способом. Мы ценим мнение каждого пользователя."),
+          h("p", {}, "Есть вопросы по работе Skillbase, предложения по развитию платформы или сообщения об обнаруженных ошибках? Свяжитесь с Independent Developers удобным для вас способом. Мы ценим мнение каждого пользователя."),
           h("div", { class: "contact-main", style: "margin: var(--space-4) 0; padding: var(--space-4); background: var(--ok-bg); border: 1px solid var(--ok-border); border-radius: var(--radius-m);" },
             h("div", { style: "font-weight: 700; color: var(--ok); margin-bottom: var(--space-1);" }, "Основной канал связи — Telegram"),
             h("a", {
@@ -78,7 +78,7 @@ export default function ContactPage() {
         blocks: [
           h("p", { class: "muted" },
             "Проект: Skillbase", h("br"),
-            "Команда: NewRail", h("br"),
+            "Команда: Independent Developers", h("br"),
             "Версия: 1.0.0", h("br"),
             "Год: 2026", h("br"),
             "Сайт: ", h("a", { href: "https://newrail-project.github.io/skillbase/#/" }, "newrail-project.github.io/skillbase")
