@@ -240,3 +240,11 @@ export async function gradeAttempt(attempt, graderUid, keysCache = {}, decisions
 
   return { score, total, percent };
 }
+
+// Устаревшая прямая отправка (совместимость). Создаёт попытку и сразу
+// отправляет её; новый код использует startAttempt + submitAttemptById.
+export async function submitAttempt({ test, answers }, user, profile) {
+  const attemptId = await startAttempt({ test, user, profile });
+  await submitAttemptById(attemptId, answers);
+  return attemptId;
+}

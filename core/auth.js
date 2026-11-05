@@ -4,7 +4,7 @@ import {
   GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
   linkWithCredential
 } from "../shared/firebase.js";
-import { applyThemeMode, getThemeMode, setPalette, applyPalette, getStoredPalette } from "../shared/theme.js";
+import { applyThemeMode, getThemeMode } from "../shared/theme.js";
 import {
   DEFAULT_UI,
   VALID_UI,
@@ -14,6 +14,7 @@ import {
   safeUi,
   validateFullName
 } from "./registration.js";
+import { DEFAULT_ORG_ID } from "../configs/organization.js";
 import { isValidAvatarValue } from "../shared/avatars.js";
 import { validateGuestName, saveGuestName, clearGuestName } from "./guest.js";
 
@@ -38,6 +39,8 @@ export const State = {
   // Флаг для отслеживания начальной загрузки профиля
   initialProfileLoad: false
 };
+
+export const DEFAULT_ORG = DEFAULT_ORG_ID;
 
 export function subscribe(listener) {
   State.listeners.push(listener);
@@ -69,18 +72,9 @@ function fallbackProfile(user) {
 
 export function applyTheme(uiName) {
   const ui = safeUi(uiName);
-  // data-ui — это "скин" интерфейса (палитра). Выбор хранится в
-  // shared/theme.js (localStorage, ключ sb-palette): профиль пишет и читает
-  // ту же настройку, поэтому гость и вошедший пользователь не расходятся.
-  setPalette(ui);
-  // Светлота/темнота живёт в data-theme и не сбрасывается при смене скина.
-  applyThemeMode(getThemeMode());
-}
-
-// Выход и экран входа: профиля нет — берём палитру, сохранённую на
-// устройстве (гость выбирал её сам), а не жёсткий скин по умолчанию.
-export function applyGuestPalette() {
-  applyPalette(getStoredPalette() || DEFAULT_UI);
+  document.documentElement.setAttribute("data-ui", ui);
+  // data-ui — это "скин" интерфейса; светлота/темнота живёт в data-theme
+  // и не должна сбрасываться при смене скина.
   applyThemeMode(getThemeMode());
 }
 
@@ -94,20 +88,9 @@ async function loadProfile(user) {
   State.initialProfileLoad = true;
 
   try {
-    // users и publicProfiles не зависят друг от друга: читаем параллельно,
-    // чтобы не платить два сетевых раунд-трипа на каждый вход (особенно
-    // заметно на мобильном интернете).
-    const [docSnap, pubSnap] = await Promise.all([
-      getDoc(doc(db, "users", user.uid)),
-      getDoc(doc(db, "publicProfiles", user.uid)).catch(pubErr => {
-        if (pubErr?.code !== "permission-denied") {
-          console.warn("Публичный профиль недоступен:", pubErr);
-        }
-        return null;
-      })
-    ]);
+    const docSnap = await getDoc(doc(db, "users", user.uid));
     if (token !== loadToken) return;
-
+    
     if (docSnap.exists()) {
       State.profile = normalizeProfile(docSnap.data(), user);
       State.profileStatus = "ready";
@@ -115,12 +98,20 @@ async function loadProfile(user) {
       // правило users не разрешает поле avatar. Ошибку чтения игнорируем —
       // без аватара профиль остаётся рабочим.
       let publicName = null;
-      if (pubSnap?.exists()) {
-        const pubData = pubSnap.data();
-        if (pubData.avatar) State.profile.avatar = pubData.avatar;
-        if (pubData.displayName) {
-          State.profile.publicDisplayName = pubData.displayName;
-          publicName = pubData.displayName;
+      try {
+        const pub = await getDoc(doc(db, "publicProfiles", user.uid));
+        if (token !== loadToken) return;
+        if (pub.exists()) {
+          const pubData = pub.data();
+          if (pubData.avatar) State.profile.avatar = pubData.avatar;
+          if (pubData.displayName) {
+            State.profile.publicDisplayName = pubData.displayName;
+            publicName = pubData.displayName;
+          }
+        }
+      } catch (pubErr) {
+        if (pubErr.code !== "permission-denied") {
+          console.warn("Публичный профиль недоступен:", pubErr);
         }
       }
 
@@ -147,13 +138,9 @@ async function loadProfile(user) {
       : "Не удалось загрузить профиль. Проверьте подключение к сети.";
   }
 
-  // Палитру из профиля применяем, только когда документ профиля реально
-  // загружен. Гость (анонимный вход), «нет профиля» и ошибка чтения не должны
-  // сбрасывать палитру, выбранную на этом устройстве.
-  if (State.profileStatus === "ready" && State.profile?.ui) {
+  // Apply theme if profile exists, otherwise use default
+  if (State.profile?.ui) {
     applyTheme(State.profile.ui);
-  } else {
-    applyGuestPalette();
   }
   State.initialProfileLoad = false;
   notify();
@@ -178,7 +165,7 @@ export async function initAuth() {
         State.profile = null;
         State.profileStatus = "signed-out";
         State.profileError = null;
-        applyGuestPalette();
+        applyTheme(DEFAULT_UI);
         State.initialProfileLoad = false;
         if (!first) notify();
         finish(null);
@@ -488,22 +475,6 @@ export async function signInGuestForTest(fullName) {
   return user;
 }
 
-// Анонимная аутентификация без входа в комнату: нужен гостевым экранам,
-// которые между входом и работой выполняют промежуточное действие —
-// например, сохраняют согласие с документами (uid = идентификатор
-// гостевой сессии в записи consents). Повторный вызов для уже
-// анонимной сессии просто возвращает того же пользователя.
-export async function ensureAnonymousAuth() {
-  if (State.user?.isAnonymous !== true) {
-    // Требует включённого провайдера Anonymous в Firebase Console.
-    await signInAnonymously(auth);
-  }
-  const user = auth.currentUser;
-  if (!user?.uid) throw new Error("Не удалось войти как гость.");
-  await loadProfile(user);
-  return user;
-}
-
 export async function logout() {
   await signOut(auth);
   // С гостевой сессией заканчивается и её ФИО: следующий гость на этом
@@ -514,7 +485,7 @@ export async function logout() {
   State.profile = null;
   State.profileStatus = "signed-out";
   State.profileError = null;
-  applyGuestPalette();
+  applyTheme(DEFAULT_UI);
   notify();
 }
 

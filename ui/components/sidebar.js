@@ -10,8 +10,8 @@ const GROUPS = [
   {
     label: "Обучение",
     items: [
-      { id: "home", label: "Главная", icon: icons.home, route: "#home" },
-      { id: "about", label: "О проекте", icon: icons.info, route: "#about", "aria-current": "page" },
+      { id: "home", label: "Главная", icon: icons.home, route: "#/" },
+      { id: "about", label: "О проекте", icon: icons.home, route: "#about" },
       { id: "assignments", label: "Задания", icon: icons.clipboard, route: "#assignments", auth: true },
       { id: "tests", label: "Каталог тестов", icon: icons.book, route: "#tests", auth: true },
       { id: "join", label: "Войти по коду", icon: icons.qr, route: "#join", auth: true },
@@ -119,10 +119,7 @@ export function renderSidebar(onChange) {
         if (onChange) onChange();
       }
     });
-    // Статичный SVG из констант, пользовательских данных нет.
-    const themeIconEl = h("span", { class: "icon", style: "display:inline-flex;width:18px;height:18px" });
-    themeIconEl.innerHTML = themeIcon;
-    themeBtn.append(themeIconEl, h("span", {}, themeLabel));
+    themeBtn.innerHTML = `<span class="icon" style="display:inline-flex;width:18px;height:18px">${themeIcon}</span><span>${themeLabel}</span>`;
 
     aside.appendChild(h("div", { class: "sidebar-footer" },
       themeBtn,

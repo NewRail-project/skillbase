@@ -9,10 +9,7 @@ const ROLE_LABEL = { student: "Студент", teacher: "Преподавате
 
 function tile({ icon, title, text, href, action }) {
   const card = h("a", { class: "quick-action", href });
-  // Статичный SVG из констант, пользовательских данных нет.
-  const iconEl = h("span", { class: "icon" });
-  iconEl.innerHTML = icon;
-  card.append(iconEl);
+  card.innerHTML = `<span class="icon">${icon}</span>`;
   card.append(
     h("b", {}, title),
     h("span", {}, text),
@@ -109,13 +106,6 @@ export default async function AdminPanelPage() {
         href: "#results",
         action: "Открыть"
       }),
-      profile.role === "admin" ? tile({
-        icon: icons.check,
-        title: "Пройти тест",
-        text: "Войти в Live-комнату по коду участником. Ваш результат виден только вам и не попадает в общий рейтинг.",
-        href: "#join",
-        action: "Войти по коду"
-      }) : null,
       profile.role === "admin" ? tile({
         icon: icons.check,
         title: "Администраторы",

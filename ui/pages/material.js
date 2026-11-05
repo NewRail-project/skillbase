@@ -6,7 +6,6 @@
 // Тёмная тема в читалке не применяется.
 import { h } from "../../shared/dom.js";
 import { State } from "../../core/auth.js";
-import { db, doc, getDoc } from "../../shared/firebase.js";
 import { loadMaterial, loadMaterialProgress, saveMaterialProgress } from "../../core/materials.js";
 import { materialProgress } from "../../core/material-logic.js";
 import { setHashGuard, leaveWithHash } from "../../shared/app.js";
@@ -52,50 +51,18 @@ function imgEl(src) {
   if (String(src || "").startsWith("data:")) {
     return h("img", { src, alt: "" });
   }
-  // loading="lazy" — картинки ниже экрана не грузятся до прокрутки,
-  // decoding="async" — декодирование не блокирует поток отрисовки.
-  return h("img", { src, alt: "", referrerpolicy: "no-referrer", loading: "lazy", decoding: "async" });
-}
-
-// Кэш публичных имён авторов на сессию: одна книга может открываться
-// несколько раз за визит, и каждый раз ходить в Firestore за именем не нужно.
-const authorNameCache = new Map();
-
-async function loadAuthorName(authorId) {
-  if (!authorId) return null;
-  if (authorNameCache.has(authorId)) return authorNameCache.get(authorId);
-  try {
-    const pub = await getDoc(doc(db, "publicProfiles", authorId));
-    const name = pub.exists() ? (pub.data().displayName || null) : null;
-    authorNameCache.set(authorId, name);
-    return name;
-  } catch (pubErr) {
-    console.warn("Автор недоступен:", pubErr);
-    return null;
-  }
+  return h("img", { src, alt: "", referrerpolicy: "no-referrer" });
 }
 
 export default async function MaterialPage() {
   const page = h("div", { class: "reader" });
-  const routeParts = (State.routeParam || "").split("/");
-  const testId = decodeURIComponent(routeParts[0] || "");
-  // #material/<id>/free — добровольное чтение: выйти к тесту можно в любой момент.
-  const freeMode = routeParts[1] === "free";
+  const testId = decodeURIComponent((State.routeParam || "").split("/")[0] || "");
 
   let material = null;
   let progress = { lastPage: 0, completed: false };
-  let authorName = null;
   try {
-    // Материал и прогресс не зависят друг от друга — читаем параллельно.
-    // Имя автора зависит от authorId из меты, поэтому идёт вторым шагом
-    // (и кэшируется: повторное открытие книги не ходит в Firestore снова).
-    [material, progress] = await Promise.all([
-      loadMaterial(testId),
-      loadMaterialProgress(State.user.uid, testId)
-    ]);
-    if (material?.authorId) {
-      authorName = await loadAuthorName(material.authorId);
-    }
+    material = await loadMaterial(testId);
+    progress = await loadMaterialProgress(State.user.uid, testId);
   } catch (err) {
     // Нет доступа — материал закрыт правилом (идёт попытка?):
     page.appendChild(h("div", { class: "reader-stage" },
@@ -113,7 +80,7 @@ export default async function MaterialPage() {
     return page;
   }
 
-  if (!material?.pages?.length) {
+  if (!material.pages?.length) {
     page.appendChild(h("div", { class: "reader-stage" },
       h("div", { class: "book" }, h("div", { class: "book-page" },
         h("h1", { class: "book-h" }, "Материала пока нет"),
@@ -129,26 +96,16 @@ export default async function MaterialPage() {
   let exitRequested = false;
 
   // Хеш-страж: любые смены хеша, кроме разрешённого выхода, откатываются.
-  if (!freeMode) {
-    setHashGuard(nextHash => {
-      if (exitRequested || nextHash.startsWith(`#material/${testId}/`)) {
-        return true;
-      }
-      return false;
-    });
-  }
+  setHashGuard(nextHash => {
+    if (exitRequested || nextHash.startsWith(`#material/${testId}/`)) {
+      return true;
+    }
+    return false;
+  });
 
   document.body.classList.add("reading-mode");
 
-  // Прогресс-бар
-  const progressEl = h("div", { class: "reader-progress" });
-  const progressFill = h("div", { class: "reader-progress-fill" });
-  progressEl.appendChild(progressFill);
-
-  // Заголовок книги (running header)
-  const title = h("div", { class: "reader-title", style: "opacity: 0" }, material.title || "Материал");
-
-  // Навигация и контейнер страниц
+  const title = h("div", { class: "reader-title" }, material.title || "Материал");
   const pageNumEl = h("div", { class: "reader-page-num" });
   const stage = h("div", { class: "reader-stage" });
   const book = h("article", { class: "book" });
@@ -159,61 +116,16 @@ export default async function MaterialPage() {
 
   const exitRow = h("div", { class: "reader-exit" });
 
-  page.append(progressEl, title, stage, prevBtn, nextBtn, pageNumEl, exitRow);
-
-  // Fade-in заголовка при монтировании — плавное появление
-  requestAnimationFrame(() => {
-    title.style.opacity = "1";
-    title.style.transition = "opacity .3s ease";
-  });
-
-  // Обложка книги (типографический фронтиспис)
-  function coverEl() {
-    const cover = h("div", { class: "book-cover" });
-    cover.appendChild(h("h1", { class: "book-cover-title" }, material.title || "Учебный материал"));
-    
-    // Подзаголовок/информация
-    if (material.description) {
-      cover.appendChild(h("p", { class: "book-cover-subtitle" }, material.description));
-    }
-    
-    // Автор
-    if (authorName) {
-      cover.appendChild(h("div", { class: "book-cover-author" }, `Преподаватель: ${authorName}`));
-    }
-    
-    // Информация о материале
-    const meta = h("div", { class: "book-cover-meta" });
-    meta.appendChild(h("div", { class: "book-cover-chapter" }, `Глава ${index + 1}`));
-    meta.appendChild(h("div", { class: "book-cover-pages" }, `${material.pages.length} страниц`));
-    if (material.updatedAt) {
-      const date = new Date(material.updatedAt.seconds * 1000).toLocaleDateString("ru-RU");
-      meta.appendChild(h("div", { class: "book-cover-date" }, `Обновлено: ${date}`));
-    }
-    cover.appendChild(meta);
-    
-    return cover;
-  }
+  page.append(title, stage, prevBtn, nextBtn, pageNumEl, exitRow);
 
   function paintPage() {
     book.style.transition = REDUCED ? "none" : "transform .25s ease";
     book.textContent = "";
-    
-    // На первой странице добавляем обложку
-    if (index === 0) {
-      const cover = coverEl();
-      book.appendChild(cover);
-    }
-    
     const blocks = material.pages[index];
     const body = h("div", { class: "book-page" },
       ...blocks.map(blockEl).filter(Boolean));
     book.appendChild(body);
 
-    // Обновляем прогресс-бар
-    const progress = (index + 1) / material.pages.length;
-    progressFill.style.width = `${progress * 100}%`;
-    
     pageNumEl.textContent = `${index + 1} / ${material.pages.length}`;
     prevBtn.disabled = index === 0;
 
@@ -222,15 +134,9 @@ export default async function MaterialPage() {
     nextBtn.textContent = isLast ? "" : "→";
     nextBtn.setAttribute("aria-label", isLast ? "Последняя страница" : "Следующая страница");
 
-    // Кнопка выхода: в обязательном режиме только на последней странице,
-    // в добровольном (#material/<id>/free) — всегда.
+    // Кнопка выхода появляется только на последней странице.
     exitRow.textContent = "";
-    if (freeMode && !isLast) {
-      exitRow.appendChild(h("button", {
-        type: "button", class: "btn secondary",
-        onclick: () => exitTo("#quiz/" + testId)
-      }, "К тесту"));
-    } else if (isLast) {
+    if (isLast) {
       exitRow.appendChild(h("button", {
         type: "button", class: "btn primary",
         onclick: () => exitTo("#quiz/" + testId)
@@ -243,7 +149,7 @@ export default async function MaterialPage() {
 
     // Прогресс: последняя страница и флаг completed — materialProgress.
     const state = materialProgress(material.pages, index);
-    if (!freeMode || state.completed) saveMaterialProgress(State.user.uid, testId, state).catch(err => {
+    saveMaterialProgress(State.user.uid, testId, state).catch(err => {
       console.error("Не удалось сохранить прогресс:", err);
     });
   }

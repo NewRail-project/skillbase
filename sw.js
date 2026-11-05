@@ -1,28 +1,28 @@
 // sw.js — Service Worker для базовой офлайн-поддержки
 
 const CACHE_NAME = 'skillbase-v1';
-const OFFLINE_URL = '/index.html';
+const OFFLINE_URL = '/skillbase/index.html';
 const STATIC_CACHE_URLS = [
-  '/',
-  '/index.html',
-  '/ui/css/brand.css',
-  '/ui/css/tokens.css',
-  '/ui/css/themes/education.css',
-  '/ui/css/themes/operations.css',
-  '/ui/css/themes/depot.css',
-  '/shared/icons.js',
-  '/shared/theme.js',
-  '/shared/app.js',
-  '/shared/main.js',
-  '/core/auth.js',
-  '/core/registration.js',
-  '/ui/components/sidebar.js',
-  '/ui/components/header.js',
-  '/ui/components/footer.js',
-  '/ui/components/loading.js',
-  '/ui/components/confirm.js',
-  '/ui/pages/home.js',
-  '/ui/pages/404.js'
+  '/skillbase/',
+  '/skillbase/index.html',
+  '/skillbase/ui/css/brand.css',
+  '/skillbase/ui/css/tokens.css',
+  '/skillbase/ui/css/themes/education.css',
+  '/skillbase/ui/css/themes/operations.css',
+  '/skillbase/ui/css/themes/depot.css',
+  '/skillbase/shared/icons.js',
+  '/skillbase/shared/theme.js',
+  '/skillbase/shared/app.js',
+  '/skillbase/shared/main.js',
+  '/skillbase/core/auth.js',
+  '/skillbase/core/registration.js',
+  '/skillbase/ui/components/sidebar.js',
+  '/skillbase/ui/components/header.js',
+  '/skillbase/ui/components/footer.js',
+  '/skillbase/ui/components/loading.js',
+  '/skillbase/ui/components/confirm.js',
+  '/skillbase/ui/pages/home.js',
+  '/skillbase/ui/pages/404.js'
 ];
 
 // Установка Service Worker

@@ -50,8 +50,6 @@ test("Live-комната: host, два участника, наблюдател
     await open(page, `#join/${code}`);
     await page.getByLabel("Код комнаты").fill(code);
     await page.getByText(button, { exact: true }).click();
-    // Согласие с документами: обязательный шаг перед входом гостя.
-    await page.locator(".consent-label input[type=checkbox]").check();
     await page.getByRole("button", { name: "Войти в комнату" }).click();
     await expect(page.locator(".room-status")).toContainText(button === "Наблюдатель" ? "наблюдатель" : "участник");
   }

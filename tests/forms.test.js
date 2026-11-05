@@ -61,9 +61,8 @@ test("форма регистрации отключает нативную ва
     join(ROOT, "ui/pages/register.js"),
     "utf8"
   );
-  assert.match(
-    source,
-    /h\("form", \{[^}]*id: "register-form"[^}]*novalidate: "novalidate"/,
+  assert.ok(
+    source.includes('h("form", { id: "register-form", novalidate: "novalidate" }'),
     "форма регистрации должна отключать нативную валидацию: ошибки показывает собственная проверка полей"
   );
 });

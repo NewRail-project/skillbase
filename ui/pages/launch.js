@@ -7,7 +7,7 @@ import { loadTest } from "../../core/editor.js";
 import { assignTest } from "../../core/assign.js";
 import { createRoom } from "../../core/rooms.js";
 import {
-  LIVE_MODE_AUTO, LIVE_MODE_MANUAL, PACE_SYNC, PACE_SELF, questionSecFor,
+  LIVE_MODE_AUTO, LIVE_MODE_MANUAL, questionSecFor,
   QUESTION_SEC_MIN, QUESTION_SEC_MAX
 } from "../../core/live-auto.js";
 import { KIND_TRAINING, validateAssignmentDraft } from "../../core/assignment-logic.js";
@@ -104,28 +104,13 @@ export default async function LaunchPage() {
   speedInput.checked = true;
   const boardInput = h("input", { type: "checkbox", id: "live-board" });
   boardInput.checked = test?.settings?.showLeaderboard === true;
-  const paceSync = h("input", { type: "radio", name: "live-pace", id: "live-pace-sync", value: PACE_SYNC });
-  const paceSelf = h("input", { type: "radio", name: "live-pace", id: "live-pace-self", value: PACE_SELF });
-  paceSync.checked = true;
-  const verdictInput = h("input", { type: "checkbox", id: "live-verdict" });
   const autoFields = h("div", { class: "live-auto-fields" },
     h("div", { class: "field" },
       h("label", { for: "live-q-sec" }, "Время на вопрос, сек"),
       secInput),
     h("label", { class: "option", for: "live-shuffle" }, shuffleInput, "Случайный порядок вопросов"),
     h("label", { class: "option", for: "live-speed" }, speedInput, "Дополнительные баллы за скорость"),
-    h("label", { class: "option", for: "live-board" }, boardInput, "Показывать рейтинг участникам во время теста"),
-    h("label", { class: "option", for: "live-verdict" }, verdictInput, "Сразу показывать участнику «верно/неверно» после ответа"),
-    h("fieldset", { class: "role-picker" },
-      h("legend", { class: "muted" }, "Темп"),
-      h("label", { class: "role-option", for: "live-pace-sync" }, paceSync,
-        h("span", { class: "role-option-body" },
-          h("b", {}, "Синхронно"),
-          h("span", { class: "muted" }, "Общий таймер: все отвечают на один вопрос одновременно"))),
-      h("label", { class: "role-option", for: "live-pace-self" }, paceSelf,
-        h("span", { class: "role-option-body" },
-          h("b", {}, "Каждый в своём темпе"),
-          h("span", { class: "muted" }, "Следующий вопрос сразу после ответа; у каждого свой таймер. Верно/неверно видно сразу, правильные ответы — после завершения"))))
+    h("label", { class: "option", for: "live-board" }, boardInput, "Показывать рейтинг участникам во время теста")
   );
   const modeForm = h("fieldset", { class: "role-picker" },
     h("legend", { class: "muted" }, "Режим"),
@@ -139,16 +124,9 @@ export default async function LaunchPage() {
         h("span", { class: "muted" }, "Вы открываете и закрываете каждый вопрос"))),
     autoFields
   );
-  const syncMode = () => {
-    autoFields.hidden = !modeAuto.checked;
-    // В своём темпе вердикт всегда мгновенный.
-    verdictInput.checked = paceSelf.checked || verdictInput.checked;
-    verdictInput.disabled = paceSelf.checked;
-  };
+  const syncMode = () => { autoFields.hidden = !modeAuto.checked; };
   modeAuto.addEventListener("change", syncMode);
   modeManual.addEventListener("change", syncMode);
-  paceSync.addEventListener("change", syncMode);
-  paceSelf.addEventListener("change", syncMode);
   syncMode();
 
   grid.appendChild(modeCard({
@@ -177,9 +155,7 @@ export default async function LaunchPage() {
             questionSec: secInput.value,
             shuffleQuestions: shuffleInput.checked,
             speedBonus: speedInput.checked,
-            showLeaderboard: boardInput.checked,
-            pace: paceSelf.checked ? PACE_SELF : PACE_SYNC,
-            instantVerdict: verdictInput.checked
+            showLeaderboard: boardInput.checked
           } : {}
         });
         toast(`Комната открыта. Код: ${code}`, "success");

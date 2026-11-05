@@ -8,18 +8,15 @@
 // Уже вошедший (players/{uid} существует) сразу возвращается в комнату со
 // своей ПРЕЖНЕЙ ролью: наблюдатель не превращается в участника, а выбор
 // роли пережившей перезагрузку сессии восстанавливается из sessionStorage.
-import { appearanceTools } from "../components/theme-toggle.js";
+import { themeToggle } from "../components/theme-toggle.js";
 import { h } from "../../shared/dom.js";
-import { State, signInAsGuest, ensureAnonymousAuth, isStaff, isAdmin } from "../../core/auth.js";
+import { State, signInAsGuest, isStaff } from "../../core/auth.js";
 import { getRoom, joinRoom, getMyRoomRole } from "../../core/rooms.js";
 import { normalizeRoomCode } from "../../core/rooms-logic.js";
 import {
   ROLE_PLAYER, ROLE_OBSERVER, nameForJoin, resolveRequestedRole, isRegistrationOpen
 } from "../../core/live-auto.js";
 import { getGuestName } from "../../core/guest.js";
-import { saveConsent } from "../../core/consents.js";
-import { hasConsentMarker, markConsent } from "../../core/consent-docs.js";
-import { consentCheckbox } from "../../ui/components/consent.js";
 import { saveReturnTo } from "../../shared/return-to.js";
 import { avatarPicker } from "../components/avatar.js";
 import { toast } from "../components/toast.js";
@@ -50,8 +47,8 @@ function recallRole(code) {
 
 export default async function JoinPage() {
   const page = h("div", { class: "page" });
-  // Тема и палитра хранятся на устройстве (localStorage), поэтому доступны и гостю.
-  page.appendChild(h("div", { class: "auth-corner" }, appearanceTools({ withLabel: true })));
+  // Тема хранится на устройстве (localStorage), поэтому доступна и гостю.
+  page.appendChild(h("div", { class: "auth-corner" }, themeToggle({ withLabel: true })));
   const codeRaw = (State.routeParam || "").split("/")[0] || "";
   const codeFromRoute = normalizeRoomCode(codeRaw) || "";
   const signedIn = Boolean(State.user);
@@ -120,7 +117,7 @@ export default async function JoinPage() {
   // ---------- Выбор роли ----------
 
   // Преподаватель, не ведущий комнаты, входит только наблюдателем.
-  const staffObserverOnly = signedIn && !guestMode && isStaff() && !isAdmin();
+  const staffObserverOnly = signedIn && !guestMode && isStaff();
   let selectedRole = recallRole(codeFromRoute) || (staffObserverOnly ? ROLE_OBSERVER : null);
   if (staffObserverOnly) selectedRole = ROLE_OBSERVER;
 
@@ -166,8 +163,7 @@ export default async function JoinPage() {
     roleCard(ROLE_PLAYER, "Участник", [
       "Сами проходите вопросы теста",
       "Получаете баллы и место в общем рейтинге",
-      "Ждёте старта — вопросы идут автоматически",
-      ...(signedIn && isAdmin() ? ["Администратор: ваш результат не попадёт в общий рейтинг"] : [])
+      "Ждёте старта — вопросы идут автоматически"
     ], staffObserverOnly ? "Преподаватель входит только наблюдателем" : ""),
     roleCard(ROLE_OBSERVER, "Наблюдатель", [
       "Видите общий рейтинг и ход теста",
@@ -205,20 +201,9 @@ export default async function JoinPage() {
       : observer ? "Войти наблюдателем" : "Войти участником";
   }
 
-  // ---------- Гость: аватар и согласие ----------
+  // ---------- Гость: аватар ----------
 
   const picker = avatarPicker();
-
-  // Согласие с документами — только для гостя (анонимный вход, как и
-  // сам тест по ссылке). Пользователь с аккаунтом документы уже принял
-  // при регистрации; повторно не спрашиваем. Маркер проставляется после
-  // записи в Firestore — согласившаяся сессия не видит чекбокс заново.
-  const anonymousUid = State.user?.isAnonymous === true ? State.user.uid : null;
-  const guestConsentNeeded = guestMode
-    && (!anonymousUid || !hasConsentMarker(anonymousUid, "live-room"));
-  const guestConsent = guestConsentNeeded
-    ? consentCheckbox({ idPrefix: "join" })
-    : null;
 
   // ---------- Вход ----------
 
@@ -246,43 +231,17 @@ export default async function JoinPage() {
       return;
     }
 
-    // Гость продолжает только после отметки согласия.
-    if (guestConsent && !guestConsent.checked()) {
-      guestConsent.setError("Чтобы войти в комнату, подтвердите согласие с Политикой конфиденциальности и Пользовательским соглашением.");
-      guestConsent.input.focus();
-      return;
-    }
-
     joinBtn.disabled = true;
-    joinBtn.setAttribute("aria-busy", "true");
     joinBtn.textContent = "Подключаемся…";
     try {
       if (guestMode) {
-        // Анонимная сессия до входа в комнату: между ними сохраняется
-        // согласие (uid = идентификатор гостевой сессии). Без записи в
-        // Firestore дальнейшая работа гостя не разрешается.
-        if (guestConsentNeeded) {
-          const anonUser = await ensureAnonymousAuth();
-          try {
-            await saveConsent({ uid: anonUser.uid, type: "live-room" });
-            markConsent(anonUser.uid, "live-room");
-          } catch (consentErr) {
-            console.error("Согласие гостя (комната) не сохранено:", consentErr);
-            setMessage("Не удалось сохранить согласие с документами. Проверьте интернет и попробуйте ещё раз.");
-            joinBtn.disabled = false;
-            joinBtn.removeAttribute("aria-busy");
-            syncRoleUi();
-            return;
-          }
-        }
         await signInAsGuest(code, nameCheck.value, picker.getValue(), role);
       } else {
         const found = await getRoom(code);
         if (!found) { setMessage("Комната с таким кодом не найдена."); return; }
         if (found.status !== "active") { setMessage("Комната уже закрыта."); return; }
         const effective = resolveRequestedRole({
-          requested: role, isStaffUser: isStaff(), isHost: found.hostId === State.user.uid,
-          isAdminUser: isAdmin()
+          requested: role, isStaffUser: isStaff(), isHost: found.hostId === State.user.uid
         });
         if (!isRegistrationOpen(found)) {
           // Вернувшийся участник входит и при закрытой регистрации
@@ -312,7 +271,6 @@ export default async function JoinPage() {
       setMessage(errorBody(err));
     } finally {
       joinBtn.disabled = !selectedRole;
-      joinBtn.removeAttribute("aria-busy");
       syncRoleUi();
     }
   });
@@ -362,7 +320,6 @@ export default async function JoinPage() {
           ? h("div", { class: "field" },
               h("label", {}, "Аватар"), picker.el)
           : null,
-        guestConsent ? guestConsent.el : null,
         joinBtn,
         message
       )

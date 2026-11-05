@@ -48,17 +48,7 @@ const routes = {
   "quiz":         { file: "ui/pages/quiz.js",              title: "Тест",                 auth: true, guest: true },
   "launch":       { file: "ui/pages/launch.js",            title: "Как провести тест",    auth: true, roles: STAFF },
   "join":         { file: "ui/pages/join.js",              title: "Вход по коду" },
-  "privacy":      { file: "ui/pages/privacy.js",           title: "Политика конфиденциальности" },
-  "privacy-en":   { file: "ui/pages/privacy-en.js",        title: "Privacy Policy" },
-  "terms":        { file: "ui/pages/terms.js",             title: "Пользовательское соглашение" },
-  "terms-en":     { file: "ui/pages/terms-en.js",          title: "Terms of Use" },
-  "rules":        { file: "ui/pages/rules.js",             title: "Правила использования" },
-  "rules-en":     { file: "ui/pages/rules-en.js",          title: "Usage Guidelines" },
-  "contact":      { file: "ui/pages/contact.js",           title: "Контакты и обратная связь" },
-  "contacts":     { file: "ui/pages/contact.js",           title: "Контакты и обратная связь" },
-  "contact-en":   { file: "ui/pages/contact-en.js",        title: "Contact Us" },
   "about":        { file: "ui/pages/about.js",             title: "О проекте" },
-  "about-en":     { file: "ui/pages/about-en.js",          title: "About the project" },
   // guest: маршрут открыт анонимному гостю (участие в live-комнате —
   // единственная гостевая функция; остальное требует регистрации).
   "room":         { file: "ui/pages/room.js",              title: "Live-комната",         auth: true, guest: true },
@@ -67,6 +57,8 @@ const routes = {
   "analytics":    { file: "ui/pages/analytics.js",         title: "Аналитика по тесту",   auth: true, roles: STAFF },
   "review":       { file: "ui/pages/review.js",            title: "Проверка попытки",     auth: true, roles: STAFF },
   "assignments":  { file: "ui/pages/assignments.js",       title: "Задания",              auth: true },
+  "student":      { file: "ui/pages/student-dashboard.js", title: "Панель студента",      auth: true },
+  "teacher":      { file: "ui/pages/teacher-dashboard.js", title: "Панель преподавателя", auth: true, roles: STAFF },
   "users":        { file: "ui/pages/users.js",             title: "Пользователи",         auth: true, roles: STAFF },
   "admins":       { file: "ui/pages/admins.js",            title: "Администраторы",       auth: true, roles: ADMIN },
   "settings":     { file: "ui/pages/settings.js",          title: "Настройки",            auth: true },
@@ -261,6 +253,6 @@ export function initRouter() {
   if (initRouter._started) return;
   initRouter._started = true;
   window.addEventListener("hashchange", router);
-  if (State.profileStatus === "ready" && State.profile?.ui) applyTheme(State.profile.ui);
+  if (State.profile?.ui) applyTheme(State.profile.ui);
   router();
 }

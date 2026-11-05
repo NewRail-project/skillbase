@@ -5,9 +5,6 @@ import { listMyTests, listPublishedTests } from "../../core/editor.js";
 import { getStudentAssignments } from "../../core/assign.js";
 import { icons } from "../../shared/icons.js";
 import { railScene } from "../../ui/components/brand.js";
-import { calculateStreak, streakDescription } from "../../ui/core/streak.js";
-import { calculateAchievements, achievementsList } from "../../ui/core/achievements.js";
-import { streakBadge } from "../../ui/components/streak.js";
 
 const HERO = {
   guest: {
@@ -35,7 +32,7 @@ function daysLeft(value) {
   return Math.ceil((date.getTime() - Date.now()) / 86_400_000);
 }
 
-function hero({ eyebrow, title, lead, actions, stats, features }) {
+function hero({ eyebrow, title, lead, actions, stats }) {
   const section = h("section", { class: "hero" });
   section.innerHTML = railScene();
   const inner = h("div", { class: "hero-inner" },
@@ -48,55 +45,14 @@ function hero({ eyebrow, title, lead, actions, stats, features }) {
       actions.map(a => h("a", { class: a.cls, href: a.href }, a.label))
     ));
   }
-  if (features && features.length) {
-    inner.appendChild(h("div", { class: "hero-features" },
-      features.map(f => {
-        const item = h("span", { class: "hero-feature" });
-        if (f.icon) {
-          // Иконка — статичный SVG из shared/icons.js
-          item.innerHTML = f.icon;
-          item.appendChild(h("span", {}, f.label));
-        } else {
-          item.textContent = f.label;
-        }
-        return item;
-      })
-    ));
-  }
   section.appendChild(inner);
 
   if (stats && stats.length) {
     section.appendChild(h("div", { class: "hero-stats" },
-      stats.map(s => {
-        const statEl = h("div", { class: "hero-stat" });
-        const valueEl = h("b", {}, "0");
-        const labelEl = h("span", {}, s.label);
-        statEl.append(valueEl, labelEl);
-
-        // Анимация чисел
-        const animateValue = (start, end, duration) => {
-          let startTimestamp = null;
-          const step = (timestamp) => {
-            if (!startTimestamp) startTimestamp = timestamp;
-            const progress = Math.min((timestamp - startTimestamp) / duration, 1);
-            const value = Math.floor(progress * (end - start) + start);
-            valueEl.textContent = String(value);
-            if (progress < 1) {
-              window.requestAnimationFrame(step);
-            }
-          };
-          window.requestAnimationFrame(step);
-        };
-
-        // Запускаем анимацию при первом рендере
-        if (typeof s.value === 'number') {
-          animateValue(0, s.value, 300);
-        } else {
-          valueEl.textContent = String(s.value);
-        }
-
-        return statEl;
-      })
+      stats.map(s => h("div", { class: "hero-stat" },
+        h("b", {}, String(s.value)),
+        h("span", {}, s.label)
+      ))
     ));
   }
   return section;
@@ -106,10 +62,8 @@ function quickActions(items) {
   return h("div", { class: "quick-actions" },
     items.map(item => {
       const a = h("a", { class: "quick-action", href: item.href });
-      // Статичный SVG из констант, пользовательских данных нет.
-      const iconEl = h("span", { class: "icon" });
-      iconEl.innerHTML = item.icon;
-      a.append(iconEl, h("b", {}, item.label), h("span", {}, item.hint));
+      a.innerHTML = `<span class="icon">${item.icon}</span>`;
+      a.append(h("b", {}, item.label), h("span", {}, item.hint));
       return a;
     })
   );
@@ -144,14 +98,8 @@ function resultChart(attempts) {
     )
   );
   const chart = h("div", { style: "margin-top:12px" });
-  // В сборке только локальные числа (width/height) и разметка баров,
-  // построенная выше; пользовательских строк нет (R7).
-  const svg =
-    `<svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}"
-    preserveAspectRatio="none" role="img" aria-label="Проценты последних попыток">` +
-    bars +
-    "</svg>";
-  chart.innerHTML = svg;
+  chart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}"
+    preserveAspectRatio="none" role="img" aria-label="Проценты последних попыток">${bars}</svg>`;
   wrap.appendChild(chart);
   return wrap;
 }
@@ -236,27 +184,12 @@ function studentView(profile, data) {
     .sort((a, b) => a.left - b.left)
     .slice(0, 4);
 
-  // Расчёт серии занятий
-  const streak = calculateStreak(data.attempts);
-  // Расчёт достижений
-  const achievements = calculateAchievements(data.attempts, streak);
-
-  // Персональное приветствие
-  const hour = new Date().getHours();
-  let greeting;
-  if (hour >= 5 && hour < 12) {
-    greeting = "Доброе утро";
-  } else if (hour >= 12 && hour < 18) {
-    greeting = "Добрый день";
-  } else {
-    greeting = "Добрый вечер";
-  }
   const name = profile.fullName ? profile.fullName.split(" ")[0] : "коллега";
 
   return [
     hero({
-      eyebrow: greeting,
-      title: `${greeting}, ${name}`,
+      eyebrow: "Личный кабинет",
+      title: `Здравствуйте, ${name}`,
       lead: "Продолжайте обучение с того места, где остановились. Ниже — задания, дедлайны и последние результаты.",
       actions: [{ href: "#assignments", label: "Мои задания", cls: "btn primary" }],
       stats: [
@@ -265,20 +198,6 @@ function studentView(profile, data) {
         { value: avg === null ? "—" : avg + "%", label: "средний результат" }
       ]
     }),
-
-    // Серия занятий
-    h("section", { class: "panel" },
-      h("div", { class: "section-title" }, "Серия занятий"),
-      h("div", { class: "streak-section" },
-        streakBadge(streak.current),
-        h("p", { class: "streak-description" }, streakDescription(streak)),
-        streak.max > streak.current ?
-          h("p", { class: "muted" }, `Максимальная серия: ${streak.max} дней`) : null
-      )
-    ),
-
-    // Достижения
-    achievementsList(achievements),
 
     h("section", { class: "stat-grid" },
       h("div", { class: "stat" },
@@ -456,17 +375,7 @@ function staffView(profile, data) {
 function guestView() {
   const { eyebrow, title, lead, actions } = HERO.guest;
   return [
-    hero({
-      eyebrow,
-      title,
-      lead,
-      actions,
-      features: [
-        { icon: icons.users, label: "Live-комнаты" },
-        { icon: icons.qr, label: "QR-вход" },
-        { icon: icons.chart, label: "Аналитика" }
-      ]
-    }),
+    hero({ eyebrow, title, lead, actions }),
     h("section", { class: "grid grid-3" },
       h("div", { class: "panel" },
         h("div", { class: "eyebrow" }, "01 · Курсы"),

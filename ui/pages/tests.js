@@ -1,10 +1,7 @@
 import { h } from "../../shared/dom.js";
 import { State, isStaff } from "../../core/auth.js";
-import { listMyTests, listPublishedTests, deleteTest } from "../../core/editor.js";
-import { canDeleteTest, explainDeleteError } from "../../core/test-delete-logic.js";
+import { listMyTests, listPublishedTests } from "../../core/editor.js";
 import { icons } from "../../shared/icons.js";
-import { confirmAction } from "../components/confirm.js";
-import { toast } from "../components/toast.js";
 
 function formatDate(value) {
   if (!value) return "—";
@@ -27,7 +24,7 @@ function explainError(err) {
   return "Не удалось загрузить каталог тестов. Попробуйте ещё раз.";
 }
 
-function testCard(test, staff, { onDelete } = {}) {
+function testCard(test, staff) {
   // Цвет карточки из настроек теста: 1..4 — палитры cover-1..cover-4.
   const colorIndex = Number(test.color);
   const tone = colorIndex >= 1 && colorIndex <= 4
@@ -63,36 +60,13 @@ function testCard(test, staff, { onDelete } = {}) {
   }, test.status === "published" ? "Опубликован" : "Черновик");
 
   if (staff) {
-    const session = {
-      uid: State.user?.uid || "",
-      role: State.profile?.role || "",
-      orgId: State.profile?.orgId || ""
-    };
-    const mayDelete = canDeleteTest(test, session).allowed;
-    const deleteBtn = mayDelete ? h("button", {
-      type: "button",
-      class: "btn secondary",
-      title: "Удалить тест",
-      dataset: { testId: test.id },
-      onclick: () => onDelete?.(test, deleteBtn)
-    },
-      h("span", {
-        "aria-hidden": "true", innerHTML: icons.trash,
-        style: "display:inline-flex;width:15px;height:15px;vertical-align:-3px;margin-right:6px"
-      }),
-      "Удалить"
-    ) : null;
-
     foot.append(
       status,
       h("a", { class: "btn secondary", href: `#create-test/${encodeURIComponent(test.id)}` }, "Редактировать"),
       test.status === "published"
         ? h("a", { class: "btn primary", href: `#launch/${encodeURIComponent(test.id)}` }, "Запустить")
         : null,
-      h("a", { class: "btn secondary", href: `#quiz/${encodeURIComponent(test.id)}` }, "Открыть"),
-      // Удаление не мешает остальным действиям: кнопка последняя и
-      // переносится на новую строку при нехватке места (flex-wrap).
-      deleteBtn
+      h("a", { class: "btn secondary", href: `#quiz/${encodeURIComponent(test.id)}` }, "Открыть")
     );
   } else {
     foot.append(status, h("a", {
@@ -108,16 +82,6 @@ function testCard(test, staff, { onDelete } = {}) {
 export default async function TestsPage() {
   const staff = isStaff();
   const page = h("div", { class: "page" });
-
-  // session собирается один раз: карточки нужны только для проверки прав
-  // на кнопку удаления (полную проверку делают и клиент, и правила).
-  const session = staff
-    ? {
-        uid: State.user?.uid || "",
-        role: State.profile?.role || "",
-        orgId: State.profile?.orgId || ""
-      }
-    : null;
 
   const head = h("div", { class: "page-head" },
     h("div", {},
@@ -188,72 +152,7 @@ export default async function TestsPage() {
       ));
       return;
     }
-    visible.forEach(t => grid.appendChild(testCard(t, staff, { onDelete: handleDelete })));
-  }
-
-  // ---------- Удаление теста ----------
-  // Диалог → deleteTest → карточка убирается из каталога без
-  // перезагрузки страницы. Любая ошибка показывает понятную причину.
-  async function handleDelete(test, button) {
-    const check = canDeleteTest(test, session);
-    if (!check.allowed) {
-      toast(check.reason, "error");
-      return;
-    }
-
-    const confirmed = await confirmAction({
-      title: "Удалить тест?",
-      text: "Тест будет удалён из каталога и истории. Это действие нельзя отменить. Ранее полученные результаты и статистика обучения не должны быть потеряны.",
-      details: [
-        h("p", { style: "margin:0;font-weight:650" },
-          test.title || "Без названия")
-      ],
-      confirmLabel: "Удалить тест",
-      cancelLabel: "Отмена",
-      tone: "danger"
-    });
-    if (!confirmed) return;
-
-    // Индикатор выполнения + блокировка повторных нажатий.
-    const previousHtml = button.innerHTML;
-    const previousDisabled = button.disabled;
-    button.disabled = true;
-    button.innerHTML = "";
-    button.append(h("span", {
-      class: "spinner", "aria-hidden": "true",
-      style: "width:14px;height:14px;border-width:2px;margin-right:6px"
-    }), "Удаляем…");
-
-    try {
-      const summary = await deleteTest(test.id);
-
-      // Карточка исчезает из каталога и фильтров без перезагрузки.
-      tests = tests.filter(t => t.id !== test.id);
-      refreshCategoryFilter();
-      draw();
-
-      if (summary.unaddressedRooms.length) {
-        const list = summary.unaddressedRooms
-          .map(r => r.code + (r.hostName ? ` (${r.hostName})` : ""))
-          .join(", ");
-        toast(
-          `Тест удалён. Активные Live-комнаты других ведущих не закрыты — закройте их вручную: ${list}`,
-          "error");
-      } else {
-        toast("Тест удалён", "success");
-      }
-    } catch (err) {
-      console.error("Удаление теста:", err);
-      toast(explainDeleteError(err), "error");
-    } finally {
-      // Кнопка могла остаться от старой отрисовки — восстанавливаем только
-      // если она всё ещё в документе.
-      if (button.isConnected) {
-        button.disabled = previousDisabled;
-        button.innerHTML = "";
-        button.innerHTML = previousHtml;
-      }
-    }
+    visible.forEach(t => grid.appendChild(testCard(t, staff)));
   }
 
   search.addEventListener("input", draw);
