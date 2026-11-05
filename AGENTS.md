@@ -23,3 +23,8 @@
 ## Сроки
 - **Демо**: за 2 недели.
 - **Ограничения**: Live-комнаты НЕ входят в MVP.
+
+## Материал-книга (не ломать)
+- Не менять без запроса: core/material-logic.js, core/materials.js, ui/pages/material.js, блок buildMaterialEditor в ui/pages/create-test.js.
+- Функция paginateText (авторазбивка текста на страницы) и режим #material/<id>/free обязательны; тесты в tests/material-logic.test.js должны проходить.
+- Перед коммитом: npm test.
