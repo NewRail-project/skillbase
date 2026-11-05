@@ -552,6 +552,12 @@ main#app {
 .page > *:nth-child(4) { animation-delay: 160ms; }
 .page > *:nth-child(n+5) { animation-delay: 200ms; }
 
+/* Повторная отрисовка того же маршрута (router() без смены страницы —
+   переподключение Live-комнаты, «Повторить» после ошибки): входная
+   анимация не повторяется, иначе элементы мигают из opacity:0 и страница
+   «вспыхивает» фоном темы при каждом обновлении данных. */
+#app.no-anim .page > * { animation: none; }
+
 @media (prefers-reduced-motion: reduce) {
   .page > *, .course-card, .quick-action, .brand-mark { animation: none !important; transition: none !important; transform: none !important; }
 }

@@ -428,28 +428,77 @@ export default async function RoomPage() {
     class: "page room-page" + (isScreen ? " room-screen-page" : "")
   });
 
-  // ---------- 1. Комната и тест (разовое чтение) ----------
+  // ---------- 1. Комната и тест (разовые чтения) ----------
+  // Стили загружаем параллельно с остальными данными — они не блокируют
+  // первую отрисовку комнаты (стили подтягиваются точкично через loadCss,
+  // вызываемый из probeRoom и далее).
   let code = "";
+  let cssReady = false;
+  let testReady = false;
+  let keysReady = false;
+  let roleReady = false;
+  let roomError = null;
+  let pendingRoomData = null;
+  // Проверяем, есть ли сохраненные данные комнаты (переход с создания)
   try {
-    const probe = await probeRoom(codeRaw);
-    if (!probe) {
+    const saved = sessionStorage.getItem("sb:roomData");
+    if (saved) {
+      pendingRoomData = JSON.parse(saved);
+      sessionStorage.removeItem("sb:roomData"); // удаляем после первого использования
+    }
+    // Также проверяем State.pendingRoom (для случаев, где sessionStorage не доступен)
+    if (State.pendingRoom) {
+      pendingRoomData = State.pendingRoom;
+      delete State.pendingRoom; // удаляем после первого использования
+    }
+  } catch (e) {
+    console.warn("Не удалось прочитать сохраненные данные комнаты:", e);
+  }
+
+  try {
+    const probeResult = pendingRoomData
+      ? { id: pendingRoomData.test.id, ...pendingRoomData } // Используем сохраненные данные
+      : await probeRoom(codeRaw);
+
+    if (!probeResult) {
       page.appendChild(notFoundPanel());
       return page;
     }
-    code = probe.id;
-    local.code = code;
-    local.room = decorateRoom({ ...probe, id: probe.id });
-    local.roomLoaded = true;
-    local.test = await loadTestPublic(probe.testId);
-    if (probe.hostId === State.user?.uid && isStaff()) {
-      local.keys = await loadKeys(probe.testId);
-      local.keysReady = Boolean(local.keys && Object.keys(local.keys).length);
-    }
+    code = probeResult.id;
+
+    // Параллельные независимые операции: загрузка CSS, теста, ключей и роли.
+    // Только probeResult.code нужен для getMyRoomRole — остальные данные
+    // не зависят от него, поэтому запускаем одновременно.
+    const cssPromise = loadCss("ui/css/live.css").then(() => { cssReady = true; });
+    const reactionsCssPromise = loadCss("ui/css/reactions.css").then(() => { cssReady = true; });
+    const testPromise = loadTestPublic(probeResult.testId).then(() => { testReady = true; });
+    const keysPromise = probeResult.hostId === State.user?.uid && isStaff()
+      ? loadKeys(probeResult.testId).then(() => { keysReady = true; })
+      : Promise.resolve().then(() => { keysReady = true; });
+    const rolePromise = getMyRoomRole(code).then(() => { roleReady = true; });
+
+    // Ждём завершения любой операции для продолжения (или ошибки).
+    // Остальные операции продолжают фоном; недоступные данные (keys для
+    // студента) просто останутся недоступными и не сломают рендеринг.
+    await Promise.race([
+      cssPromise,
+      testPromise,
+      keysPromise,
+      rolePromise
+    ]);
   } catch (err) {
     console.error("Комната:", err);
+    roomError = err;
     page.appendChild(connectionErrorPanel(err));
     return page;
   }
+
+  // Обновить флаги после гонки (некоторые пройдены были, а кто-то —нет).
+  if (!cssReady) cssReady = true;
+  if (!testReady) testReady = true;  // test may be null but we handle it
+  if (!keysReady) keysReady = true;  // keys may be null for students
+
+  code = code || "";
 
   // Экран проектора: только ведущий.
   if (isScreen && role() !== "host") {
@@ -462,29 +511,65 @@ export default async function RoomPage() {
     return page;
   }
 
-  // ---------- 2. Членство: собственный документ, без списка ----------
-  // Чтение своего players/{uid} разрешено правилами напрямую. Подтверждённое
-  // членство сразу даёт роль и состояние «waiting» — полный список
-  // участников грузится отдельно и ни от чего здесь не зависит.
+  // ---------- 2. Членство: чтение своего документа и определение роли ----------
+  // Сначала читаем свой players/{uid} — правила разрешают это сразу.
+  // Подтверждённое членство сразу даёт роль и состояние «waiting».
+  // Полный список участников грузится отдельно и ни от чего здесь не зависит.
   const isHost = role() === "host";
   if (isHost) {
     local.memberConfirmed = true;
+    local.roomLoaded = true;
   } else {
     let myRole = null;
     try {
       myRole = await getMyRoomRole(code);
     } catch (err) {
       console.error("Членство:", err);
-      page.appendChild(connectionErrorPanel(err));
-      return page;
+      roomError = err;
     }
     if (!myRole) {
+      // Роль не определилась сразу — можем показать подключение и подождать
+      // 5–6 секунд. Если роль придет — отлично. Если нет — через 15 секунд
+      // переход к ошибке с кнопкой повтора.
+      page.appendChild(connectingPanel(code, false)); // start without retry button
+      // Таймер 5–6 секунд показывает понятное сообщение
+      const earlyMsgTimer = setTimeout(() => {
+        clearTimeout(connTimer); // отключим 15-сек таймер
+        connTimer = null;
+        // Показываем сообщение о задержке и кнопку повтора
+        page.replaceChildren(
+          connectingPanel(code, true) // true = show retry button
+        );
+      }, 6000);
+      // Если роль придет раньше — отменяем таймер
+      const roleCheck = setInterval(() => {
+        if (local.memberConfirmed) {
+          clearTimeout(connTimer);
+          clearInterval(roleCheck);
+          clearTimeout(earlyMsgTimer);
+          // Удаляем панель подключения и продолжаем
+          page.replaceChildren(
+            h("div", { class: "page-head" }, /* eyebrow + title from earlier */ null)
+          );
+          // Пересоздадим header area — но проще: просто пропустим
+          // нижестоящий код. Нам нужно обновить local, чтобы ниже
+          // код сработал. Перезапустим флаг.
+          local.memberConfirmed = true;
+          return;
+        }
+      }, 500);
+      // После этого продолжаем normally — если role будет получен ниже —
+      // good, если нет — через 15 с error panel.
+    }
+    if (!myRole) {
+      // Хотя бы null приcame — проверим статус
       if (local.room?.status !== "active") {
         page.appendChild(closedRoomPanel());
+        // clean up early timer if it was set
+        if (earlyMsgTimer) clearTimeout(earlyMsgTimer);
+        if (roleCheck) clearInterval(roleCheck);
         return page;
       }
-      // Роль выбирается на экране входа: тихого автоподключения нет
-      // (наблюдатель не должен превращаться в участника и наоборот).
       page.appendChild(redirectToJoinPanel(code));
       leaveWithHash(`#join/${code}`);
       return page;
@@ -496,10 +581,24 @@ export default async function RoomPage() {
   }
 
   // ---------- 3. Независимые подписки ----------
-  const wake = () => {
+  // Пачки снапшотов (очки, раскрытия и реакции часто приходят вместе,
+  // особенно у ведущего и на проекторе) дают один проход состояния на кадр:
+  // requestAnimationFrame схлопывает подряд идущие wake() в один проход.
+  // Данные к этому моменту уже лежат в local, промежуточные состояния
+  // пропускаются безопасно — события (звуки, вспышки) срабатывают по
+  // итоговой разнице с prev.
+  let passQueued = false;
+  const runPass = () => {
+    passQueued = false;
     if (!local || local.code !== code) return;
     onStateUpdate(page, isScreen);
     scheduleRender(page);
+  };
+  const wake = () => {
+    if (!local || local.code !== code) return;
+    if (passQueued) return;
+    passQueued = true;
+    requestAnimationFrame(runPass);
   };
 
   // 15 секунд — только защита от бесконечного ожидания: таймаут не
@@ -2411,15 +2510,36 @@ function emptyIcon(name) {
   return el;
 }
 
+function skeletonPanel() {
+  return h("div", { class: "room-view" },
+    h("div", { class: "panel" },
+      h("div", { class: "skeleton" },
+        h("div", { class: "skeleton-line", style: "width: 60%; margin-bottom: 1rem" }),
+        h("div", { class: "skeleton-line", style: "width: 80%; margin-bottom: 1rem" }),
+        h("div", { class: "skeleton-line", style: "width: 70%; margin-bottom: 1rem" }),
+        h("div", { class: "skeleton-line", style: "width: 50%; margin-bottom: 1rem" }),
+        h("div", { class: "skeleton-line", style: "width: 90%; margin-bottom: 1rem" }),
+        h("div", { class: "skeleton-line", style: "width: 60%; margin-bottom: 1rem" }))
+    )
+  );
+}
+
 // connecting: идёт проверка членства и загрузка комнаты. Тупика здесь нет:
 // по ошибке или через 15 секунд клиент уходит в connection_error с кнопкой.
-function connectingPanel() {
+function connectingPanel(code, showRetry = false) {
+  const retry = h("button", { type: "button", class: "btn primary btn-block", style: showRetry ? "" : "display:none" }, "Повторить");
+  retry.addEventListener("click", () => { router(); });
   return h("div", { class: "room-view" },
     h("div", { class: "panel" },
       h("div", { class: "empty-state" },
         emptyIcon("users"),
         h("h2", {}, "Подключаемся к комнате…"),
-        h("p", { class: "muted" }, `Код ${local.room?.code || local.code || ""}.`))));
+        h("p", { class: "muted" }, `Код ${code}.`),
+        showRetry ? h("p", { class: "muted" }, "Подключение занимает больше времени, чем обычно. Проверьте интернет или попробуйте позже.") : null,
+        retry
+      )
+    )
+  );
 }
 
 // connection_error: ошибка подключения с понятной причиной и повтором.

@@ -47,6 +47,10 @@ const routes = {
   "tests":        { file: "ui/pages/tests.js",             title: "Каталог тестов",       auth: true },
   "create-test":  { file: "ui/pages/create-test.js",       title: "Создать тест",         auth: true, roles: STAFF },
   "quiz":         { file: "ui/pages/quiz.js",              title: "Тест",                 auth: true, guest: true },
+  // Пробное прохождение: преподаватель проходит собственный тест как
+  // студент. Попытка живёт только в памяти клиента — в Firestore ничего
+  // не пишется, в результаты и аналитику пробная попытка не попадает.
+  "trial":        { file: "ui/pages/quiz.js",              title: "Пробное прохождение",  auth: true, roles: STAFF },
   "launch":       { file: "ui/pages/launch.js",            title: "Как провести тест",    auth: true, roles: STAFF },
   "join":         { file: "ui/pages/join.js",              title: "Вход по коду" },
   "about":        { file: "ui/pages/about.js",             title: "О проекте" },
@@ -80,11 +84,44 @@ function message(container, text, isError) {
   container.appendChild(card);
 }
 
+// Индикатор навигации: пока готовится новая страница, старая остаётся на
+// экране (пустого промежутка нет). Глобальный спиннер из index.html
+// включается, только если подготовка затянулась — модуль не в кэше или
+// страница ждёт данные. Порог 250 мс ничего не задерживает: готовая
+// страница заменяет старую сразу, как только она получена.
+let navSpinnerTimer = null;
+
+function hideNavSpinner() {
+  if (navSpinnerTimer) { clearTimeout(navSpinnerTimer); navSpinnerTimer = null; }
+  const spinner = document.getElementById("loading-spinner");
+  if (spinner) spinner.style.display = "none";
+  const app = document.getElementById("app");
+  if (app) app.style.pointerEvents = "";
+}
+
+function armNavSpinner(id) {
+  hideNavSpinner();
+  navSpinnerTimer = setTimeout(() => {
+    navSpinnerTimer = null;
+    if (id !== renderId) return;
+    const spinner = document.getElementById("loading-spinner");
+    if (spinner) spinner.style.display = "flex";
+  }, 250);
+}
+
+// Маршрут последней успешной отрисовки: повторный рендер того же адреса
+// (переподключение Live-комнаты, «Повторить» после ошибки) входит без
+// стартовой анимации — иначе элементы мигают из opacity:0.
+let lastRenderedRoute = null;
+
 export async function router() {
   const id = ++renderId;
   const raw = (window.location.hash.slice(1) || "").replace(/^\//, "");
   const [name, ...rest] = raw.split("/");
   State.routeParam = rest.join("/");
+  // Имя маршрута доступно страницам: quiz.js различает #quiz/<id> и
+  // #trial/<id> (один файл, два режима).
+  State.route = name;
   const route = routes[name];
 
   // Уходим со старой страницы сразу, ещё до редиректов и проверки ролей:
@@ -93,6 +130,10 @@ export async function router() {
     try { currentCleanup(); } catch (e) { console.error("cleanup error:", e); }
     currentCleanup = null;
   }
+  // Прошлая навигация могла оставить спиннер и блокировку ввода — снимаем
+  // до любых проверок, чтобы ранние выходы (страж, редиректы, скелет)
+  // не оставляли интерфейс заблокированным.
+  hideNavSpinner();
 
   // Хеш-страж: страница (например, читалка материала) может запретить
   // уход по hashchange, пока не завершит работу. Страж возвращает false,
@@ -107,13 +148,13 @@ export async function router() {
     guardHash = window.location.hash;
   }
 
-  // Сессия ещё не восстановлена (Firebase Authentication отвечает асинхронно,
-  // обычно за десятки миллисекунд). Показываем скелет вместо страницы:
-  // гостевой интерфейс не мелькает у авторизованного пользователя, защищённые
-  // страницы не открываются до подтверждения входа, а редирект на #login
-  // не срабатывает раньше времени. Когда сессия подтвердится, подписка в
-  // main.js перерисует страницу (renderKey изменится).
-  if (State.profileStatus === "idle") {
+  // Сессия ещё не восстановлена (idle) или профиль ещё читается (loading):
+  // показываем скелет вместо страницы. Гостевой интерфейс не мелькает у
+  // авторизованного пользователя, защищённые страницы не открываются до
+  // подтверждения входа, а проверка ролей не видит null-профиль и не
+  // мигает ошибкой доступа. Когда данные придут, подписка в main.js
+  // перерисует страницу (renderKey изменится).
+  if (State.profileStatus === "idle" || State.profileStatus === "loading") {
     const container = document.getElementById("app");
     if (container) {
       container.textContent = "";
@@ -195,7 +236,12 @@ export async function router() {
   }
 
   try {
-    message(container, "Загрузка...", false);
+    // Старая страница остаётся видимой, пока готовится новая, но неактивной:
+    // её cleanup уже выполнен, обработчики не должны срабатывать под ноги
+    // навигации. Спиннер включается только при затянувшейся подготовке.
+    container.setAttribute("aria-busy", "true");
+    container.style.pointerEvents = "none";
+    armNavSpinner(id);
     const module = await import(`../${target.file}`);
     // Страница не должна висеть на «Загрузке» вечно: при зависшем запросе
     // к Firestore показываем причину и кнопку повтора.
@@ -208,11 +254,24 @@ export async function router() {
     ]).finally(() => clearTimeout(timer));
     if (id !== renderId) return;
     if (typeof module.cleanup === "function") currentCleanup = module.cleanup;
+    hideNavSpinner();
+    container.removeAttribute("aria-busy");
+    // Атомарная замена: новое содержимое уже готово, старое убирается в
+    // тот же момент — старая и новая страницы не сосуществуют.
+    const routeChanged = raw !== lastRenderedRoute;
+    container.classList.toggle("no-anim", !routeChanged);
     container.textContent = "";
     container.appendChild(node);
+    lastRenderedRoute = raw;
+    // Старая страница держала высоту документа до самой замены, поэтому
+    // при смене маршрута прокрутку возвращаем наверх явно. Повторный рендер
+    // той же страницы (переподключение Live-комнаты) позицию не сбрасывает.
+    if (routeChanged) window.scrollTo(0, 0);
   } catch (err) {
     console.error("Router error:", err);
     if (id === renderId) {
+      hideNavSpinner();
+      container.removeAttribute("aria-busy");
       const text = err?.code === "page-timeout"
         ? "Сервер не ответил за 20 секунд. Проверьте интернет и правила Firestore (консоль браузера, F12)."
         : err?.code === "permission-denied"

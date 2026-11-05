@@ -1,6 +1,11 @@
 import { h } from "../../shared/dom.js";
 import { State, isStaff } from "../../core/auth.js";
-import { listMyTests, listPublishedTests } from "../../core/editor.js";
+import { listMyTests, listPublishedTests, deleteTest } from "../../core/editor.js";
+import { canDeleteTest, deletionPlan, explainDeleteError } from "../../core/test-delete-logic.js";
+import { listAssignments } from "../../core/attempts.js";
+import { getDocs, query, collection, db, where } from "../../shared/firebase.js";
+import { confirmAction } from "../../ui/components/confirm.js";
+import { toast } from "../../ui/components/toast.js";
 import { icons } from "../../shared/icons.js";
 
 function formatDate(value) {
@@ -60,13 +65,74 @@ function testCard(test, staff) {
   }, test.status === "published" ? "Опубликован" : "Черновик");
 
   if (staff) {
+    const onDelete = async () => {
+      const can = canDeleteTest(test, { uid: State.user.uid, role: State.profile.role, orgId: State.profile.orgId });
+      if (!can.allowed) {
+        toast(can.reason, "error");
+        return;
+      }
+
+      // План удаления: нужно найти активные задания и комнаты теста.
+      // Читаем задания организации; комнаты — только свои (правила не дадут читать чужие).
+      let assignments = [];
+      try {
+        assignments = await listAssignments(State.profile.orgId);
+      } catch (_) {}
+
+      // Комнаты: ищем активные комнаты этого теста, где я ведущий.
+      let rooms = [];
+      try {
+        const rSnap = await getDocs(query(
+          collection(db, "rooms"),
+          where("testId", "==", test.id),
+          where("hostId", "==", State.user.uid)
+        ));
+        rooms = rSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      } catch (_) {}
+
+      const plan = deletionPlan({ test, session: { uid: State.user.uid, role: State.profile.role }, assignments, rooms });
+
+      let warnText = "Тест будет скрыт из каталога. Статистика и результаты уже пройденных попыток сохранятся.";
+      const details = [];
+      if (plan.closeAssignmentIds.length) {
+        details.push(h("p", { class: "warning-msg" }, `Будет закрыто активных заданий: ${plan.closeAssignmentIds.length}`));
+      }
+      if (plan.closeRoomCodes.length) {
+        details.push(h("p", { class: "warning-msg" }, `Будет закрыто активных Live-комнат: ${plan.closeRoomCodes.length}`));
+      }
+      if (plan.foreignAssignmentIds.length || plan.foreignRooms.length) {
+        details.push(h("p", { class: "muted", style: "font-size:0.9em" }, "Внимание: есть активные задания или комнаты других преподавателей, которые вы не можете закрыть. Они перестанут работать после удаления теста."));
+      }
+
+      const ok = await confirmAction({
+        title: `Удалить тест «${test.title}»?`,
+        text: warnText,
+        details,
+        confirmLabel: "Удалить",
+        tone: "danger"
+      });
+
+      if (ok) {
+        try {
+          await deleteTest(test.id, plan);
+          toast("Тест удалён", "success");
+          // Перерисовываем страницу через роутер или находим и удаляем карточку.
+          // Проще всего вызвать роутер, так как страница тестов асинхронная.
+          window.location.reload();
+        } catch (err) {
+          toast(explainDeleteError(err), "error");
+        }
+      }
+    };
+
     foot.append(
       status,
       h("a", { class: "btn secondary", href: `#create-test/${encodeURIComponent(test.id)}` }, "Редактировать"),
       test.status === "published"
         ? h("a", { class: "btn primary", href: `#launch/${encodeURIComponent(test.id)}` }, "Запустить")
         : null,
-      h("a", { class: "btn secondary", href: `#quiz/${encodeURIComponent(test.id)}` }, "Открыть")
+      h("a", { class: "btn secondary", href: `#quiz/${encodeURIComponent(test.id)}` }, "Открыть"),
+      h("button", { type: "button", class: "btn secondary danger-text", onclick: onDelete, title: "Удалить тест" }, "Удалить")
     );
   } else {
     foot.append(status, h("a", {

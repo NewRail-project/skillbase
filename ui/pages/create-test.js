@@ -6,17 +6,13 @@ import {
 import { State, isAdmin } from "../../core/auth.js";
 import { serializeTest } from "../../core/import/serializer.js";
 import { authErrorMessage } from "../../shared/errors.js";
-import { icons } from "../../shared/icons.js";
-import { toast } from "../components/toast.js";
-import { formFromSettings, mergeSettings } from "../../core/settings.js";
-import {
-  loadMaterial, saveMaterial
-} from "../../core/materials.js";
-import {
-  pageFillRatio, pageTextLength, IMAGE_MAX_BYTES, IMAGE_MAX_DIM, CALLOUT_KINDS,
-  paginateText, validatePage
-} from "../../core/material-logic.js";
+import { canDeleteTest, deletionPlan, explainDeleteError } from "../../core/test-delete-logic.js";
+import { deleteTest } from "../../core/editor.js";
+import { listAssignments } from "../../core/attempts.js";
+import { getDocs, query, collection, db, where } from "../../shared/firebase.js";
 import { confirmAction } from "../components/confirm.js";
+import { toast } from "../components/toast.js";
+import { icons } from "../../shared/icons.js";
 
 const EXAMPLE = `1. Какой сигнал разрешает движение?
 A) Красный
@@ -601,9 +597,59 @@ export default async function CreateTestPage() {
     };
   }
 
+  const deleteBtn = h("button", { type: "button", class: "btn secondary danger-text", style: "margin-left:auto" }, "Удалить тест");
+  deleteBtn.style.display = editId ? "" : "none";
+
+  deleteBtn.onclick = async () => {
+    const test = editing;
+    const can = canDeleteTest(test, { uid: State.user.uid, role: State.profile.role, orgId: State.profile.orgId });
+    if (!can.allowed) {
+      toast(can.reason, "error");
+      return;
+    }
+
+    let assignments = [];
+    try { assignments = await listAssignments(State.profile.orgId); } catch (_) {}
+
+    let rooms = [];
+    try {
+      const rSnap = await getDocs(query(
+        collection(db, "rooms"),
+        where("testId", "==", test.id),
+        where("hostId", "==", State.user.uid)
+      ));
+      rooms = rSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (_) {}
+
+    const plan = deletionPlan({ test, session: { uid: State.user.uid, role: State.profile.role }, assignments, rooms });
+
+    const details = [];
+    if (plan.closeAssignmentIds.length) details.push(h("p", { class: "warning-msg" }, `Будет закрыто активных заданий: ${plan.closeAssignmentIds.length}`));
+    if (plan.closeRoomCodes.length) details.push(h("p", { class: "warning-msg" }, `Будет закрыто активных Live-комнат: ${plan.closeRoomCodes.length}`));
+
+    const ok = await confirmAction({
+      title: `Удалить тест «${test.title}»?`,
+      text: "Тест будет скрыт из каталога. Статистика и результаты сохранятся.",
+      details,
+      confirmLabel: "Удалить",
+      tone: "danger"
+    });
+
+    if (ok) {
+      try {
+        await deleteTest(test.id, plan);
+        toast("Тест удалён", "success");
+        window.location.hash = "#tests";
+      } catch (err) {
+        toast(explainDeleteError(err), "error");
+      }
+    }
+  };
+
   const actions = h("div", { class: "btn-row", hidden: "hidden" },
     h("button", { type: "button", class: "btn secondary", id: "save-btn" }, saveLabel),
-    h("button", { type: "button", class: "btn primary", id: "publish-btn" }, "Опубликовать")
+    h("button", { type: "button", class: "btn primary", id: "publish-btn" }, "Опубликовать"),
+    deleteBtn
   );
 
   const editor = h("form", { class: "panel", novalidate: "novalidate", onsubmit: (event) => event.preventDefault() },

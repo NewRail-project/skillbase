@@ -132,6 +132,8 @@ export default async function LaunchPage() {
   modeManual.addEventListener("change", syncMode);
   syncMode();
 
+  let creatingRoom = false;
+
   grid.appendChild(modeCard({
     title: "Live-комната",
     lead: "Участники входят по QR или коду и выбирают роль: участник проходит тест на своём телефоне, наблюдатель видит рейтинг и ход теста.",
@@ -144,13 +146,16 @@ export default async function LaunchPage() {
     button: roomBtn,
     extra: roomMessage,
     onclick: async () => {
+      if (creatingRoom) return;
+      creatingRoom = true;
       roomMessage.textContent = "";
       roomMessage.className = "form-hint";
       roomBtn.disabled = true;
-      roomBtn.textContent = "Создаём…";
+      roomBtn.textContent = "Создаём комнату…";
+
       try {
         const auto = modeAuto.checked;
-        const code = await createRoom({
+        const roomData = {
           test,
           profile: State.profile,
           mode: auto ? LIVE_MODE_AUTO : LIVE_MODE_MANUAL,
@@ -160,14 +165,24 @@ export default async function LaunchPage() {
             speedBonus: speedInput.checked,
             showLeaderboard: boardInput.checked
           } : {}
-        });
+        };
+
+        // Сохраняем данные комнаты в sessionStorage и State для мгновенного перехода
+        try {
+          sessionStorage.setItem("sb:roomData", JSON.stringify(roomData));
+          State.pendingRoom = roomData;
+        } catch (e) {
+          console.warn("Не удалось сохранить данные комнаты для мгновенного перехода:", e);
+        }
+
+        const code = await createRoom(roomData);
         toast(`Комната открыта. Код: ${code}`, "success");
         window.location.hash = `#room/${code}`;
       } catch (err) {
         console.error("Live-комната:", err);
         roomMessage.textContent = errorBody(err, "Не удалось создать комнату.");
         roomMessage.className = "form-error";
-      } finally {
+        creatingRoom = false;
         roomBtn.disabled = false;
         roomBtn.textContent = "Открыть Live-комнату";
       }

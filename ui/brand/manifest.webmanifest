@@ -2,6 +2,7 @@
   "name": "Skillbase",
   "short_name": "Skillbase",
   "description": "Корпоративная платформа обучения и проверки знаний для железнодорожной отрасли.",
+  "id": "/skillbase/",
   "start_url": "/skillbase/",
   "scope": "/skillbase/",
   "display": "standalone",

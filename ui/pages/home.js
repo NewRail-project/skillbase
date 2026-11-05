@@ -1,7 +1,11 @@
 import { h } from "../../shared/dom.js";
 import { State, isStaff } from "../../core/auth.js";
-import { listMyAttempts, listOrgAttempts, countMyAttemptsByStatus, countOrgAttempts, countOrgAttemptsByStatus } from "../../core/attempts.js";
-import { listMyTests, countPublishedTests, countMyTests, countMyTestsByStatus } from "../../core/editor.js";
+import { listMyAttempts, listOrgAttempts, countMyAttemptsByStatus, countOrgAttempts, countOrgAttemptsByStatus, listAssignments } from "../../core/attempts.js";
+import { listMyTests, countPublishedTests, countMyTests, countMyTestsByStatus, deleteTest } from "../../core/editor.js";
+import { canDeleteTest, deletionPlan, explainDeleteError } from "../../core/test-delete-logic.js";
+import { getDocs, query, collection, db, where } from "../../shared/firebase.js";
+import { confirmAction } from "../../ui/components/confirm.js";
+import { toast } from "../../ui/components/toast.js";
 import { getStudentAssignments } from "../../core/assign.js";
 import { icons } from "../../shared/icons.js";
 import { railScene } from "../../ui/components/brand.js";
@@ -505,14 +509,70 @@ function renderStaffHome(page, profile) {
       setHeroStat("published", published);
       tTests.set(total, `опубликовано: ${published}`);
 
-      fillPanel(testsPanel, tests.map(t => row({
-        dot: t.status === "published" ? "ok" : "muted",
-        title: t.title || "Без названия",
-        sub: `${(t.questions || []).length} вопросов · ${formatDate(t.updatedAt)}`,
-        end: h("span", { class: "badge " + (t.status === "published" ? "badge-success" : "badge-warning") },
-          t.status === "published" ? "Опубликован" : "Черновик"),
-        href: "#create-test/" + encodeURIComponent(t.id)
-      })), {
+      fillPanel(testsPanel, tests.map(t => {
+        const onDelete = async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const can = canDeleteTest(t, { uid: State.user.uid, role: State.profile.role, orgId: State.profile.orgId });
+          if (!can.allowed) { toast(can.reason, "error"); return; }
+
+          let assignments = [];
+          try { assignments = await listAssignments(profile.orgId); } catch (_) {}
+
+          let rooms = [];
+          try {
+            const rSnap = await getDocs(query(
+              collection(db, "rooms"),
+              where("testId", "==", t.id),
+              where("hostId", "==", State.user.uid)
+            ));
+            rooms = rSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+          } catch (_) {}
+
+          const plan = deletionPlan({ test: t, session: { uid: State.user.uid, role: State.profile.role }, assignments, rooms });
+          const details = [];
+          if (plan.closeAssignmentIds.length) details.push(h("p", { class: "warning-msg" }, `Будет закрыто активных заданий: ${plan.closeAssignmentIds.length}`));
+          if (plan.closeRoomCodes.length) details.push(h("p", { class: "warning-msg" }, `Будет закрыто активных Live-комнат: ${plan.closeRoomCodes.length}`));
+
+          const ok = await confirmAction({
+            title: `Удалить тест «${t.title}»?`,
+            text: "Тест будет скрыт из каталога. Результаты сохранятся.",
+            details,
+            confirmLabel: "Удалить",
+            tone: "danger"
+          });
+
+          if (ok) {
+            try {
+              await deleteTest(t.id, plan);
+              toast("Тест удалён", "success");
+              window.location.reload();
+            } catch (err) {
+              toast(explainDeleteError(err), "error");
+            }
+          }
+        };
+
+        const delBtn = h("button", {
+          type: "button",
+          class: "btn-icon danger-text",
+          title: "Удалить тест",
+          onclick: onDelete,
+          style: "margin-left:var(--space-2);padding:0;min-height:0;border:0;background:transparent"
+        }, h("span", { style: "font-size:1.2em" }, "×"));
+
+        return row({
+          dot: t.status === "published" ? "ok" : "muted",
+          title: t.title || "Без названия",
+          sub: `${(t.questions || []).length} вопросов · ${formatDate(t.updatedAt)}`,
+          end: h("div", { style: "display:flex;align-items:center" },
+            h("span", { class: "badge " + (t.status === "published" ? "badge-success" : "badge-warning") },
+              t.status === "published" ? "Опубликован" : "Черновик"),
+            delBtn
+          ),
+          href: "#create-test/" + encodeURIComponent(t.id)
+        });
+      }), {
         emptyText: "Вы ещё не создали ни одного теста.",
         emptyAction: { href: "#create-test", label: "Создать тест" }
       });

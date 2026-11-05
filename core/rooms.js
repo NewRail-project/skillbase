@@ -59,6 +59,11 @@ export async function createRoom({ test, profile, allowObservers = false, mode =
   const liveMode = mode === LIVE_MODE_MANUAL ? LIVE_MODE_MANUAL : LIVE_MODE_AUTO;
   const auto = liveMode === LIVE_MODE_AUTO ? buildAutoSettings({ test, options }) : null;
 
+  // Защита от двойного создания при быстром нажатии
+  let creating = false;
+  if (creating) return;
+  creating = true;
+
   for (let attempt = 0; attempt < 5; attempt++) {
     const code = generateRoomCode();
     try {

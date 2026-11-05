@@ -2,7 +2,8 @@ import { h } from "../../shared/dom.js";
 import { buildAttemptOrder } from "../../core/shuffle.js";
 import { State, isStaff } from "../../core/auth.js";
 import { getGuestName } from "../../core/guest.js";
-import { loadTest } from "../../core/editor.js";
+import { loadTest, splitForStorage } from "../../core/editor.js";
+import { scoreAttempt } from "../../core/scoring.js";
 import {
   startAttempt,
   saveAttemptAnswers,
@@ -156,12 +157,16 @@ export default async function QuizPage() {
 
   const page = h("div", { class: "page" });
   const content = h("div");
-  const back = h("a", { class: "btn secondary", href: "#tests" }, "К каталогу");
   let submitting = false;
 
   const parts = (State.routeParam || "").split("/");
   const testId = decodeURIComponent(parts[0] || "");
   const assignmentId = decodeURIComponent(parts[1] || "");
+  // #trial/<testId> — пробное прохождение преподавателем: тот же файл,
+  // отдельный маршрут (роли проверяет роутер: только staff).
+  const trial = State.route === "trial";
+  const back = h("a", { class: "btn secondary", href: trial ? `#quiz/${encodeURIComponent(testId)}` : "#tests" },
+    trial ? "К странице теста" : "К каталогу");
 
   if (!testId) {
     page.append(errorPanel("Тест не указан", "Откройте тест из каталога или списка заданий.", back));
@@ -298,8 +303,10 @@ export default async function QuizPage() {
   }
 
   // Добровольное чтение перед тестом (обычный тест с книгой-материалом).
+  // Кнопка «Прочитать материал» — преподавателю и ученику при наличии
+  // книги; чтение идёт в готовой читалке (#material/<id>/free).
   let canReadMaterial = false;
-  if (!staff && !needMaterialRead) {
+  if (!needMaterialRead) {
     canReadMaterial = await hasMaterial(test.id);
   }
 
@@ -361,13 +368,33 @@ export default async function QuizPage() {
 
   page.appendChild(h("div", { class: "page-head" },
     h("div", {},
-      h("div", { class: "eyebrow" }, "Тест"),
+      h("div", { class: "eyebrow" }, trial ? "Пробное прохождение" : "Тест"),
       h("h1", {}, test.title || "Без названия"),
       test.description ? h("p", { class: "page-sub" }, test.description) : null
     ),
     h("div", { class: "page-head-actions" }, back)
   ));
   page.appendChild(content);
+
+  if (trial) {
+    // Пробное прохождение: преподаватель отвечает как студент, но попытка
+    // существует только в памяти этой страницы. Firestore не пишется:
+    // ни attempts, ни activeAttempts — значит, история результатов,
+    // рейтинг и аналитика остаются нетронутыми, а материал книги остаётся
+    // открытым (маркер активной попытки не ставится).
+    if (!staff) {
+      page.append(errorPanel("Пробный режим недоступен",
+        "Пройти тест как студент может только преподаватель.", back));
+      return page;
+    }
+    openRunner({
+      id: `trial-${test.id}`,
+      answers: {},
+      startedAt: new Date(),
+      status: "in_progress"
+    }, { trial: true });
+    return page;
+  }
 
   if (staff) {
     renderStaffIntro();
@@ -528,9 +555,18 @@ export default async function QuizPage() {
       h("div", { class: "section-title" }, h("h2", {}, "Действия преподавателя")),
       h("div", { class: "btn-row" },
         h("a", { class: "btn primary", href: `#create-test/${encodeURIComponent(test.id)}` }, "Открыть редактор"),
+        // Пробное прохождение: интерфейс ученика, попытка только в памяти.
+        h("a", { class: "btn secondary", href: `#trial/${encodeURIComponent(test.id)}` }, "Пройти тест как студент"),
         h("a", { class: "btn secondary", href: "#results" }, "Результаты")
       )
     );
+
+    // Книга-материал: чтение в режиме читалки, не в редакторе.
+    if (canReadMaterial) {
+      actions.append(h("div", { class: "btn-row" },
+        h("a", { class: "btn secondary", href: `#material/${encodeURIComponent(test.id)}/free` },
+          "Прочитать материал")));
+    }
 
     if (test.status === "published") {
       actions.append(
@@ -669,7 +705,9 @@ export default async function QuizPage() {
 
       actions.append(h("div", { class: "btn-row" }, startBtn));
 
-      if (canReadMaterial && !blocked) {
+      // Книга-материал доступна и когда попытки исчерпаны: чтение не
+      // расходует попытки и не зависит от задания.
+      if (canReadMaterial) {
         actions.append(h("div", { class: "btn-row" },
           h("a", { class: "btn secondary", href: `#material/${encodeURIComponent(test.id)}/free` },
             "Прочитать материал перед тестом")));
@@ -758,7 +796,7 @@ export default async function QuizPage() {
 
   // ---------- Прохождение ----------
 
-  function openRunner(attempt) {
+  function openRunner(attempt, { trial = false } = {}) {
     submitting = false;
     if (unloadHandler) {
       window.removeEventListener("beforeunload", unloadHandler);
@@ -779,7 +817,9 @@ export default async function QuizPage() {
     const storedAnswers = attempt.answers && typeof attempt.answers === "object"
       ? attempt.answers
       : {};
-    const local = readLocal(attempt.id);
+    // Пробная попытка существует только в памяти: ни localStorage, ни
+    // Firestore — перезагрузка страницы просто начинает пробный тест заново.
+    const local = trial ? null : readLocal(attempt.id);
 
     const current = {
       attempt,
@@ -788,8 +828,9 @@ export default async function QuizPage() {
       startedAt: toDate(attempt.startedAt)?.getTime() || Date.now()
     };
 
-    // Перемешивание только для учеников; ответы хранятся по исходным индексам.
-    const order = buildAttemptOrder(questions, settings, attempt.id, !staff);
+    // Перемешивание: ученику и преподавателю в пробном режиме — одинаково,
+    // по настройкам теста. Ответы хранятся по исходным индексам.
+    const order = buildAttemptOrder(questions, settings, attempt.id, !staff || trial);
 
     const limitMs = calcAttemptDeadlineMs({
       startedMs: toDate(attempt.startedAt)?.getTime() || Date.now(),
@@ -799,10 +840,12 @@ export default async function QuizPage() {
     });
     current.deadlineMs = limitMs;
 
-    if (!staff) writeLocal(attempt.id, current.answers);
+    if (!staff && !trial) writeLocal(attempt.id, current.answers);
 
     content.textContent = "";
-    const saveState = h("div", { class: "form-hint", role: "status", "aria-live": "polite" }, "Ответы сохраняются автоматически");
+    const saveState = h("div", { class: "form-hint", role: "status", "aria-live": "polite" },
+      trial ? "Пробный режим: ответы не сохраняются и никуда не отправляются"
+        : "Ответы сохраняются автоматически");
     const errorBox = h("div", { class: "form-error", role: "alert" });
     const timerEl = h("span", { class: "badge badge-neutral" }, "—");
     const progressBar = h("div", { class: "progress-bar" });
@@ -812,13 +855,15 @@ export default async function QuizPage() {
     const confirmBar = h("div", { class: "notice" });
     confirmBar.hidden = true;
     const confirmText = h("p", { style: "margin:0 0 var(--space-3)" });
-    const confirmYes = h("button", { type: "button", class: "btn primary" }, "Отправить ответы");
+    const confirmYes = h("button", { type: "button", class: "btn primary" },
+      trial ? "Завершить и показать результат" : "Отправить ответы");
     const confirmNo = h("button", { type: "button", class: "btn secondary" }, "Вернуться к вопросам");
     confirmBar.append(confirmText, h("div", { class: "btn-row" }, confirmYes, confirmNo));
 
     const backBtn = h("button", { type: "button", class: "btn secondary" }, "Назад");
     const nextBtn = h("button", { type: "button", class: "btn secondary" }, "Далее");
-    const finishBtn = h("button", { type: "button", class: "btn primary" }, "Проверить и отправить");
+    const finishBtn = h("button", { type: "button", class: "btn primary" },
+      trial ? "Завершить пробный тест" : "Проверить и отправить");
 
     const runner = h("section", { class: "panel" },
       h("div", { class: "panel-head" },
@@ -872,6 +917,9 @@ export default async function QuizPage() {
     }
 
     function persistNow() {
+      // Пробный режим: сохранять некуда и нечего — попытка не существует
+      // ни в Firestore, ни в localStorage.
+      if (trial) return Promise.resolve();
       if (submitting) return savePromise;
       const snapshot = { ...current.answers };
       writeLocal(current.attempt.id, snapshot);
@@ -888,6 +936,7 @@ export default async function QuizPage() {
     }
 
     function queueSave() {
+      if (trial) return;
       // После начала отправки новые автосохранения не нужны: они могли бы
       // прийти уже после перехода в submitted и получить отказ правил.
       if (submitting) return;
@@ -900,6 +949,7 @@ export default async function QuizPage() {
     }
 
     flushSave = () => {
+      if (trial) return Promise.resolve();
       if (saveTimer) {
         clearTimeout(saveTimer);
         saveTimer = null;
@@ -908,13 +958,15 @@ export default async function QuizPage() {
       return persistNow();
     };
 
-    unloadHandler = (event) => {
-      if (submitting) return;
-      event.preventDefault();
-      event.returnValue = "";
-      flushSave();
-    };
-    window.addEventListener("beforeunload", unloadHandler);
+    if (!trial) {
+      unloadHandler = (event) => {
+        if (submitting) return;
+        event.preventDefault();
+        event.returnValue = "";
+        flushSave();
+      };
+      window.addEventListener("beforeunload", unloadHandler);
+    }
 
     function renderPalette() {
       palette.textContent = "";
@@ -1042,7 +1094,9 @@ export default async function QuizPage() {
       questionBox.append(
         headLine,
         h("h2", { style: "margin-top:var(--space-2)" }, question.text || "Вопрос без текста"),
-        question.explanation && staff
+        // Пояснение вопроса видит только редактор; в пробном режиме —
+        // паритет с учеником.
+        question.explanation && staff && !trial
           ? h("p", { class: "muted" }, question.explanation)
           : null
       );
@@ -1209,7 +1263,9 @@ export default async function QuizPage() {
       const answered = questions.reduce((count, _, index) => (
         count + (isAnswered(current.answers[String(index)]) ? 1 : 0)
       ), 0);
-      confirmText.textContent = `Отправлено будет ${answered} из ${questions.length} ответов. После отправки изменить их нельзя.`;
+      confirmText.textContent = trial
+        ? `Ответов отмечено: ${answered} из ${questions.length}. Пробная попытка никуда не отправляется — результат будет показан сразу.`
+        : `Отправлено будет ${answered} из ${questions.length} ответов. После отправки изменить их нельзя.`;
       confirmBar.hidden = false;
       confirmBar.scrollIntoView({ behavior: "smooth", block: "nearest" });
     });
@@ -1270,6 +1326,21 @@ export default async function QuizPage() {
       backBtn.disabled = true;
       nextBtn.disabled = true;
       confirmYes.disabled = true;
+
+      // Пробный режим: ни одной записи в Firestore. Результат считается
+      // локально по ключам теста, которые loadTest уже слил сотруднику
+      // (правила разрешают staff организации читать testKeys).
+      if (trial) {
+        submitting = false;
+        if (unloadHandler) {
+          window.removeEventListener("beforeunload", unloadHandler);
+          unloadHandler = null;
+        }
+        flushSave = null;
+        renderTrialResult({ expire, answers: current.answers });
+        return;
+      }
+
       setSaveState(expire ? "Время истекло. Попытка будет помечена просроченной…"
         : auto ? "Время истекло. Отправляем…" : "Отправляем…");
 
@@ -1312,5 +1383,53 @@ export default async function QuizPage() {
 
     renderQuestion();
     startTimer();
+  }
+
+  // ---------- Пробное прохождение: локальный результат ----------
+
+  // Экран завершения пробной попытки. Оценка считается в браузере: ключи
+  // уже в памяти (loadTest сливает testKeys сотруднику организации —
+  // это разрешено правилами Firestore и не требует новых чтений).
+  // В Firestore пробная попытка не пишется вовсе: истории результатов,
+  // рейтинга и аналитики она не касается.
+  function renderTrialResult({ expire = false, answers = {} } = {}) {
+    const keys = splitForStorage(test).keys;
+    const { score, total, percent } = scoreAttempt(keys, answers);
+    const passed = settings.passScore != null ? percent >= Number(settings.passScore) : null;
+
+    const retryBtn = h("button", { type: "button", class: "btn primary" }, "Пройти ещё раз");
+    retryBtn.addEventListener("click", () => {
+      openRunner({
+        id: `trial-${test.id}`,
+        answers: {},
+        startedAt: new Date(),
+        status: "in_progress"
+      }, { trial: true });
+    });
+
+    content.textContent = "";
+    content.append(
+      h("section", { class: "panel" },
+        h("div", { class: "section-title" },
+          h("h2", {}, "Результат пробного прохождения"),
+          h("span", { class: "badge " + (passed === true ? "badge-success" : passed === false ? "badge-danger" : "badge-neutral") },
+            passed === true ? "Пройден" : passed === false ? "Не пройден" : "Завершён")
+        ),
+        h("p", { style: "font-size:1.5rem;margin:8px 0" }, `${score} из ${total} · ${percent}%`),
+        settings.passScore != null
+          ? h("p", { class: "muted" }, `Проходной балл: ${settings.passScore}%.`)
+          : null,
+        expire ? h("p", { class: "muted" }, "Время на прохождение истекло — завершено автоматически.") : null,
+        h("p", { class: "muted" },
+          "Пробная попытка нигде не сохраняется: в истории результатов, рейтинге и аналитике её нет.")
+      ),
+      h("section", { class: "panel" },
+        h("div", { class: "btn-row" },
+          retryBtn,
+          h("a", { class: "btn secondary", href: `#create-test/${encodeURIComponent(test.id)}` }, "К редактору"),
+          h("a", { class: "btn secondary", href: `#quiz/${encodeURIComponent(test.id)}` }, "К странице теста")
+        )
+      )
+    );
   }
 }

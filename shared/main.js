@@ -37,11 +37,16 @@ function initThemeToggle() {
   });
 }
 
-// Перерисовываем страницу только при смене пользователя или данных профиля.
+// Перерисовываем страницу только при смене пользователя или статуса профиля.
+// Промежуточный "loading" схлопнут с "idle": скелет уже на экране, лишний
+// проход роутера между ними только мигает. Обычные поля профиля (ФИО,
+// должность, отдел) в ключе не участвуют: их сохранение не должно
+// перерисовывать всю страницу — имя и аватар в боковой панели обновляет
+// mountSidebar() при каждом notify, а форма профиля уже содержит введённое.
 // Смена темы и скина применяется к уже отрисованной странице через CSS.
 function renderKey() {
-  const p = State.profile || {};
-  return [State.user?.uid || "guest", State.profileStatus, p.fullName || "", p.position || "", p.department || ""].join("|");
+  const status = State.profileStatus === "loading" ? "idle" : State.profileStatus;
+  return [State.user?.uid || "guest", status].join("|");
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -72,17 +77,76 @@ document.addEventListener("DOMContentLoaded", () => {
     mountSidebar();
   });
 
-  // Service Worker регистрируем после load: регистрация не конкурирует за
-  // сеть с критическими ресурсами первого запуска. Относительный путь
-  // "sw.js" даёт /skillbase/sw.js на GitHub Pages и корректный scope
-  // /skillbase/ — и локально, и в подкаталоге.
+  // Service Worker и согласованное обновление.
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
-      navigator.serviceWorker.register("sw.js").catch((err) => {
+      navigator.serviceWorker.register("sw.js").then((reg) => {
+        // Проверка наличия новой версии при загрузке.
+        if (reg.waiting) {
+          notifyUpdate(reg.waiting);
+        }
+
+        // Следим за появлением обновлений в процессе работы.
+        reg.addEventListener("updatefound", () => {
+          const worker = reg.installing;
+          worker.addEventListener("statechange", () => {
+            if (worker.state === "installed" && navigator.serviceWorker.controller) {
+              notifyUpdate(worker);
+            }
+          });
+        });
+      }).catch((err) => {
         console.warn("Service Worker не зарегистрирован:", err);
+      });
+
+      // Перезагружаем страницу, когда новый SW берёт управление.
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (!refreshing) {
+          refreshing = true;
+          window.location.reload();
+        }
       });
     });
   }
 
   document.body.classList.add("ready");
 });
+
+/**
+ * Уведомление об обновлении. Не показываем во время теста или Live-комнаты,
+ * чтобы не отвлекать и не прерывать процесс.
+ */
+function notifyUpdate(worker) {
+  const hash = window.location.hash;
+  const critical = hash.startsWith("#room/") || hash.startsWith("#quiz/") || hash.startsWith("#trial/");
+  if (critical) {
+    // Ждём смены хеша на безопасный и пробуем снова.
+    const once = () => {
+      const nextHash = window.location.hash;
+      const stillCritical = nextHash.startsWith("#room/") || nextHash.startsWith("#quiz/") || nextHash.startsWith("#trial/");
+      if (!stillCritical) {
+        window.removeEventListener("hashchange", once);
+        notifyUpdate(worker);
+      }
+    };
+    window.addEventListener("hashchange", once);
+    return;
+  }
+
+  // Используем confirmAction (модалка) или toast с кнопкой.
+  // Пользователь просил «Понятное уведомление» и «Кнопка Перезагрузить».
+  // Импортируем динамически, чтобы не раздувать main.js.
+  import("../ui/components/confirm.js").then(({ confirmAction }) => {
+    confirmAction({
+      title: "Доступно обновление",
+      text: "Skillbase обновился. Перезагрузить страницу, чтобы применить изменения?",
+      confirmLabel: "Перезагрузить",
+      cancelLabel: "Позже"
+    }).then((ok) => {
+      if (ok) {
+        worker.postMessage("SKIP_WAITING");
+      }
+    });
+  });
+}

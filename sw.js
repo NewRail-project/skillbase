@@ -11,7 +11,7 @@
 // при каждой публикации: старый кэш удаляется целиком на активации, поэтому
 // старые и новые JS-модули не смешиваются.
 
-const CACHE_VERSION = 'v1.0.0.20261105123206';
+const CACHE_VERSION = 'v1.0.0.20261106010656';
 const CACHE_NAME = `skillbase-${CACHE_VERSION}`;
 const OFFLINE_URL = './index.html';
 
@@ -24,6 +24,8 @@ const PRECACHE_URLS = [
   './index.html',
   './ui/brand/manifest.webmanifest',
   './ui/brand/favicon.svg',
+  './ui/brand/icon-192.png',
+  './ui/brand/icon-512.png',
   './ui/css/tokens.css',
   './ui/css/themes/education.css',
   './ui/css/themes/operations.css',
@@ -50,6 +52,8 @@ const PRECACHE_URLS = [
   './ui/components/footer.js',
   './ui/components/loading.js',
   './ui/components/confirm.js',
+  './ui/components/modal.js',
+  './ui/components/toast.js',
   './ui/components/brand.js',
   './ui/pages/home.js',
   './ui/pages/404.js'
@@ -72,6 +76,7 @@ self.addEventListener('install', (event) => {
 // Активация: удаляем кэши прошлых версий. Без skipWaiting: новый SW
 // ждёт закрытия старых вкладок, чтобы старая страница не осталась работать
 // поверх новых модулей (смешивание версий JS недопустимо).
+// skipWaiting вызывается только явно через сообщение от пользователя.
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const names = await caches.keys();
@@ -82,6 +87,13 @@ self.addEventListener('activate', (event) => {
     );
     await self.clients.claim();
   })());
+});
+
+// Согласованное обновление: ждём команды skipWaiting от клиента.
+self.addEventListener('message', (event) => {
+  if (event.data === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 // Приватные маршруты того же источника, которые кэшировать нельзя даже

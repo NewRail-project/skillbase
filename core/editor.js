@@ -4,7 +4,7 @@
 
 import {
   auth, db, doc, collection, getDoc, getDocs, setDoc, updateDoc, addDoc,
-  query, where, serverTimestamp, orderBy, limit, getCountFromServer
+  query, where, serverTimestamp, orderBy, limit, getCountFromServer, writeBatch
 } from "../shared/firebase.js";
 import { State, isStaff } from "./auth.js";
 import { parseQuiz } from "./import/parser.js";
@@ -340,7 +340,10 @@ export function validateTestForPublish(test) {
 export async function listMyTests(uid, orgId, role = "teacher", { limit: maxLimit = null } = {}) {
   if (!uid || !orgId) throw new Error("Не определены пользователь или организация.");
 
-  const constraints = [where("orgId", "==", orgId)];
+  const constraints = [
+    where("orgId", "==", orgId),
+    where("status", "!=", "deleted")
+  ];
 
   if (role !== "admin") {
     constraints.push(where("authorId", "==", uid));
@@ -410,7 +413,10 @@ export async function countPublishedTests(orgId) {
 
 // Точное число тестов автора/организации (для плиток статистики).
 export async function countMyTests(uid, orgId, role = "teacher") {
-  const constraints = [where("orgId", "==", orgId)];
+  const constraints = [
+    where("orgId", "==", orgId),
+    where("status", "!=", "deleted")
+  ];
   if (role !== "admin") constraints.push(where("authorId", "==", uid));
   const snap = await getCountFromServer(query(collection(db, "tests"), ...constraints));
   return snap.data().count;
@@ -433,4 +439,41 @@ export async function setTestStatus(testId, status) {
     status,
     updatedAt: serverTimestamp()
   });
+}
+
+/**
+ * Удаление теста: переводит в статус DELETED_STATUS, закрывает активные
+ * задания и Live-комнаты автора согласно плану.
+ */
+export async function deleteTest(testId, plan = {}) {
+  const batch = writeBatch(db);
+
+  // 1. Статус теста
+  batch.update(doc(db, "tests", testId), {
+    status: "deleted",
+    updatedAt: serverTimestamp(),
+    "settings.showCorrectAfterQuestion": false
+  });
+
+  // 2. Закрытие заданий
+  if (plan.closeAssignmentIds?.length) {
+    plan.closeAssignmentIds.forEach(id => {
+      batch.update(doc(db, "assignments", id), {
+        status: "closed",
+        updatedAt: serverTimestamp()
+      });
+    });
+  }
+
+  // 3. Закрытие Live-комнат
+  if (plan.closeRoomCodes?.length) {
+    plan.closeRoomCodes.forEach(code => {
+      batch.update(doc(db, "rooms", String(code)), {
+        status: "closed",
+        updatedAt: serverTimestamp()
+      });
+    });
+  }
+
+  await batch.commit();
 }
