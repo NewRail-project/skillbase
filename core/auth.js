@@ -2,7 +2,7 @@ import {
   auth, db, signInWithEmailAndPassword, createUserWithEmailAndPassword,
   signOut, onAuthStateChanged, signInAnonymously, doc, getDoc, setDoc, updateDoc, serverTimestamp,
   GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
-  linkWithCredential
+  linkWithCredential, clearLocalFirestoreCache
 } from "../shared/firebase.js";
 import { applyThemeMode, getThemeMode } from "../shared/theme.js";
 import {
@@ -88,30 +88,33 @@ async function loadProfile(user) {
   State.initialProfileLoad = true;
 
   try {
-    const docSnap = await getDoc(doc(db, "users", user.uid));
+    // users и publicProfiles не зависят друг от друга: читаем параллельно,
+    // чтобы не платить два сетевых раунд-трипа на каждый вход (особенно
+    // заметно на мобильном интернете).
+    const [docSnap, pubSnap] = await Promise.all([
+      getDoc(doc(db, "users", user.uid)),
+      getDoc(doc(db, "publicProfiles", user.uid)).catch(pubErr => {
+        if (pubErr?.code !== "permission-denied") {
+          console.warn("Публичный профиль недоступен:", pubErr);
+        }
+        return null;
+      })
+    ]);
     if (token !== loadToken) return;
-    
+
     if (docSnap.exists()) {
       State.profile = normalizeProfile(docSnap.data(), user);
       State.profileStatus = "ready";
       // Аватар и публичное имя хранятся отдельно (publicProfiles):
-      // правило users не разрешает поле avatar. Ошибку чтения игнорируем —
-      // без аватара профиль остаётся рабочим.
+      // правило users не разрешает поле avatar. Ошибка чтения уже
+      // обработана выше — без аватара профиль остаётся рабочим.
       let publicName = null;
-      try {
-        const pub = await getDoc(doc(db, "publicProfiles", user.uid));
-        if (token !== loadToken) return;
-        if (pub.exists()) {
-          const pubData = pub.data();
-          if (pubData.avatar) State.profile.avatar = pubData.avatar;
-          if (pubData.displayName) {
-            State.profile.publicDisplayName = pubData.displayName;
-            publicName = pubData.displayName;
-          }
-        }
-      } catch (pubErr) {
-        if (pubErr.code !== "permission-denied") {
-          console.warn("Публичный профиль недоступен:", pubErr);
+      if (pubSnap && pubSnap.exists()) {
+        const pubData = pubSnap.data();
+        if (pubData.avatar) State.profile.avatar = pubData.avatar;
+        if (pubData.displayName) {
+          State.profile.publicDisplayName = pubData.displayName;
+          publicName = pubData.displayName;
         }
       }
 
@@ -146,18 +149,25 @@ async function loadProfile(user) {
   notify();
 }
 
-export async function initAuth() {
-  State.initialProfileLoad = true;
-  return new Promise((resolve) => {
-    let resolved = false;
-    const finish = (value) => {
-      if (resolved) return;
-      resolved = true;
-      resolve(value);
-    };
+let authStarted = false;
 
-    onAuthStateChanged(auth, async (user) => {
-      const first = !resolved;
+// Инициализация авторизации. НЕ блокирует запуск приложения: роутер стартует
+// сразу, а восстановление сессии и загрузка профиля идут в фоне. Пока сессия
+// не подтверждена (profileStatus === "idle"), роутер показывает скелет —
+// ни гостевой интерфейс, ни защищённые страницы не мелькают.
+// Повторный вызов не создаёт вторую подписку onAuthStateChanged.
+//
+// Профиль при первом событии (восстановление сессии) грузится здесь.
+// При явных входах (login, Google, гости, регистрация) профиль загружает
+// сама функция входа — дублирующий запрос не нужен.
+export function initAuth() {
+  if (authStarted) return initAuth._promise || Promise.resolve(State.user);
+  authStarted = true;
+  initAuth._promise = new Promise((resolve) => {
+    let first = true;
+    onAuthStateChanged(auth, (user) => {
+      const isFirstEvent = first;
+      first = false;
       State.user = user;
 
       if (!user) {
@@ -167,23 +177,21 @@ export async function initAuth() {
         State.profileError = null;
         applyTheme(DEFAULT_UI);
         State.initialProfileLoad = false;
-        if (!first) notify();
-        finish(null);
+        notify();
+        resolve(null);
         return;
       }
 
-      // На первом запуске ждём профиль до resolve, чтобы роутер не успел
-      // увести авторизованного пользователя обратно на #login.
-      if (first) {
-        await loadProfile(user);
-        finish(user);
-      } else {
-        // При повторной авторизации ждем загрузки профиля,
-        // чтобы роутер не сработал преждевременно
-        await loadProfile(user);
+      if (isFirstEvent) {
+        // Восстановление сессии: профиль загружается в фоне, подписка
+        // в main.js перерисует интерфейс, когда статус сменится на
+        // "ready"/"missing"/"error".
+        void loadProfile(user);
       }
+      resolve(user);
     });
   });
+  return initAuth._promise;
 }
 
 // Повторная загрузка профиля (кнопка «Повторить» при сетевой ошибке).
@@ -487,6 +495,11 @@ export async function logout() {
   State.profileError = null;
   applyTheme(DEFAULT_UI);
   notify();
+  // Приватные документы предыдущего пользователя (попытки, профиль) не должны
+  // оставаться в локальном кэше Firestore на общем устройстве. К моменту
+  // вызова страницы уже отключили свои подписки через cleanup, поэтому
+  // очистка обычно проходит. Не блокируем выход: ошибка только логируется.
+  void clearLocalFirestoreCache();
 }
 
 // С клиента меняется только тема/скин и личные поля. Роль и организацию

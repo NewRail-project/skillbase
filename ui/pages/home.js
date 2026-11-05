@@ -1,7 +1,7 @@
 import { h } from "../../shared/dom.js";
 import { State, isStaff } from "../../core/auth.js";
-import { listMyAttempts, listOrgAttempts } from "../../core/attempts.js";
-import { listMyTests, listPublishedTests } from "../../core/editor.js";
+import { listMyAttempts, listOrgAttempts, countMyAttemptsByStatus, countOrgAttempts, countOrgAttemptsByStatus } from "../../core/attempts.js";
+import { listMyTests, countPublishedTests, countMyTests, countMyTestsByStatus } from "../../core/editor.js";
 import { getStudentAssignments } from "../../core/assign.js";
 import { icons } from "../../shared/icons.js";
 import { railScene } from "../../ui/components/brand.js";
@@ -49,13 +49,92 @@ function hero({ eyebrow, title, lead, actions, stats }) {
 
   if (stats && stats.length) {
     section.appendChild(h("div", { class: "hero-stats" },
-      stats.map(s => h("div", { class: "hero-stat" },
-        h("b", {}, String(s.value)),
-        h("span", {}, s.label)
-      ))
+      stats.map(s => {
+        const value = h("b", {}, String(s.value));
+        // data-stat позволяет обновить цифру, когда данные догрузятся.
+        if (s.key) value.dataset.stat = s.key;
+        return h("div", { class: "hero-stat" }, value, h("span", {}, s.label));
+      })
     ));
   }
   return section;
+}
+
+// Плитка статистики, заполняемая по мере загрузки своего блока.
+// «—» означает «ещё считается», а не ноль: фиктивных цифр нет.
+function statTile(label, hint) {
+  const value = h("div", { class: "stat-value" }, "—");
+  const hintEl = h("div", { class: "stat-hint" }, hint || "");
+  const el = h("div", { class: "stat" },
+    value,
+    h("div", { class: "stat-label" }, label),
+    hintEl
+  );
+  return {
+    el,
+    set(v, nextHint) {
+      value.textContent = v === null ? "—" : String(v);
+      if (nextHint !== undefined) hintEl.textContent = nextHint;
+    }
+  };
+}
+
+// Строки-скелеты внутри панели, пока данные блока не пришли.
+function skeletonRows(n) {
+  return Array.from({ length: n }, () => h("div", { class: "list-row" },
+    h("div", { class: "list-row-main" },
+      h("div", { class: "skeleton", style: "height:14px;width:70%;margin-bottom:6px" }),
+      h("div", { class: "skeleton", style: "height:12px;width:40%" })
+    )
+  ));
+}
+
+// Заменяет скелет-строки панели на данные или empty-state.
+function fillPanel(panel, items, { emptyText, emptyAction }) {
+  panel.querySelector(".list")?.remove();
+  panel.querySelector(".empty-state")?.remove();
+  if (!items.length) {
+    panel.appendChild(h("div", { class: "empty-state" },
+      h("p", {}, emptyText),
+      emptyAction ? h("a", { class: "btn secondary", href: emptyAction.href }, emptyAction.label) : null
+    ));
+    return;
+  }
+  const list = h("div", { class: "list" });
+  items.forEach(item => list.appendChild(item));
+  panel.appendChild(list);
+}
+
+// Панель графика: скелет до данных, потом график или удаление панели.
+function chartPanelPlaceholder() {
+  return h("section", { class: "panel" },
+    h("div", { class: "section-title" }, h("h2", {}, "Динамика результатов")),
+    h("div", { class: "skeleton", style: "height:64px;margin-top:12px" })
+  );
+}
+
+function fillChartPanel(placeholder, attempts) {
+  const chart = resultChart(attempts);
+  if (!chart) {
+    placeholder.remove();
+    return;
+  }
+  placeholder.replaceWith(chart);
+}
+
+// Единый индикатор ошибок независимых блоков: каждый блок честно сообщает
+// о своей неудаче, не мешая остальным.
+function errorNotice() {
+  const failed = new Set();
+  const el = h("div", { class: "notice", role: "status", style: "display:none" });
+  return {
+    el,
+    fail(label) {
+      failed.add(label);
+      el.style.display = "";
+      el.textContent = "Не удалось загрузить: " + [...failed].join(", ") + ". Проверьте подключение к сети.";
+    }
+  };
 }
 
 function quickActions(items) {
@@ -134,106 +213,58 @@ function row({ dot, title, sub, end, href }) {
   return el;
 }
 
-async function loadStudentData(profile) {
-  const data = { assignments: [], tests: [], attempts: [], errors: [] };
+// ---------- Главная ученика: каркас сразу, данные — по мере готовности ----------
+//
+// Блоки грузятся независимо: попытки, задания и счётчик тестов не ждут
+// друг друга. Пока блок не готов, видны скелет и «—»; ошибки одного блока
+// не ломают остальные.
 
-  const tasks = [
-    (async () => {
-      if (!profile.groupId) return;
-      try { data.assignments = await getStudentAssignments(profile.groupId, profile.orgId); }
-      catch (e) { console.error("Задания:", e); data.errors.push("задания"); }
-    })(),
-    (async () => {
-      try { data.tests = await listPublishedTests(profile.orgId); }
-      catch (e) { console.error("Тесты:", e); data.errors.push("каталог тестов"); }
-    })(),
-    (async () => {
-      try { data.attempts = await listMyAttempts(profile.uid); }
-      catch (e) { console.error("Попытки:", e); data.errors.push("результаты"); }
-    })()
-  ];
-  await Promise.all(tasks);
-  return data;
-}
-
-async function loadStaffData(profile) {
-  const data = { tests: [], attempts: [], errors: [] };
-  await Promise.all([
-    (async () => {
-      try { data.tests = await listMyTests(profile.uid, profile.orgId, profile.role); }
-      catch (e) { console.error("Мои тесты:", e); data.errors.push("тесты"); }
-    })(),
-    (async () => {
-      try { data.attempts = await listOrgAttempts(profile.orgId); }
-      catch (e) { console.error("Попытки организации:", e); data.errors.push("результаты"); }
-    })()
-  ]);
-  return data;
-}
-
-function studentView(profile, data) {
-  const graded = data.attempts.filter(a => a.status === "graded" && a.total);
-  const avg = graded.length
-    ? Math.round(graded.reduce((sum, a) => sum + (a.score / a.total) * 100, 0) / graded.length)
-    : null;
-
-  const deadlines = data.assignments
-    .filter(a => a.deadline)
-    .map(a => ({ ...a, left: daysLeft(a.deadline) }))
-    .filter(a => a.left !== null)
-    .sort((a, b) => a.left - b.left)
-    .slice(0, 4);
-
+function renderStudentHome(page, profile) {
   const name = profile.fullName ? profile.fullName.split(" ")[0] : "коллега";
+  const errors = errorNotice();
+  const setHeroStat = (key, value) => {
+    const el = page.querySelector(`[data-stat="${key}"]`);
+    if (el) el.textContent = String(value);
+  };
 
-  return [
-    hero({
-      eyebrow: "Личный кабинет",
-      title: `Здравствуйте, ${name}`,
-      lead: "Продолжайте обучение с того места, где остановились. Ниже — задания, дедлайны и последние результаты.",
-      actions: [{ href: "#assignments", label: "Мои задания", cls: "btn primary" }],
-      stats: [
-        { value: data.tests.length, label: "доступных тестов" },
-        { value: graded.length, label: "пройдено" },
-        { value: avg === null ? "—" : avg + "%", label: "средний результат" }
-      ]
-    }),
+  const heroEl = hero({
+    eyebrow: "Личный кабинет",
+    title: `Здравствуйте, ${name}`,
+    lead: "Продолжайте обучение с того места, где остановились. Ниже — задания, дедлайны и последние результаты.",
+    actions: [{ href: "#assignments", label: "Мои задания", cls: "btn primary" }],
+    stats: [
+      { key: "tests", value: "—", label: "доступных тестов" },
+      { key: "graded", value: "—", label: "пройдено" },
+      { key: "avg", value: "—", label: "средний результат" }
+    ]
+  });
 
+  const tAssignments = statTile("активных заданий", "Загружаем…");
+  const tGraded = statTile("проверенных попыток", "Загружаем…");
+  const tAvg = statTile("средний результат", "Загружаем…");
+  const tDeadlines = statTile("ближайших дедлайнов", "Загружаем…");
+
+  const deadlinesPanel = listPanel({
+    title: "Ближайшие дедлайны",
+    items: skeletonRows(2),
+    emptyText: "Активных дедлайнов нет.",
+    emptyAction: { href: "#assignments", label: "Все задания" }
+  });
+  const chartPanel = chartPanelPlaceholder();
+  const recentPanel = listPanel({
+    title: "Недавние результаты",
+    items: skeletonRows(3),
+    emptyText: "Результатов пока нет. Первый пройденный тест появится здесь.",
+    emptyAction: { href: "#assignments", label: "К заданиям" }
+  });
+
+  page.append(
+    heroEl,
     h("section", { class: "stat-grid" },
-      h("div", { class: "stat" },
-        h("div", { class: "stat-value" }, String(data.assignments.length)),
-        h("div", { class: "stat-label" }, "активных заданий"),
-        h("div", { class: "stat-hint" }, data.assignments.length ? "Проверьте сроки" : "Пока нет назначений")
-      ),
-      h("div", { class: "stat" },
-        h("div", { class: "stat-value" }, String(graded.length)),
-        h("div", { class: "stat-label" }, "проверенных попыток"),
-        h("div", { class: "stat-hint" }, data.attempts.length ? `всего попыток: ${data.attempts.length}` : "Начните с первого теста")
-      ),
-      h("div", { class: "stat" },
-        h("div", { class: "stat-value" }, avg === null ? "—" : avg + "%"),
-        h("div", { class: "stat-label" }, "средний результат"),
-        h("div", { class: "stat-hint" }, avg === null ? "Появится после проверки" : avg >= 60 ? "Выше проходного уровня" : "Есть над чем поработать")
-      ),
-      h("div", { class: "stat" },
-        h("div", { class: "stat-value" }, String(deadlines.length)),
-        h("div", { class: "stat-label" }, "ближайших дедлайнов"),
-        h("div", { class: "stat-hint" }, deadlines.length ? "Не откладывайте" : "Свободный график")
-      )
+      tAssignments.el, tGraded.el, tAvg.el, tDeadlines.el
     ),
-
     h("div", { class: "split" },
-      listPanel({
-        title: "Ближайшие дедлайны",
-        items: deadlines.map(a => row({
-          dot: a.left <= 2 ? "warn" : "ok",
-          title: a.title || a.testTitle || "Назначенный тест",
-          sub: `Срок: ${formatDate(a.deadline)} · ${a.left <= 0 ? "просрочено" : `осталось ${a.left} дн.`}`,
-          end: h("a", { class: "btn secondary", href: `#quiz/${encodeURIComponent(a.testId)}/${encodeURIComponent(a.id)}` }, "Начать")
-        })),
-        emptyText: "Активных дедлайнов нет.",
-        emptyAction: { href: "#assignments", label: "Все задания" }
-      }),
+      deadlinesPanel,
       quickActions([
         { icon: icons.clipboard, label: "Задания", hint: "Назначенные тесты", href: "#assignments" },
         { icon: icons.book, label: "Каталог", hint: "Доступные тесты", href: "#tests" },
@@ -241,12 +272,31 @@ function studentView(profile, data) {
         { icon: icons.users, label: "Профиль", hint: "Данные и тема", href: "#profile" }
       ])
     ),
+    chartPanel,
+    recentPanel,
+    errors.el
+  );
 
-    resultChart(data.attempts),
+  // --- Попытки: точные счётчики + последние 12 для графика и списка ---
+  void (async () => {
+    try {
+      const [recent, gradedCount] = await Promise.all([
+        listMyAttempts(profile.uid, { limit: 12 }),
+        countMyAttemptsByStatus(profile.uid, "graded")
+      ]);
+      const graded = recent.filter(a => a.status === "graded" && a.total);
+      const avg = graded.length
+        ? Math.round(graded.reduce((sum, a) => sum + (a.score / a.total) * 100, 0) / graded.length)
+        : null;
 
-    listPanel({
-      title: "Недавние результаты",
-      items: data.attempts.slice(0, 5).map(a => {
+      setHeroStat("graded", gradedCount);
+      setHeroStat("avg", avg === null ? "—" : avg + "%");
+      tGraded.set(gradedCount, gradedCount ? "Продолжайте в том же ритме" : "Начните с первого теста");
+      tAvg.set(avg === null ? "—" : avg + "%",
+        avg === null ? "Появится после проверки" : avg >= 60 ? "по последним проверенным" : "Есть над чем поработать");
+
+      fillChartPanel(chartPanel, recent);
+      fillPanel(recentPanel, recent.slice(0, 5).map(a => {
         const percent = a.status === "graded" && a.total ? Math.round((a.score / a.total) * 100) : null;
         const inProgress = a.status === "in_progress";
         return row({
@@ -259,80 +309,124 @@ function studentView(profile, data) {
               : "badge-success")
           }, percent === null ? (inProgress ? "Не завершена" : "На проверке") : percent + "%")
         });
-      }),
-      emptyText: "Результатов пока нет. Первый пройденный тест появится здесь.",
-      emptyAction: { href: "#assignments", label: "К заданиям" }
-    }),
+      }), {
+        emptyText: "Результатов пока нет. Первый пройденный тест появится здесь.",
+        emptyAction: { href: "#assignments", label: "К заданиям" }
+      });
+    } catch (e) {
+      console.error("Попытки:", e);
+      errors.fail("результаты");
+      tGraded.set("—", "нет данных");
+      tAvg.set("—", "нет данных");
+      chartPanel.remove();
+      fillPanel(recentPanel, [], {
+        emptyText: "Результаты не загрузились. Проверьте подключение к сети.",
+        emptyAction: { href: "#assignments", label: "К заданиям" }
+      });
+    }
+  })();
 
-    data.errors.length
-      ? h("div", { class: "notice", role: "status" },
-          "Не удалось загрузить: " + data.errors.join(", ") + ". Проверьте подключение к сети.")
-      : null
-  ];
+  // --- Задания и дедлайны ---
+  void (async () => {
+    try {
+      const assignments = profile.groupId
+        ? await getStudentAssignments(profile.groupId, profile.orgId)
+        : [];
+      const deadlines = assignments
+        .filter(a => a.deadline)
+        .map(a => ({ ...a, left: daysLeft(a.deadline) }))
+        .filter(a => a.left !== null)
+        .sort((a, b) => a.left - b.left)
+        .slice(0, 4);
+
+      tAssignments.set(assignments.length, assignments.length ? "Проверьте сроки" : "Пока нет назначений");
+      tDeadlines.set(deadlines.length, deadlines.length ? "Не откладывайте" : "Свободный график");
+
+      fillPanel(deadlinesPanel, deadlines.map(a => row({
+        dot: a.left <= 2 ? "warn" : "ok",
+        title: a.title || a.testTitle || "Назначенный тест",
+        sub: `Срок: ${formatDate(a.deadline)} · ${a.left <= 0 ? "просрочено" : `осталось ${a.left} дн.`}`,
+        end: h("a", { class: "btn secondary", href: `#quiz/${encodeURIComponent(a.testId)}/${encodeURIComponent(a.id)}` }, "Начать")
+      })), {
+        emptyText: "Активных дедлайнов нет.",
+        emptyAction: { href: "#assignments", label: "Все задания" }
+      });
+    } catch (e) {
+      console.error("Задания:", e);
+      errors.fail("задания");
+      tAssignments.set("—", "нет данных");
+      tDeadlines.set("—", "нет данных");
+      fillPanel(deadlinesPanel, [], {
+        emptyText: "Задания не загрузились. Проверьте подключение к сети.",
+        emptyAction: { href: "#assignments", label: "Все задания" }
+      });
+    }
+  })();
+
+  // --- Каталог тестов: на главной нужен только точный счётчик ---
+  void (async () => {
+    try {
+      const total = await countPublishedTests(profile.orgId);
+      setHeroStat("tests", total);
+    } catch (e) {
+      console.error("Тесты:", e);
+      errors.fail("каталог тестов");
+    }
+  })();
 }
 
-function staffView(profile, data) {
-  const published = data.tests.filter(t => t.status === "published").length;
-  const graded = data.attempts.filter(a => a.status === "graded" && a.total);
-  const avg = graded.length
-    ? Math.round(graded.reduce((sum, a) => sum + (a.score / a.total) * 100, 0) / graded.length)
-    : null;
-  const pending = data.attempts.filter(a => a.status === "submitted").length;
+// ---------- Главная преподавателя/администратора ----------
 
-  return [
-    hero({
-      eyebrow: profile.role === "admin" ? "Администрирование" : "Кабинет преподавателя",
-      title: "Управление обучением",
-      lead: "Тесты, проверка результатов и аналитика по вашей организации — в одном месте.",
-      actions: [
-        { href: "#create-test", label: "Создать тест", cls: "btn primary" },
-        { href: "#results", label: "Результаты", cls: "btn secondary" }
-      ],
-      stats: [
-        { value: data.tests.length, label: "ваших тестов" },
-        { value: published, label: "опубликовано" },
-        { value: data.attempts.length, label: "попыток в организации" }
-      ]
-    }),
+function renderStaffHome(page, profile) {
+  const errors = errorNotice();
+  const setHeroStat = (key, value) => {
+    const el = page.querySelector(`[data-stat="${key}"]`);
+    if (el) el.textContent = String(value);
+  };
 
+  const heroEl = hero({
+    eyebrow: profile.role === "admin" ? "Администрирование" : "Кабинет преподавателя",
+    title: "Управление обучением",
+    lead: "Тесты, проверка результатов и аналитика по вашей организации — в одном месте.",
+    actions: [
+      { href: "#create-test", label: "Создать тест", cls: "btn primary" },
+      { href: "#results", label: "Результаты", cls: "btn secondary" }
+    ],
+    stats: [
+      { key: "tests", value: "—", label: "ваших тестов" },
+      { key: "published", value: "—", label: "опубликовано" },
+      { key: "attempts", value: "—", label: "попыток в организации" }
+    ]
+  });
+
+  const tTests = statTile("созданных тестов", "Загружаем…");
+  const tAttempts = statTile("попыток", "Загружаем…");
+  const tPending = statTile("ожидают проверки", "Загружаем…");
+  const tAvg = statTile("средний результат", "Загружаем…");
+
+  const testsPanel = listPanel({
+    title: "Мои тесты",
+    action: { href: "#create-test", label: "Создать" },
+    items: skeletonRows(2),
+    emptyText: "Вы ещё не создали ни одного теста.",
+    emptyAction: { href: "#create-test", label: "Создать тест" }
+  });
+  const chartPanel = chartPanelPlaceholder();
+  const recentPanel = listPanel({
+    title: "Последние попытки",
+    action: { href: "#results", label: "Все результаты" },
+    items: skeletonRows(3),
+    emptyText: "Попыток пока нет. Опубликуйте тест и назначьте его группе.",
+    emptyAction: { href: "#create-test", label: "Создать тест" }
+  });
+
+  page.append(
+    heroEl,
     h("section", { class: "stat-grid" },
-      h("div", { class: "stat" },
-        h("div", { class: "stat-value" }, String(data.tests.length)),
-        h("div", { class: "stat-label" }, "созданных тестов"),
-        h("div", { class: "stat-hint" }, `опубликовано: ${published}`)
-      ),
-      h("div", { class: "stat" },
-        h("div", { class: "stat-value" }, String(data.attempts.length)),
-        h("div", { class: "stat-label" }, "попыток"),
-        h("div", { class: "stat-hint" }, pending ? `ожидают проверки: ${pending}` : "все проверены")
-      ),
-      h("div", { class: "stat" },
-        h("div", { class: "stat-value" }, avg === null ? "—" : avg + "%"),
-        h("div", { class: "stat-label" }, "средний результат"),
-        h("div", { class: "stat-hint" }, graded.length ? `${graded.length} проверенных` : "нет данных")
-      ),
-      h("div", { class: "stat" },
-        h("div", { class: "stat-value" }, String(new Set(data.attempts.map(a => a.userId)).size)),
-        h("div", { class: "stat-label" }, "участников"),
-        h("div", { class: "stat-hint" }, "уникальных авторов попыток")
-      )
+      tTests.el, tAttempts.el, tPending.el, tAvg.el
     ),
-
     h("div", { class: "split" },
-      listPanel({
-        title: "Мои тесты",
-        action: { href: "#create-test", label: "Создать" },
-        items: data.tests.slice(0, 5).map(t => row({
-          dot: t.status === "published" ? "ok" : "muted",
-          title: t.title || "Без названия",
-          sub: `${(t.questions || []).length} вопросов · ${formatDate(t.updatedAt)}`,
-          end: h("span", { class: "badge " + (t.status === "published" ? "badge-success" : "badge-warning") },
-            t.status === "published" ? "Опубликован" : "Черновик"),
-          href: "#create-test/" + encodeURIComponent(t.id)
-        })),
-        emptyText: "Вы ещё не создали ни одного теста.",
-        emptyAction: { href: "#create-test", label: "Создать тест" }
-      }),
+      testsPanel,
       quickActions([
         { icon: icons.plus, label: "Новый тест", hint: "Конструктор", href: "#create-test" },
         { icon: icons.chart, label: "Результаты", hint: "Проверка и экспорт", href: "#results" },
@@ -340,13 +434,31 @@ function staffView(profile, data) {
         { icon: icons.users, label: "Пользователи", hint: "Роли и группы", href: "#users" }
       ])
     ),
+    chartPanel,
+    recentPanel,
+    errors.el
+  );
 
-    resultChart(data.attempts),
+  // --- Попытки организации: точные счётчики + последние 12 ---
+  void (async () => {
+    try {
+      const [recent, total, pending] = await Promise.all([
+        listOrgAttempts(profile.orgId, { limit: 12 }),
+        countOrgAttempts(profile.orgId),
+        countOrgAttemptsByStatus(profile.orgId, "submitted")
+      ]);
+      const graded = recent.filter(a => a.status === "graded" && a.total);
+      const avg = graded.length
+        ? Math.round(graded.reduce((sum, a) => sum + (a.score / a.total) * 100, 0) / graded.length)
+        : null;
 
-    listPanel({
-      title: "Последние попытки",
-      action: { href: "#results", label: "Все результаты" },
-      items: data.attempts.slice(0, 5).map(a => {
+      setHeroStat("attempts", total);
+      tAttempts.set(total, pending ? `ожидают проверки: ${pending}` : "все проверены");
+      tPending.set(pending, pending ? "Проверьте в разделе «Результаты»" : "всё проверено");
+      tAvg.set(avg === null ? "—" : avg + "%", graded.length ? "по последним проверенным" : "нет данных");
+
+      fillChartPanel(chartPanel, recent);
+      fillPanel(recentPanel, recent.slice(0, 5).map(a => {
         const percent = a.status === "graded" && a.total ? Math.round((a.score / a.total) * 100) : null;
         const inProgress = a.status === "in_progress";
         return row({
@@ -360,16 +472,60 @@ function staffView(profile, data) {
           }, percent === null ? (inProgress ? "Не завершена" : "На проверке") : percent + "%"),
           href: inProgress ? null : "#review/" + encodeURIComponent(a.id)
         });
-      }),
-      emptyText: "Попыток пока нет. Опубликуйте тест и назначьте его группе.",
-      emptyAction: { href: "#create-test", label: "Создать тест" }
-    }),
+      }), {
+        emptyText: "Попыток пока нет. Опубликуйте тест и назначьте его группе.",
+        emptyAction: { href: "#create-test", label: "Создать тест" }
+      });
+    } catch (e) {
+      console.error("Попытки организации:", e);
+      errors.fail("результаты");
+      tAttempts.set("—", "нет данных");
+      tPending.set("—", "нет данных");
+      tAvg.set("—", "нет данных");
+      chartPanel.remove();
+      fillPanel(recentPanel, [], {
+        emptyText: "Попытки не загрузились. Проверьте подключение к сети.",
+        emptyAction: { href: "#results", label: "Все результаты" }
+      });
+    }
+  })();
 
-    data.errors.length
-      ? h("div", { class: "notice", role: "status" },
-          "Не удалось загрузить: " + data.errors.join(", ") + ". Проверьте подключение к сети.")
-      : null
-  ];
+  // --- Мои тесты: точные счётчики + последние 6 для списка ---
+  void (async () => {
+    try {
+      const [tests, total, published] = await Promise.all([
+        listMyTests(profile.uid, profile.orgId, profile.role, { limit: 6 }),
+        countMyTests(profile.uid, profile.orgId, profile.role),
+        profile.role === "admin"
+          ? countPublishedTests(profile.orgId)
+          : countMyTestsByStatus(profile.uid, profile.orgId, "published")
+      ]);
+
+      setHeroStat("tests", total);
+      setHeroStat("published", published);
+      tTests.set(total, `опубликовано: ${published}`);
+
+      fillPanel(testsPanel, tests.map(t => row({
+        dot: t.status === "published" ? "ok" : "muted",
+        title: t.title || "Без названия",
+        sub: `${(t.questions || []).length} вопросов · ${formatDate(t.updatedAt)}`,
+        end: h("span", { class: "badge " + (t.status === "published" ? "badge-success" : "badge-warning") },
+          t.status === "published" ? "Опубликован" : "Черновик"),
+        href: "#create-test/" + encodeURIComponent(t.id)
+      })), {
+        emptyText: "Вы ещё не создали ни одного теста.",
+        emptyAction: { href: "#create-test", label: "Создать тест" }
+      });
+    } catch (e) {
+      console.error("Мои тесты:", e);
+      errors.fail("тесты");
+      tTests.set("—", "нет данных");
+      fillPanel(testsPanel, [], {
+        emptyText: "Тесты не загрузились. Проверьте подключение к сети.",
+        emptyAction: { href: "#create-test", label: "Создать тест" }
+      });
+    }
+  })();
 }
 
 function guestView() {
@@ -438,11 +594,9 @@ export default async function HomePage() {
   }
 
   if (isStaff()) {
-    const data = await loadStaffData(profile);
-    page.append(...staffView(profile, data).filter(Boolean));
+    renderStaffHome(page, profile);
   } else {
-    const data = await loadStudentData(profile);
-    page.append(...studentView(profile, data).filter(Boolean));
+    renderStudentHome(page, profile);
   }
 
   return page;

@@ -21,6 +21,9 @@ cp -a "$SRC"/. "$DEST"/
 rm -rf "$TMP"
 
 cd "$DEST"
+echo "→ Версия ресурсов"
+node scripts/bump-version.mjs
+
 echo "→ Проверки"
 npm test
 node scripts/check-imports.mjs

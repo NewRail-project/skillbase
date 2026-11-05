@@ -5,6 +5,7 @@
 // перерисовки: так техника FLIP сравнивает позиции строк между кадрами.
 import { h } from "../../shared/dom.js";
 import { State, isStaff } from "../../core/auth.js";
+import { loadCss } from "../../shared/load-css.js";
 import {
   subscribeRoom, subscribeOwnState, openQuestion, closeQuestion, saveAnswer,
   closeRoom, questionDurationSec, sendReaction, subscribeReactions,
@@ -412,6 +413,12 @@ function decorateRoom(room) {
 }
 
 export default async function RoomPage() {
+  // Стили Live-комнаты и реакций подключаются точечно: они не нужны
+  // остальным страницам и не должны блокировать первую отрисовку.
+  await Promise.all([
+    loadCss("ui/css/live.css"),
+    loadCss("ui/css/reactions.css")
+  ]);
   shownErrors.clear();
   const rawRoute = decodeURIComponent((State.routeParam || ""));
   const parts = rawRoute.split("/");

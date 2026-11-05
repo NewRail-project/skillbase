@@ -117,22 +117,10 @@
 .room-float-emoji .reaction-signal .ri-body, .room-float-emoji .reaction-horn .ri-body, .room-float-emoji .reaction-bell .ri-body { fill: #8FA3B5; }
 .room-float-emoji .reaction-horn .ri-line { stroke: #8FA3B5; }
 
-/* ---------- Аватары ---------- */
-.avatar-chip-svg svg { width: 100%; height: 100%; display: block; border-radius: 50%; }
-.avatar-chip-svg { overflow: hidden; }
-.avatar-picker { display: grid; gap: var(--space-3); }
-.avatar-picker-head { display: flex; align-items: center; gap: var(--space-4); }
-.avatar-preview { width: 96px; height: 96px; border-radius: 50%; overflow: hidden; border: 3px solid var(--accent); display: grid; place-items: center; font-size: 48px; flex: none; }
-.avatar-preview svg { width: 100%; height: 100%; display: block; }
-.avatar-preview-label { font-weight: 700; color: var(--text); }
-.avatar-picker-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.avatar-picker-grid .avatar-preset-cell { padding: 0; overflow: hidden; display: grid; place-items: center; min-height: 52px; }
-.avatar-picker-grid .avatar-preset-cell svg { width: 100%; height: 100%; display: block; }
-.avatar-picker-grid .avatar-preset-cell.selected { border-color: var(--accent); box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px var(--accent); }
-.avatar-picker-grid .avatar-preset-cell:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
-.profile-avatar.avatar-preset { overflow: hidden; }
-.profile-avatar svg { width: 100%; height: 100%; display: block; }
-@media (min-width: 520px) { .avatar-picker-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
+/* ---------- Аватары ----------
+   Правила avatar-chip-svg, avatar-picker*, avatar-preview*, profile-avatar
+   перенесены в components.css/brand.css: они нужны на страницах входа,
+   профиля и гостевого теста, где live.css не загружается. */
 
 /* ---------- Подиум ---------- */
 .pod-stage { display: flex; align-items: flex-end; justify-content: center; gap: var(--space-3); padding: var(--space-4) 0 0; min-height: 260px; }
@@ -203,17 +191,10 @@
 @keyframes ex-puff { 0% { opacity: .7; transform: translate(0, 0) scale(.6); } 100% { opacity: 0; transform: translate(-14px, -26px) scale(1.6); } }
 @keyframes ex-bump { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-1.5px); } }
 
-/* ---------- Переключатель темы ---------- */
-.theme-switch {
-  display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--tap); min-width: var(--tap);
-  justify-content: center; padding: 0 var(--space-3); border-radius: var(--radius-pill);
-  border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; font: inherit; font-weight: 600;
-}
-.theme-switch:hover { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-.theme-switch:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
-.theme-switch .icon { display: inline-flex; width: 20px; height: 20px; }
-.theme-switch .icon svg { width: 100%; height: 100%; }
-.auth-corner { display: flex; justify-content: flex-end; margin-bottom: var(--space-3); }
+/* ---------- Инструменты шапки комнаты ----------
+   Правила .theme-switch и .auth-corner перенесены в components.css:
+   переключатель темы и уголок авторизации нужны на страницах входа,
+   где live.css не загружается. */
 .room-head-tools { display: flex; align-items: center; gap: var(--space-2); }
 
 /* ---------- Экран проектора: табло ---------- */

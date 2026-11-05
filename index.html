@@ -7,15 +7,38 @@
   <meta name="description" content="Skillbase — корпоративная платформа обучения и проверки знаний для железнодорожной отрасли.">
   <meta name="theme-color" content="#F5F3EF">
   <link rel="icon" type="image/svg+xml" href="ui/brand/favicon.svg">
-  <link rel="stylesheet" href="ui/css/tokens.css?v=13">
-  <link rel="stylesheet" href="ui/css/themes/education.css?v=13">
-  <link rel="stylesheet" href="ui/css/themes/operations.css?v=13">
-  <link rel="stylesheet" href="ui/css/themes/depot.css?v=13">
-  <link rel="stylesheet" href="ui/css/base.css?v=13">
-  <link rel="stylesheet" href="ui/css/components.css?v=13">
-  <link rel="stylesheet" href="ui/css/brand.css?v=13">
-  <link rel="stylesheet" href="ui/css/live.css?v=13">
-  <script type="module" src="shared/main.js?v=13"></script>
+  <link rel="manifest" href="ui/brand/manifest.webmanifest">
+  <!-- Preconnect: руки Firebase поднимаем заранее, чтобы TLS-рукопожатия
+       не съедали время после разбора main.js. gstatic отдаёт SDK-модули,
+       googleapis — каналы Firestore и Authentication. -->
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://securetoken.googleapis.com" crossorigin>
+  <!-- Modulepreload: SDK Firebase стоит в конце цепочки
+       main.js → auth.js → firebase.js → CDN; без подсказок браузер
+       находит эти модули только после разбора двух внутренних файлов.
+       Внутренние модули — без ?v=, ровно как их резолвит импорт,
+       иначе получились бы дублирующие загрузки. -->
+  <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js">
+  <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js">
+  <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js">
+  <link rel="modulepreload" href="core/auth.js">
+  <link rel="modulepreload" href="shared/firebase.js">
+  <link rel="stylesheet" href="ui/css/tokens.css?v=1.0.0.20261105120344">
+  <link rel="stylesheet" href="ui/css/themes/education.css?v=1.0.0.20261105120344">
+  <link rel="stylesheet" href="ui/css/themes/operations.css?v=1.0.0.20261105120344">
+  <link rel="stylesheet" href="ui/css/themes/depot.css?v=1.0.0.20261105120344">
+  <link rel="stylesheet" href="ui/css/base.css?v=1.0.0.20261105120344">
+  <link rel="stylesheet" href="ui/css/components.css?v=1.0.0.20261105120344">
+  <link rel="stylesheet" href="ui/css/brand.css?v=1.0.0.20261105120344">
+  <!-- Inter подключён последним: font-display: swap не блокирует отрисовку,
+       а системный fallback уже отрисовал текст. -->
+  <link rel="stylesheet" href="ui/css/fonts.css?v=1.0.0.20261105120344">
+  <!-- live.css (21 КБ) нужен только Live-комнатам и запуску теста:
+       подключается точечно в room.js/launch.js, а не блокирует первую
+       отрисовку главной. -->
+  <script type="module" src="shared/main.js?v=1.0.0.20261105120344"></script>
   <script>
     // Тема применяется до первой отрисовки, чтобы не было вспышки светлого фона.
     (function () {

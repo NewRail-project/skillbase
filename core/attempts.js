@@ -1,6 +1,6 @@
 import {
   db, collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc, query, where,
-  serverTimestamp, Timestamp, writeBatch
+  serverTimestamp, Timestamp, writeBatch, orderBy, limit, getCountFromServer
 } from "../shared/firebase.js";
 import { isCorrect, normalizeKeys, sanitizeAnswers, scoreAttempt } from "./scoring.js";
 import { State } from "./auth.js";
@@ -134,9 +134,60 @@ export async function getAttempt(attemptId) {
   return snap.exists() ? { id: attemptId, ...snap.data() } : null;
 }
 
-export async function listMyAttempts(uid) {
-  const snap = await getDocs(query(collection(db, "attempts"), where("userId", "==", uid)));
-  return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byTimeDesc);
+export async function listMyAttempts(uid, { limit: maxLimit = null } = {}) {
+  if (!maxLimit) {
+    // Полная выборка — поведение по умолчанию для страниц истории
+    // (профиль, задания). Домашняя страница передаёт limit.
+    const snap = await getDocs(query(collection(db, "attempts"), where("userId", "==", uid)));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byTimeDesc);
+  }
+  // Ограниченная выборка «последних N»: сортировка и отсечение на стороне
+  // Firestore (составной индекс userId+submittedAt развёрнут). Незавершённые
+  // попытки (in_progress) не имеют submittedAt и orderBy их бы исключил,
+  // поэтому они догружаются отдельным запросом по равенству.
+  try {
+    const [finished, running] = await Promise.all([
+      getDocs(query(
+        collection(db, "attempts"),
+        where("userId", "==", uid),
+        orderBy("submittedAt", "desc"),
+        limit(maxLimit)
+      )),
+      getDocs(query(
+        collection(db, "attempts"),
+        where("userId", "==", uid),
+        where("status", "==", "in_progress"),
+        limit(maxLimit)
+      ))
+    ]);
+    return [...finished.docs, ...running.docs]
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort(byTimeDesc)
+      .slice(0, maxLimit);
+  } catch (e) {
+    if (e?.code !== "failed-precondition") throw e;
+    // Индекс ещё не развёрнут — не теряем данные, читаем как раньше.
+    const snap = await getDocs(query(collection(db, "attempts"), where("userId", "==", uid)));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byTimeDesc);
+  }
+}
+
+// Точное число попыток пользователя без чтения документов: агрегатный
+// запрос отдаёт только счётчик (десятки байт вместо сотен КБ).
+export async function countMyAttempts(uid) {
+  const snap = await getCountFromServer(query(collection(db, "attempts"), where("userId", "==", uid)));
+  return snap.data().count;
+}
+
+// Счётчик попыток пользователя в конкретном статусе (например, "graded").
+// Только равенства — составной индекс не требуется.
+export async function countMyAttemptsByStatus(uid, status) {
+  const snap = await getCountFromServer(query(
+    collection(db, "attempts"),
+    where("userId", "==", uid),
+    where("status", "==", status)
+  ));
+  return snap.data().count;
 }
 
 export async function listMyAttemptsForTest(uid, testId) {
@@ -148,20 +199,88 @@ export async function listMyAttemptsForTest(uid, testId) {
   return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byTimeDesc);
 }
 
-export async function listOrgAttempts(orgId, { groupIdFilter = null } = {}) {
-  const queryRef = query(collection(db, "attempts"), where("orgId", "==", orgId));
-  const snap = await getDocs(queryRef);
-  let attempts = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byTimeDesc);
+export async function listOrgAttempts(orgId, { groupIdFilter = null, limit: maxLimit = null } = {}) {
+  if (!maxLimit) {
+    // Полная выборка — поведение по умолчанию (результаты, аналитика, админка).
+    const queryRef = query(collection(db, "attempts"), where("orgId", "==", orgId));
+    const snap = await getDocs(queryRef);
+    let attempts = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byTimeDesc);
 
-  if (groupIdFilter) {
-    if (Array.isArray(groupIdFilter)) {
-      attempts = attempts.filter(a => groupIdFilter.includes(a.groupId));
-    } else if (typeof groupIdFilter === "string") {
-      attempts = attempts.filter(a => a.groupId === groupIdFilter);
+    if (groupIdFilter) {
+      if (Array.isArray(groupIdFilter)) {
+        attempts = attempts.filter(a => groupIdFilter.includes(a.groupId));
+      } else if (typeof groupIdFilter === "string") {
+        attempts = attempts.filter(a => a.groupId === groupIdFilter);
+      }
     }
+
+    return attempts;
   }
 
-  return attempts;
+  // Ограниченная выборка для обзорных экранов (домашняя страница):
+  // сортировка и лимит на стороне Firestore (индекс orgId+submittedAt
+  // развёрнут), незавершённые попытки — отдельным запросом по равенству.
+  try {
+    const [finished, running] = await Promise.all([
+      getDocs(query(
+        collection(db, "attempts"),
+        where("orgId", "==", orgId),
+        orderBy("submittedAt", "desc"),
+        limit(maxLimit)
+      )),
+      getDocs(query(
+        collection(db, "attempts"),
+        where("orgId", "==", orgId),
+        where("status", "==", "in_progress"),
+        limit(maxLimit)
+      ))
+    ]);
+    let attempts = [...finished.docs, ...running.docs]
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort(byTimeDesc);
+
+    if (groupIdFilter) {
+      if (Array.isArray(groupIdFilter)) {
+        attempts = attempts.filter(a => groupIdFilter.includes(a.groupId));
+      } else if (typeof groupIdFilter === "string") {
+        attempts = attempts.filter(a => a.groupId === groupIdFilter);
+      }
+    }
+
+    return attempts.slice(0, maxLimit);
+  } catch (e) {
+    if (e?.code !== "failed-precondition") throw e;
+    const queryRef = query(collection(db, "attempts"), where("orgId", "==", orgId));
+    const snap = await getDocs(queryRef);
+    let attempts = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byTimeDesc);
+
+    if (groupIdFilter) {
+      if (Array.isArray(groupIdFilter)) {
+        attempts = attempts.filter(a => groupIdFilter.includes(a.groupId));
+      } else if (typeof groupIdFilter === "string") {
+        attempts = attempts.filter(a => a.groupId === groupIdFilter);
+      }
+    }
+
+    return attempts;
+  }
+}
+
+// Точное число попыток организации без чтения документов.
+export async function countOrgAttempts(orgId) {
+  const snap = await getCountFromServer(query(collection(db, "attempts"), where("orgId", "==", orgId)));
+  return snap.data().count;
+}
+
+// Счётчик попыток организации в конкретном статусе (например, "submitted" —
+// ожидают проверки). Только равенства — составной индекс не требуется.
+export async function countOrgAttemptsByStatus(orgId, status) {
+  const snap = await getCountFromServer(query(
+    collection(db, "attempts"),
+    where("orgId", "==", orgId),
+    where("status", "==", status)
+  ));
+  return snap.data().count;
 }
 
 function hasPoints(key) {

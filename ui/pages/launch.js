@@ -3,6 +3,7 @@
 // Заменяет прежнюю форму «Назначить группе» на странице теста.
 import { h } from "../../shared/dom.js";
 import { State } from "../../core/auth.js";
+import { loadCss } from "../../shared/load-css.js";
 import { loadTest } from "../../core/editor.js";
 import { assignTest } from "../../core/assign.js";
 import { createRoom } from "../../core/rooms.js";
@@ -44,6 +45,8 @@ function modeCard({ title, lead, bullets, form, button, onclick, extra }) {
 }
 
 export default async function LaunchPage() {
+  // Стили Live-комнаты нужны экрану запуска (превью комнаты).
+  await loadCss("ui/css/live.css");
   const testId = decodeURIComponent((State.routeParam || "").split("/")[0] || "");
   const page = h("div", { class: "page" });
 

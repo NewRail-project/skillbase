@@ -44,16 +44,16 @@ function renderKey() {
   return [State.user?.uid || "guest", State.profileStatus, p.fullName || "", p.position || "", p.department || ""].join("|");
 }
 
-document.addEventListener("DOMContentLoaded", async () => {
+document.addEventListener("DOMContentLoaded", () => {
   initTheme();
   initThemeToggle();
   initSidebar();
-  // Если Firestore не отвечает, не оставляем пустой экран: через 8 с
-  // запускаем роутер, а профиль дозагрузится сам.
-  await Promise.race([
-    initAuth(),
-    new Promise(resolve => setTimeout(resolve, 8000))
-  ]);
+
+  // Роутер стартует немедленно, не дожидаясь Firebase: пока сессия не
+  // восстановлена, он показывает скелет (idle-проверка в app.js), поэтому
+  // ни гостевой интерфейс, ни защищённые страницы не мелькают, а публичные
+  // страницы не ждут Firestore. Восстановление сессии идёт в фоне.
+  initAuth();
 
   let key = renderKey();
   initRouter(); // вешает обработчик hashchange и рисует первую страницу
@@ -71,6 +71,18 @@ document.addEventListener("DOMContentLoaded", async () => {
     setSidebarOpen(false);
     mountSidebar();
   });
+
+  // Service Worker регистрируем после load: регистрация не конкурирует за
+  // сеть с критическими ресурсами первого запуска. Относительный путь
+  // "sw.js" даёт /skillbase/sw.js на GitHub Pages и корректный scope
+  // /skillbase/ — и локально, и в подкаталоге.
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch((err) => {
+        console.warn("Service Worker не зарегистрирован:", err);
+      });
+    });
+  }
 
   document.body.classList.add("ready");
 });

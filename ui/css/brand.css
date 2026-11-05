@@ -992,6 +992,12 @@ body.sidebar-open { overflow: hidden; }
   gap: var(--space-2);
   margin: var(--space-3) 0;
 }
+/* Сетка выбора аватара (avatar.js): тот же элемент несёт оба класса
+   (avatar-preset-grid avatar-picker-grid), поэтому .avatar-picker-grid
+   обязан идти после базы и переопределять 6 колонок на 4 (8 на широких
+   экранах). Раньше порядок обеспечивала загрузка live.css последним. */
+.avatar-picker-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (min-width: 520px) { .avatar-picker-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
 .avatar-preset-cell {
   aspect-ratio: 1;
   border-radius: 12px;

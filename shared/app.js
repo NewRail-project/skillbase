@@ -10,6 +10,7 @@
 import { State, applyTheme, logout } from "../core/auth.js";
 import { profileSetupIncomplete } from "../core/registration.js";
 import { saveReturnTo, consumeReturnTo } from "./return-to.js";
+import { skeleton } from "../ui/components/skeleton.js";
 
 // Хеш-страж: пока открыта читалка материала, hashchange откатывается,
 // кроме разрешённых (страж следит и хранит последний легальный хеш).
@@ -104,6 +105,21 @@ export async function router() {
       return;
     }
     guardHash = window.location.hash;
+  }
+
+  // Сессия ещё не восстановлена (Firebase Authentication отвечает асинхронно,
+  // обычно за десятки миллисекунд). Показываем скелет вместо страницы:
+  // гостевой интерфейс не мелькает у авторизованного пользователя, защищённые
+  // страницы не открываются до подтверждения входа, а редирект на #login
+  // не срабатывает раньше времени. Когда сессия подтвердится, подписка в
+  // main.js перерисует страницу (renderKey изменится).
+  if (State.profileStatus === "idle") {
+    const container = document.getElementById("app");
+    if (container) {
+      container.textContent = "";
+      container.appendChild(skeleton());
+    }
+    return;
   }
 
   if (route && route.auth && !State.user) {

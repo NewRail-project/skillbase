@@ -4,7 +4,7 @@
 
 import {
   auth, db, doc, collection, getDoc, getDocs, setDoc, updateDoc, addDoc,
-  query, where, serverTimestamp
+  query, where, serverTimestamp, orderBy, limit, getCountFromServer
 } from "../shared/firebase.js";
 import { State, isStaff } from "./auth.js";
 import { parseQuiz } from "./import/parser.js";
@@ -332,13 +332,33 @@ export function validateTestForPublish(test) {
 // ---------- Списки тестов ----------
 
 // Преподаватель видит свои тесты, администратор — тесты своей организации.
-export async function listMyTests(uid, orgId, role = "teacher") {
+// limit: необязательное отсечение «последних N» по updatedAt на стороне
+// Firestore. Сортировка требует составного индекса (orgId+authorId+updatedAt
+// для преподавателя, orgId+updatedAt для администратора); если индекс ещё
+// не развёрнут, запрос падает с failed-precondition — тогда читаем как
+// раньше, без потери данных.
+export async function listMyTests(uid, orgId, role = "teacher", { limit: maxLimit = null } = {}) {
   if (!uid || !orgId) throw new Error("Не определены пользователь или организация.");
 
   const constraints = [where("orgId", "==", orgId)];
 
   if (role !== "admin") {
     constraints.push(where("authorId", "==", uid));
+  }
+
+  if (maxLimit) {
+    try {
+      const snap = await getDocs(query(
+        collection(db, "tests"),
+        ...constraints,
+        orderBy("updatedAt", "desc"),
+        limit(maxLimit)
+      ));
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (e) {
+      if (e?.code !== "failed-precondition") throw e;
+      // Индекс не готов — полный запрос, сортировка на клиенте.
+    }
   }
 
   const snap = await getDocs(query(collection(db, "tests"), ...constraints));
@@ -348,16 +368,64 @@ export async function listMyTests(uid, orgId, role = "teacher") {
 }
 
 // Опубликованные тесты организации (для студентов).
-// Запрос требует составного индекса orgId + status — см. firestore.indexes.json.
-export async function listPublishedTests(orgId) {
-  const snap = await getDocs(query(
+// Запрос требует составного индекса orgId + status + updatedAt — он есть
+// в firestore.indexes.json и развёрнут. limit отсекает выборку на сервере.
+export async function listPublishedTests(orgId, { limit: maxLimit = null } = {}) {
+  const constraints = [
+    where("orgId", "==", orgId),
+    where("status", "==", "published")
+  ];
+
+  if (maxLimit) {
+    try {
+      const snap = await getDocs(query(
+        collection(db, "tests"),
+        ...constraints,
+        orderBy("updatedAt", "desc"),
+        limit(maxLimit)
+      ));
+      return snap.docs.map(d => sanitizePublicTest({ ...d.data(), id: d.id }));
+    } catch (e) {
+      if (e?.code !== "failed-precondition") throw e;
+      // Индекс не готов — полный запрос ниже.
+    }
+  }
+
+  const snap = await getDocs(query(collection(db, "tests"), ...constraints));
+  return snap.docs
+    .map(d => sanitizePublicTest({ ...d.data(), id: d.id }))
+    .sort(byUpdatedDesc);
+}
+
+// Точное число опубликованных тестов организации без чтения документов
+// (каждый документ несёт вопросы — на домашней странице они не нужны).
+export async function countPublishedTests(orgId) {
+  const snap = await getCountFromServer(query(
     collection(db, "tests"),
     where("orgId", "==", orgId),
     where("status", "==", "published")
   ));
-  return snap.docs
-    .map(d => sanitizePublicTest({ ...d.data(), id: d.id }))
-    .sort(byUpdatedDesc);
+  return snap.data().count;
+}
+
+// Точное число тестов автора/организации (для плиток статистики).
+export async function countMyTests(uid, orgId, role = "teacher") {
+  const constraints = [where("orgId", "==", orgId)];
+  if (role !== "admin") constraints.push(where("authorId", "==", uid));
+  const snap = await getCountFromServer(query(collection(db, "tests"), ...constraints));
+  return snap.data().count;
+}
+
+// Число тестов автора в организации с конкретным статусом
+// (например, "published" — сколько из моих тестов опубликовано).
+export async function countMyTestsByStatus(uid, orgId, status) {
+  const snap = await getCountFromServer(query(
+    collection(db, "tests"),
+    where("orgId", "==", orgId),
+    where("authorId", "==", uid),
+    where("status", "==", status)
+  ));
+  return snap.data().count;
 }
 
 export async function setTestStatus(testId, status) {
