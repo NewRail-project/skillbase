@@ -359,8 +359,9 @@ export async function listMyTests(uid, orgId, role = "teacher", { limit: maxLimi
       ));
       return snap.docs.map(d => ({ id: d.id, ...d.data() }));
     } catch (e) {
-      if (e?.code !== "failed-precondition") throw e;
-      // Индекс не готов — полный запрос, сортировка на клиенте.
+      // Индекс не готов (failed-precondition) или комбинация "!=" + orderBy
+      // отклонена бэкендом (invalid-argument) — полный запрос, сортировка на клиенте.
+      if (e?.code !== "failed-precondition" && e?.code !== "invalid-argument") throw e;
     }
   }
 
@@ -389,8 +390,9 @@ export async function listPublishedTests(orgId, { limit: maxLimit = null } = {})
       ));
       return snap.docs.map(d => sanitizePublicTest({ ...d.data(), id: d.id }));
     } catch (e) {
-      if (e?.code !== "failed-precondition") throw e;
-      // Индекс не готов — полный запрос ниже.
+      // Индекс не готов (failed-precondition) или запрос отклонён бэкендом
+      // (invalid-argument) — полный запрос ниже.
+      if (e?.code !== "failed-precondition" && e?.code !== "invalid-argument") throw e;
     }
   }
 

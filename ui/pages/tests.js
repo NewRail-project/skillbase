@@ -21,7 +21,9 @@ function explainError(err) {
     return "Нет доступа к каталогу: правила Firestore не разрешают чтение этих тестов.";
   }
   if (code === "failed-precondition") {
-    return "Для каталога нужен составной индекс Firestore (orgId + status). Индекс описан в firestore.indexes.json.";
+    // failed-precondition означает и «индекса нет», и «индекс ещё строится» —
+    // различить их на клиенте нельзя, поэтому сообщение честно описывает оба случая.
+    return "Запросу каталога не хватает составного индекса Firestore (индексы описаны в firestore.indexes.json). Если индекс только что добавлен, его построение может занять несколько минут — попробуйте позже.";
   }
   if (code === "unavailable") {
     return "Нет связи с Firestore. Проверьте подключение к интернету.";
@@ -235,31 +237,40 @@ export default async function TestsPage() {
     categorySelect.hidden = categories.length === 0;
   }
 
-  grid.appendChild(h("div", { class: "panel", style: "grid-column:1/-1" },
-    h("div", { class: "spinner" })));
-
-  try {
-    tests = staff
-      ? await listMyTests(State.user.uid, State.profile.orgId, State.profile.role)
-      : await listPublishedTests(State.profile.orgId);
-    refreshCategoryFilter();
-    draw();
-  } catch (err) {
-    console.error("Каталог тестов:", err);
+  // Загрузка каталога вынесена в отдельную функцию: кнопка «Повторить»
+  // повторяет именно запрос, а не перезагружает всё приложение.
+  async function loadCatalog() {
     grid.textContent = "";
     grid.appendChild(h("div", { class: "panel", style: "grid-column:1/-1" },
-      h("div", { class: "empty-state" },
-        h("div", { class: "empty-state-icon", innerHTML: icons.book }),
-        h("h2", {}, "Каталог недоступен"),
-        h("p", { class: "muted" }, explainError(err)),
-        h("button", {
-          type: "button",
-          class: "btn secondary",
-          onclick: () => window.location.reload()
-        }, "Повторить")
-      )
-    ));
+      h("div", { class: "spinner" })));
+
+    try {
+      tests = staff
+        ? await listMyTests(State.user.uid, State.profile.orgId, State.profile.role)
+        : await listPublishedTests(State.profile.orgId);
+      refreshCategoryFilter();
+      draw();
+    } catch (err) {
+      // Исходная ошибка всегда в консоли: код (failed-precondition /
+      // permission-denied / unavailable) виден разработчику полностью.
+      console.error("Каталог тестов:", err);
+      grid.textContent = "";
+      grid.appendChild(h("div", { class: "panel", style: "grid-column:1/-1" },
+        h("div", { class: "empty-state" },
+          h("div", { class: "empty-state-icon", innerHTML: icons.book }),
+          h("h2", {}, "Каталог недоступен"),
+          h("p", { class: "muted" }, explainError(err)),
+          h("button", {
+            type: "button",
+            class: "btn secondary",
+            onclick: loadCatalog
+          }, "Повторить")
+        )
+      ));
+    }
   }
+
+  loadCatalog();
 
   return page;
 }

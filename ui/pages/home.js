@@ -581,7 +581,11 @@ function renderStaffHome(page, profile) {
       errors.fail("тесты");
       tTests.set("—", "нет данных");
       fillPanel(testsPanel, [], {
-        emptyText: "Тесты не загрузились. Проверьте подключение к сети.",
+        emptyText: e?.code === "failed-precondition"
+          ? "Запросу не хватает составного индекса Firestore (описан в firestore.indexes.json)."
+          : e?.code === "permission-denied"
+            ? "Нет доступа к списку тестов: правила Firestore запрещают чтение."
+            : "Тесты не загрузились. Проверьте подключение к сети.",
         emptyAction: { href: "#create-test", label: "Создать тест" }
       });
     }
