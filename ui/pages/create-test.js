@@ -8,7 +8,7 @@ import { serializeTest } from "../../core/import/serializer.js";
 import { authErrorMessage } from "../../shared/errors.js";
 import { canDeleteTest, deletionPlan, explainDeleteError } from "../../core/test-delete-logic.js";
 import { deleteTest } from "../../core/editor.js";
-import { listAssignments } from "../../core/attempts.js";
+import { listAssignments } from "../../core/assign.js";
 import { getDocs, query, collection, db, where } from "../../shared/firebase.js";
 import { confirmAction } from "../components/confirm.js";
 import { toast } from "../components/toast.js";

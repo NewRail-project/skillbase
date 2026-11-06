@@ -114,6 +114,21 @@ function armNavSpinner(id) {
 // стартовой анимации — иначе элементы мигают из opacity:0.
 let lastRenderedRoute = null;
 
+// Загрузка модуля страницы с одним обходом устаревшего кэша.
+// После публикации Service Worker может отдать прежнюю копию модуля, чьи
+// внутренние импорты уже не совпадают с новым кодом, — такой import() падает.
+// Повторная попытка с уникальным параметром гарантированно обходит и кэш SW,
+// и HTTP-кэш (совпадение в кэше учитывает query). Цикла перезагрузок нет:
+// в рамках одной навигации не более двух попыток, location.reload не вызывается.
+async function importPageModule(file) {
+  try {
+    return await import(`../${file}`);
+  } catch (firstError) {
+    console.warn(`Импорт ${file} не удался, повторяю с обходом кэша:`, firstError);
+    return import(`../${file}?retry=${Date.now()}`);
+  }
+}
+
 export async function router() {
   const id = ++renderId;
   const raw = (window.location.hash.slice(1) || "").replace(/^\//, "");
@@ -242,7 +257,23 @@ export async function router() {
     container.setAttribute("aria-busy", "true");
     container.style.pointerEvents = "none";
     armNavSpinner(id);
-    const module = await import(`../${target.file}`);
+    // Импорт отделён от выполнения страницы: у «модуль не загрузился» и
+    // «страница упала» разные причины, и пользователю нужны разные подсказки.
+    let module;
+    try {
+      module = await importPageModule(target.file);
+    } catch (importError) {
+      throw Object.assign(
+        new Error(`Не удалось загрузить модуль страницы ${target.file}`),
+        { code: "page-import-failed", cause: importError }
+      );
+    }
+    if (typeof module.default !== "function") {
+      throw Object.assign(
+        new Error(`Модуль ${target.file} не экспортирует функцию по умолчанию`),
+        { code: "page-no-default" }
+      );
+    }
     // Страница не должна висеть на «Загрузке» вечно: при зависшем запросе
     // к Firestore показываем причину и кнопку повтора.
     let timer;
@@ -268,15 +299,21 @@ export async function router() {
     // той же страницы (переподключение Live-комнаты) позицию не сбрасывает.
     if (routeChanged) window.scrollTo(0, 0);
   } catch (err) {
-    console.error("Router error:", err);
+    // Диагностика: маршрут и модуль — в сообщении, исходная ошибка — в cause.
+    // Пароли, токены и содержимое документов сюда не попадают: логируются
+    // только объект ошибки и имя файла модуля.
+    console.error(`Ошибка роутера: маршрут #${raw || "(пусто)"}, модуль ${target.file}:`, err);
+    if (err?.cause) console.error("Исходная причина:", err.cause);
     if (id === renderId) {
       hideNavSpinner();
       container.removeAttribute("aria-busy");
       const text = err?.code === "page-timeout"
         ? "Сервер не ответил за 20 секунд. Проверьте интернет и правила Firestore (консоль браузера, F12)."
-        : err?.code === "permission-denied"
-          ? "Правила Firestore не разрешили это действие (permission-denied)."
-          : "Не удалось открыть страницу. Обновите её и попробуйте снова.";
+        : err?.code === "page-import-failed"
+          ? "Не удалось загрузить код страницы. Обновите страницу; если не поможет — обновите кэш сайта (настройки браузера)."
+          : err?.code === "permission-denied"
+            ? "Правила Firestore не разрешили это действие (permission-denied)."
+            : "Не удалось открыть страницу. Обновите её и попробуйте снова.";
       message(container, text, true);
       const retry = document.createElement("button");
       retry.className = "btn";

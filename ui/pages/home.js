@@ -1,12 +1,12 @@
 import { h } from "../../shared/dom.js";
 import { State, isStaff } from "../../core/auth.js";
-import { listMyAttempts, listOrgAttempts, countMyAttemptsByStatus, countOrgAttempts, countOrgAttemptsByStatus, listAssignments } from "../../core/attempts.js";
+import { listMyAttempts, listOrgAttempts, countMyAttemptsByStatus, countOrgAttempts, countOrgAttemptsByStatus } from "../../core/attempts.js";
 import { listMyTests, countPublishedTests, countMyTests, countMyTestsByStatus, deleteTest } from "../../core/editor.js";
 import { canDeleteTest, deletionPlan, explainDeleteError } from "../../core/test-delete-logic.js";
 import { getDocs, query, collection, db, where } from "../../shared/firebase.js";
 import { confirmAction } from "../../ui/components/confirm.js";
 import { toast } from "../../ui/components/toast.js";
-import { getStudentAssignments } from "../../core/assign.js";
+import { getStudentAssignments, listAssignments } from "../../core/assign.js";
 import { icons } from "../../shared/icons.js";
 import { railScene } from "../../ui/components/brand.js";
 

@@ -2,7 +2,7 @@ import { h } from "../../shared/dom.js";
 import { State, isStaff } from "../../core/auth.js";
 import { listMyTests, listPublishedTests, deleteTest } from "../../core/editor.js";
 import { canDeleteTest, deletionPlan, explainDeleteError } from "../../core/test-delete-logic.js";
-import { listAssignments } from "../../core/attempts.js";
+import { listAssignments } from "../../core/assign.js";
 import { getDocs, query, collection, db, where } from "../../shared/firebase.js";
 import { confirmAction } from "../../ui/components/confirm.js";
 import { toast } from "../../ui/components/toast.js";

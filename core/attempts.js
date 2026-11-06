@@ -5,7 +5,7 @@ import {
 import { isCorrect, normalizeKeys, sanitizeAnswers, scoreAttempt } from "./scoring.js";
 import { State } from "./auth.js";
 
-export { isCorrect, sanitizeAnswers, listAssignments };
+export { isCorrect, sanitizeAnswers };
 
 const byTimeDesc = (a, b) => {
   const left = a.submittedAt?.seconds || a.startedAt?.seconds || 0;

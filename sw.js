@@ -162,11 +162,3 @@ self.addEventListener('fetch', (event) => {
   // Прочие запросы того же источника (например, динамические import() уже
   // покрыты .js-веткой) — отдаём браузеру без участия SW.
 });
-
-// Сообщения от клиента. Автоматический skipWaiting не используем:
-// обновление применяется после закрытия старых вкладок.
-self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
-    self.skipWaiting();
-  }
-});

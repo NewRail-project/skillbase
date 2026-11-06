@@ -104,6 +104,21 @@ export async function getStudentAssignments(groupId, orgId) {
   return snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
 }
 
+// Все задания организации. Нужно планированию удаления теста (deletionPlan):
+// найти активные задания удаляемого теста и понять, какие из них закроет
+// текущий пользователь. Правила Firestore разрешают staff читать задания
+// своей организации; студенту список не нужен, поэтому функция не фильтрует
+// по группе. Ошибку (например, permission-denied) отдаём вызывающему коду —
+// он решает, как деградировать.
+export async function listAssignments(orgId) {
+  if (!orgId) return [];
+  const snapshot = await getDocs(query(
+    collection(db, "assignments"),
+    where("orgId", "==", orgId)
+  ));
+  return snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
+}
+
 // Получение результатов теста для преподавателя с учетом ограничения по группам.
 export async function getTeacherResults(testId, teacherGroups = null) {
   const q = query(
