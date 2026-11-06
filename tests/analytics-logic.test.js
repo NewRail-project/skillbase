@@ -94,3 +94,42 @@ test('buildAnalytics: expired попытки учитываются с неве�
 test('аналитические статусы согласованы с попытками', () => {
   assert.deepEqual(ANALYTICS_STATUSES, ['submitted', 'graded', 'expired']);
 });
+
+test('buildAnalytics: сортировка попыток с объектами Firestore Timestamp', () => {
+  const attempts = [
+    attempt('a', { answers: { '0': 0 }, finishedAt: { seconds: 1700000000 } }),
+    attempt('b', { answers: { '0': 1 }, finishedAt: { seconds: 1700000001 } })
+  ];
+  const data = buildAnalytics(attempts, { '0': KEYS['0'] }, { limit: 1 });
+  assert.equal(data.attemptsCount, 1);
+  assert.equal(data.perQuestion[0].correct, 1, 'свежая попытка b (1700000001) должна быть выбрана первой');
+});
+
+test('buildAnalytics: попытки с null / undefined временными метками', () => {
+  const attempts = [
+    attempt('a', { finishedAt: null }),
+    attempt('b', { finishedAt: undefined })
+  ];
+  const data = buildAnalytics(attempts, KEYS);
+  assert.equal(data.attemptsCount, 2);
+});
+
+test('buildAnalytics: попытки с Invalid Date и seconds: NaN', () => {
+  const attempts = [
+    attempt('a', { finishedAt: new Date('invalid') }),
+    attempt('b', { finishedAt: { seconds: NaN } })
+  ];
+  const data = buildAnalytics(attempts, KEYS);
+  assert.equal(data.attemptsCount, 2);
+});
+
+test('buildAnalytics: выбор свежих попыток при смешанных типах дат', () => {
+  const attempts = [
+    attempt('a', { answers: { '0': 0 }, finishedAt: 1700000000000 }),
+    attempt('b', { answers: { '0': 1 }, finishedAt: new Date(2026, 0, 1, 12) }),
+    attempt('c', { answers: { '0': 0 }, finishedAt: { seconds: 1700000001 } })
+  ];
+  const data = buildAnalytics(attempts, { '0': KEYS['0'] }, { limit: 1 });
+  assert.equal(data.attemptsCount, 1);
+  assert.equal(data.perQuestion[0].correct, 1, 'самая свежая попытка (b) должна быть первой');
+});

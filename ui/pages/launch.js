@@ -167,14 +167,6 @@ export default async function LaunchPage() {
           } : {}
         };
 
-        // Сохраняем данные комнаты в sessionStorage и State для мгновенного перехода
-        try {
-          sessionStorage.setItem("sb:roomData", JSON.stringify(roomData));
-          State.pendingRoom = roomData;
-        } catch (e) {
-          console.warn("Не удалось сохранить данные комнаты для мгновенного перехода:", e);
-        }
-
         const code = await createRoom(roomData);
         toast(`Комната открыта. Код: ${code}`, "success");
         window.location.hash = `#room/${code}`;

@@ -85,8 +85,11 @@ function attemptPercent(attempt) {
 }
 
 function toTimeMs(value) {
+  if (!value) return 0;
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
   if (typeof value.toMillis === "function") return value.toMillis();
-  if (typeof value === "number") return value;
+  if (typeof value.seconds === "number") return value.seconds * 1000;
+  if (value instanceof Date) return value.getTime();
   const t = new Date(value).getTime();
   return Number.isNaN(t) ? 0 : t;
 }
