@@ -11,7 +11,7 @@
 // при каждой публикации: старый кэш удаляется целиком на активации, поэтому
 // старые и новые JS-модули не смешиваются.
 
-const CACHE_VERSION = 'v1.0.0.20261106172854';
+const CACHE_VERSION = 'v1.0.0.20261106230200';
 const CACHE_NAME = `skillbase-${CACHE_VERSION}`;
 const OFFLINE_URL = './index.html';
 

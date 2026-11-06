@@ -447,7 +447,7 @@ export default async function RoomPage() {
     page.appendChild(notFoundPanel());
     return page;
   }
-  local.code = code;
+  local.code = String(codeRaw || "").toUpperCase();
   local.room = decorateRoom(probeResult);
   local.roomLoaded = true;
   local.receivedMs = Date.now();
