@@ -11,6 +11,7 @@ import { State } from "../../core/auth.js";
 import { loadMaterial, loadMaterialProgress, saveMaterialProgress } from "../../core/materials.js";
 import { materialProgress } from "../../core/material-logic.js";
 import { setHashGuard, leaveWithHash } from "../../shared/app.js";
+import { t as tr, lt } from "../../core/i18n.js";
 
 // Метаданные книги не берём из router: нужно знать orgId, чтобы правила
 // разрешили чтение. Материал грузим напрямую.
@@ -99,7 +100,7 @@ export default async function MaterialPage() {
           h("h1", { class: "book-h" }, "Материал недоступен"),
           h("p", { class: "book-p" },
             err?.code === "permission-denied"
-              ? "Во время активной попытки учебный материал закрыт, чтобы его не подсматривали."
+              ? lt("mat.closedDuring")
               : "Книга не найдена или сеть недоступна."),
           exitBtn(backHash)
         )
@@ -111,8 +112,8 @@ export default async function MaterialPage() {
   if (!material?.pages?.length) {
     page.appendChild(h("div", { class: "reader-stage" },
       h("div", { class: "book" }, h("div", { class: "book-page" },
-        h("h1", { class: "book-h" }, "Материала пока нет"),
-        h("p", { class: "book-p" }, "К этому тесту ещё не добавлен учебный материал."),
+        h("h1", { class: "book-h" }, lt("mat.none")),
+        h("p", { class: "book-p" }, lt("mat.noneHint")),
         exitBtn(backHash)
       ))
     ));

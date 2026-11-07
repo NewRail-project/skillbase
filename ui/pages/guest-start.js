@@ -18,6 +18,7 @@ import { effectiveSettings } from "../../core/settings.js";
 import { peekReturnTo, clearReturnTo } from "../../shared/return-to.js";
 import { authErrorMessage } from "../../shared/errors.js";
 import { railScene, brandLockup } from "../../ui/components/brand.js";
+import { t as tr, lt } from "../../core/i18n.js";
 
 // Флаг «в этой ссылке гость только что начал попытку»: quiz откроет
 // её сразу, минуя интро-экран. Одна попытка — без дублей при обновлении.
@@ -77,14 +78,14 @@ export default async function GuestStartPage() {
       }
     });
     const target = testId
-      ? ` ${h("a", { href: `#quiz/${encodeURIComponent(testId)}` }, "Ссылка на тест, который вы открывали")}`
+      ? ` ${h("a", { href: `#quiz/${encodeURIComponent(testId)}` }, tr("guest.linkLabel"))}`
       : null;
     const alertPanel = h("section", { class: "panel auth-form" },
       brandLockup({ size: 32 }),
       h("div", { class: "eyebrow" }, "Гостевой вход"),
       h("h1", { style: "margin:4px 0 8px" }, "Вы уже вошли в аккаунт"),
       h("p", { class: "muted", style: "margin:0 0 16px" },
-        "Под аккаунтом тесты проходят через каталог и задания: результаты сразу привязаны к вашему профилю. ",
+        lt("guest.accountHint"),
         "Проход гостем доступен после выхода."),
       errorBox,
       out,
@@ -103,19 +104,19 @@ export default async function GuestStartPage() {
       const test = await loadTest(testId);
       testTitle = test?.title || "";
       if (test?.status !== "published") {
-        errorBox.textContent = "Тест снят с публикации. Преподаватель может дать ссылку повторно.";
+        errorBox.textContent = tr("guest.unpublished");
       }
     } catch (err) {
       errorBox.textContent = err?.code === "permission-denied"
-        ? "Ссылка недоступна: тест не опубликован."
-        : "Не удалось открыть тест по ссылке. Проверьте интернет и попробуйте снова.";
+        ? tr("guest.linkUnavailable")
+        : tr("guest.openFailed");
     }
   }
 
   const surname = h("input", { type: "text", id: "guest-surname", autocomplete: "family-name", placeholder: "Иванов" });
   const given = h("input", { type: "text", id: "guest-name", autocomplete: "given-name", placeholder: "Иван" });
   const patronymic = h("input", { type: "text", id: "guest-patronymic", autocomplete: "additional-name", placeholder: "Иванович" });
-  const submit = h("button", { type: "submit", class: "btn primary btn-block" }, "Начать тест");
+  const submit = h("button", { type: "submit", class: "btn primary btn-block" }, lt("guest.startBtn"));
 
   // Уже знакомое ФИО не запрашиваем заново: поля заполняются им,
   // гость может сразу нажать «Начать тест».
@@ -130,12 +131,12 @@ export default async function GuestStartPage() {
   const form = h("form", { class: "panel auth-form", novalidate: "novalidate" },
     brandLockup({ size: 32 }),
     h("div", { class: "eyebrow" }, "Гостевой вход"),
-    h("h1", { style: "margin:4px 0 8px" }, "Перед началом теста"),
+    h("h1", { style: "margin:4px 0 8px" }, lt("guest.beforeStart")),
     h("p", { class: "muted", style: "margin:0" },
-      "Вы проходите тест как гость. Регистрация не требуется. ",
-      "Укажите ФИО, чтобы преподаватель мог идентифицировать ваш результат."),
+      lt("guest.asGuest"),
+      lt("guest.needName")),
     testTitle ? h("p", { class: "muted", style: "margin:8px 0 0;font-size:.875rem" },
-      "Тест: ", h("strong", {}, testTitle)) : null,
+      lt("guest.testLabel"), h("strong", {}, testTitle)) : null,
     errorBox,
     h("div", { class: "field" },
       h("label", { for: "guest-surname" }, "Фамилия"),
@@ -173,7 +174,7 @@ export default async function GuestStartPage() {
     }
 
     submit.disabled = true;
-    submit.textContent = "Готовим тест…";
+    submit.textContent = tr("guest.preparing");
     try {
       const user = await signInGuestForTest(check.value);
       // Ссылка отработана: обычный вход после гостя не должен вернуть
@@ -187,7 +188,7 @@ export default async function GuestStartPage() {
 
       const test = await loadTest(testId);
       if (test?.status !== "published") {
-        throw new Error("Тест снят с публикации. Преподаватель может дать ссылку повторно.");
+        throw new Error(tr("guest.unpublished"));
       }
 
       const attempts = await listMyAttemptsForTest(user.uid, testId);
@@ -221,12 +222,12 @@ export default async function GuestStartPage() {
     } catch (err) {
       console.error("Guest start error:", err);
       errorBox.textContent = err?.code === "permission-denied"
-        ? "Ссылка недоступна: тест не опубликован."
+        ? tr("guest.linkUnavailable")
         : err?.code
           ? authErrorMessage(err)
           : (err?.message || authErrorMessage(err));
       submit.disabled = false;
-      submit.textContent = "Начать тест";
+      submit.textContent = tr("guest.startBtn");
     }
   });
 
@@ -239,8 +240,8 @@ function railAside() {
   scene.innerHTML = railScene();
   scene.appendChild(h("div", { class: "auth-aside-text" },
     h("div", { class: "eyebrow" }, "Skillbase"),
-    h("h2", {}, "Быстрый вход в тест"),
-    h("p", {}, "Ссылка от преподавателя — и тест открыт: без учётной записи и пароля, результат уходит в общую таблицу.")
+    h("h2", {}, lt("guest.quickTitle")),
+    h("p", {}, lt("guest.quickHint"))
   ));
   return scene;
 }

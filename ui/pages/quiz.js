@@ -18,6 +18,7 @@ import { db, doc, getDoc } from "../../shared/firebase.js";
 import { saveReturnTo } from "../../shared/return-to.js";
 import { icons } from "../../shared/icons.js";
 import { toast } from "../components/toast.js";
+import { t as tr, lt } from "../../core/i18n.js";
 
 // Флаг свежей гостевой попытки (#guest ставит, quiz снимает).
 const AUTO_RESUME_KEY = "sb:quizAutoResume";
@@ -166,10 +167,10 @@ export default async function QuizPage() {
   // отдельный маршрут (роли проверяет роутер: только staff).
   const trial = State.route === "trial";
   const back = h("a", { class: "btn secondary", href: trial ? `#quiz/${encodeURIComponent(testId)}` : "#tests" },
-    trial ? "К странице теста" : "К каталогу");
+    trial ? lt("quiz.backToTest") : "К каталогу");
 
   if (!testId) {
-    page.append(errorPanel("Тест не указан", "Откройте тест из каталога или списка заданий.", back));
+    page.append(errorPanel(lt("quiz.notSpecified"), lt("quiz.notSpecifiedHint"), back));
     return page;
   }
 
@@ -194,12 +195,12 @@ export default async function QuizPage() {
   }
 
   if (loadError || !test) {
-    const text = loadError?.code === "permission-denied"
-      ? "Правила Firestore не разрешают чтение этого теста."
+    const text = () => loadError?.code === "permission-denied"
+      ? tr("quiz.readDenied")
       : loadError?.code === "unavailable"
         ? "Нет связи с Firestore. Проверьте подключение к интернету."
-        : "Возможно, тест снят с публикации или ссылка устарела.";
-    page.append(errorPanel(loadError ? "Не удалось открыть тест" : "Тест не найден", text, back));
+        : tr("quiz.maybeUnpublished");
+    page.append(errorPanel(loadError ? lt("ed.openFailed") : lt("quiz.notFound"), text, back));
     return page;
   }
 
@@ -209,7 +210,7 @@ export default async function QuizPage() {
   const profile = State.profile || {};
 
   if (!staff && test.status !== "published") {
-    page.append(errorPanel("Тест недоступен", "Тест ещё не опубликован.", back));
+    page.append(errorPanel(lt("quiz.unavailable"), lt("quiz.notPublished"), back));
     return page;
   }
 
@@ -217,12 +218,12 @@ export default async function QuizPage() {
   // профиля нет (fallback подставляет организацию по умолчанию), допуск
   // гостя проверяют правила Firestore: только published тесты.
   if (!guest && test.orgId && profile.orgId && test.orgId !== profile.orgId) {
-    page.append(errorPanel("Тест недоступен", "Тест принадлежит другой организации.", back));
+    page.append(errorPanel(lt("quiz.unavailable"), lt("quiz.otherOrg"), back));
     return page;
   }
 
   if (!questions.length) {
-    page.append(errorPanel("В тесте нет вопросов", "Преподаватель ещё не добавил вопросы.", back));
+    page.append(errorPanel(lt("quiz.noQuestions"), lt("quiz.noQuestionsHint"), back));
     return page;
   }
 
@@ -239,7 +240,7 @@ export default async function QuizPage() {
       if (!assignment) assignmentError = "Задание не найдено.";
     } catch (err) {
       assignmentError = err?.code === "permission-denied"
-        ? "Задание закрыто или назначено другой группе."
+        ? tr("quiz.asgClosedOrOther")
         : errorText(err, "Не удалось прочитать задание.");
     }
   } else if (!staff && profile?.groupId && profile?.orgId) {
@@ -270,9 +271,9 @@ export default async function QuizPage() {
     } else if (assignment.orgId && profile.orgId && assignment.orgId !== profile.orgId) {
       assignmentError = "Задание принадлежит другой организации.";
     } else if (profile.groupId && assignment.groupId !== profile.groupId) {
-      assignmentError = "Задание назначено другой группе.";
+      assignmentError = tr("quiz.asgOtherGroup");
     } else if (!profile.groupId) {
-      assignmentError = "В профиле не указана группа. Обратитесь к администратору.";
+      assignmentError = tr("quiz.noProfileGroup");
     }
   }
 
@@ -384,7 +385,7 @@ export default async function QuizPage() {
     // открытым (маркер активной попытки не ставится).
     if (!staff) {
       page.append(errorPanel("Пробный режим недоступен",
-        "Пройти тест как студент может только преподаватель.", back));
+        lt("quiz.trialOnlyStaff"), back));
       return page;
     }
     openRunner({
@@ -485,7 +486,7 @@ export default async function QuizPage() {
       return h("section", { class: "panel" },
         h("div", { class: "notice" },
           h("strong", {}, "Ответы отправлены. "),
-          "Преподаватель проверит их и выставит оценку. Правильные ответы ученику не показываются."
+          lt("quiz.manualCheck")
         )
       );
     }
@@ -552,11 +553,11 @@ export default async function QuizPage() {
     content.append(list);
 
     const actions = h("section", { class: "panel" },
-      h("div", { class: "section-title" }, h("h2", {}, "Действия преподавателя")),
+      h("div", { class: "section-title" }, h("h2", {}, lt("quiz.staffActions"))),
       h("div", { class: "btn-row" },
         h("a", { class: "btn primary", href: `#create-test/${encodeURIComponent(test.id)}` }, "Открыть редактор"),
         // Пробное прохождение: интерфейс ученика, попытка только в памяти.
-        h("a", { class: "btn secondary", href: `#trial/${encodeURIComponent(test.id)}` }, "Пройти тест как студент"),
+        h("a", { class: "btn secondary", href: `#trial/${encodeURIComponent(test.id)}` }, lt("quiz.tryAsLearner")),
         h("a", { class: "btn secondary", href: "#results" }, "Результаты")
       )
     );
@@ -565,7 +566,7 @@ export default async function QuizPage() {
     if (canReadMaterial) {
       actions.append(h("div", { class: "btn-row" },
         h("a", { class: "btn secondary", href: `#material/${encodeURIComponent(test.id)}/free` },
-          "Прочитать материал")));
+          lt("quiz.readMaterial"))));
     }
 
     if (test.status === "published") {
@@ -579,7 +580,7 @@ export default async function QuizPage() {
       );
     } else {
       actions.append(h("p", { class: "muted", style: "margin-top:var(--space-3)" },
-        "Опубликуйте тест, чтобы назначать его группам."));
+        lt("quiz.publishToAssign")));
     }
 
     content.append(actions);
@@ -710,12 +711,12 @@ export default async function QuizPage() {
       if (canReadMaterial) {
         actions.append(h("div", { class: "btn-row" },
           h("a", { class: "btn secondary", href: `#material/${encodeURIComponent(test.id)}/free` },
-            "Прочитать материал перед тестом")));
+            lt("quiz.readBefore"))));
       }
 
       if (limitReached) {
         actions.append(h("p", { class: "muted" },
-          "Лимит попыток исчерпан. Обратитесь к преподавателю, если нужна ещё одна."));
+          lt("quiz.attemptsLimit")));
       } else if (needMaterialRead) {
         actions.append(h("p", { class: "muted" },
           "Для обучающего задания нужно дочитать материал до последней страницы."));
@@ -1430,7 +1431,7 @@ export default async function QuizPage() {
         h("div", { class: "btn-row" },
           retryBtn,
           h("a", { class: "btn secondary", href: `#create-test/${encodeURIComponent(test.id)}` }, "К редактору"),
-          h("a", { class: "btn secondary", href: `#quiz/${encodeURIComponent(test.id)}` }, "К странице теста")
+          h("a", { class: "btn secondary", href: `#quiz/${encodeURIComponent(test.id)}` }, lt("quiz.backToTest"))
         )
       )
     );

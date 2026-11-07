@@ -48,6 +48,7 @@ import { generateQRSvg } from "../../shared/qr.js";
 import { hasMaterial } from "../../core/materials.js";
 import { themedQrOptions, qrPalette } from "../../shared/qr-theme.js";
 import { subscribeTheme, subscribeSkin } from "../../shared/theme.js";
+import { t as tr, lt } from "../../core/i18n.js";
 
 let unsubs = [];
 let autoTimer = null;   // автозакрытие у ведущего (ручной режим)
@@ -772,8 +773,8 @@ function statusText() {
   if (!room) text = "Ждём комнату…";
   else if (li.lifecycle === "closed") text = "Комната закрыта";
   else if (li.auto) {
-    text = li.lifecycle === "waiting" ? "Ожидание начала теста"
-      : li.lifecycle === "completed" ? "Тест завершён"
+    text = li.lifecycle === "waiting" ? tr("room.waitStart")
+      : li.lifecycle === "completed" ? tr("room.finished")
       : li.phase === "question" ? `Вопрос ${li.position + 1} из ${total}`
       : `Пауза · вопрос ${li.position + 1} из ${total}`;
   } else {
@@ -1570,7 +1571,7 @@ function hostView() {
     wrap.appendChild(h("div", { class: "panel" },
       h("div", { class: "empty-state" },
         h("div", { class: "empty-state-icon", innerHTML: icons.clock }),
-        h("h2", {}, "Ожидание начала теста"),
+        h("h2", {}, lt("room.waitStart")),
         h("p", { class: "muted" }, `Ведущий: ${room.hostName || "Преподаватель"} · Участников в лобби: ${playersCount} · Всего вопросов: ${room.questionCount || questions.length}.`),
         playersListWidget(local.players),
         h("div", { class: "btn-row", style: "margin-top: 1.5rem; justify-content: center;" },
@@ -1736,7 +1737,7 @@ function playerView() {
     const inviteBox = h("div", { class: "panel" },
       h("div", { class: "empty-state" },
         h("div", { class: "empty-state-icon", innerHTML: icons.clock }),
-        h("h2", {}, "Ожидание начала теста"),
+        h("h2", {}, lt("room.waitStart")),
         h("p", { class: "muted" }, `Ведущий: ${room.hostName || "Преподаватель"} · Участников в лобби: ${playersCount}. Скоро запустится первый вопрос.`),
         playersListWidget(local.players),
         h("div", { class: "btn-row", style: "margin-top: 1.25rem; justify-content: center;" },
@@ -1793,9 +1794,9 @@ function materialButton() {
   const href = `#material/${encodeURIComponent(room.testId || "")}/free/${encodeURIComponent(room.code || local.code || "")}`;
   return h("div", { class: "panel room-material-cta" },
     h("div", { class: "room-material-cta-text" },
-      h("b", {}, "Пока ждёте — прочитайте материал"),
+      h("b", {}, lt("room.waitRead")),
       h("span", { class: "muted" }, "Откроется читалка, из неё можно вернуться в комнату.")),
-    h("a", { class: "btn primary", href }, "Прочитать материал"));
+    h("a", { class: "btn primary", href }, lt("room.readMaterial")));
 }
 
 function waitPanel(text) {
@@ -1944,7 +1945,7 @@ function observerView() {
     const observerLobby = h("div", { class: "panel" },
       h("div", { class: "empty-state" },
         h("div", { class: "empty-state-icon", innerHTML: icons.clock }),
-        h("h2", {}, "Ожидание начала теста"),
+        h("h2", {}, lt("room.waitStart")),
         h("p", { class: "muted" }, `Ведущий: ${room.hostName || "Преподаватель"} · Участников в лобби: ${playersCount}. Вы в режиме наблюдателя.`),
         playersListWidget(local.players)
       )
@@ -2103,12 +2104,12 @@ function ratingPanel({ title = "Общий рейтинг", limit = null, rows =
 
 function progressPanel(li, room) {
   const total = room.questionCount || 0;
-  const label = li.lifecycle === "waiting" ? "Тест ещё не начался"
+  const label = li.lifecycle === "waiting" ? lt("room.notStarted")
     : li.lifecycle === "in_progress"
       ? (li.phase === "question" ? `Вопрос ${li.position + 1} из ${total}`
         : li.position + 1 >= total ? "Последний вопрос завершён"
         : `Пауза перед вопросом ${li.position + 2} из ${total}`)
-      : "Тест завершён";
+      : lt("room.finished");
   return h("section", { class: "panel live-progress" },
     h("div", { class: "panel-head" },
       h("h2", {}, label),
@@ -2153,7 +2154,7 @@ function autoHostView() {
   if (li.lifecycle === "waiting" && active) {
     // Лобби: список вошедших, регистрация, ОДИН запуск.
     const startBtn = h("button", { type: "button", class: "btn primary btn-block", id: "start-test" },
-      "Начать тест");
+      lt("room.start"));
     let confirmEmpty = false;
     startBtn.addEventListener("click", async () => {
       if (!playersCount && !confirmEmpty) {
@@ -2165,12 +2166,12 @@ function autoHostView() {
       startBtn.textContent = "Запускаем…";
       try {
         await startAutoTest(local.code);
-        toast("Тест запущен: вопросы пойдут автоматически", "success");
+        toast(tr("room.startedAuto"), "success");
       } catch (err) {
         console.error("Запуск теста:", err);
-        toast(err?.message || "Не удалось запустить тест", "error");
+        toast(err?.message || tr("room.startFailed"), "error");
         startBtn.disabled = false;
-        startBtn.textContent = "Начать тест";
+        startBtn.textContent = tr("room.start");
         confirmEmpty = false;
       }
     });
@@ -2205,9 +2206,9 @@ function autoHostView() {
       finishBtn.disabled = true;
       try {
         await finishAutoTest(local.code, { early: true });
-        toast("Тест завершён досрочно", "success");
+        toast(tr("room.finishedEarly"), "success");
       } catch (err) {
-        toast(err?.message || "Не удалось завершить тест", "error");
+        toast(err?.message || tr("room.finishFailed"), "error");
         finishBtn.disabled = false;
       }
     });
@@ -2283,7 +2284,7 @@ function lobbyPanel(room, who) {
   const participants = local.players.filter(p => roleOfPlayer(p) !== ROLE_OBSERVER);
   const text = who === "observer"
     ? "Вы подключены как наблюдатель. Рейтинг и ход теста появятся после старта."
-    : "Вы подключены. Тест начнётся, когда ведущий нажмёт «Начать тест» — вопросы пойдут сами.";
+    : "Вы подключены. Тест начнётся, когда ведущий нажмёт «" + tr("room.start") + "» — вопросы пойдут сами.";
   return h("div", { class: "panel" },
     h("div", { class: "empty-state" },
       h("div", { class: "empty-state-icon", innerHTML: icons.clock }),
@@ -2405,7 +2406,7 @@ function finishedPlayerView(wrap, room, li) {
   const mine = rows.find(r => r.uid === State.user?.uid);
   wrap.appendChild(h("section", { class: "panel" },
     h("div", { class: "panel-head" },
-      h("h2", {}, li.lifecycle === "closed" ? "Комната закрыта — ваш результат" : "Тест завершён")),
+      h("h2", {}, li.lifecycle === "closed" ? "Комната закрыта — ваш результат" : lt("room.finished"))),
     h("div", { class: "panel-body" },
       mine
         ? h("div", { class: "quick-actions" },

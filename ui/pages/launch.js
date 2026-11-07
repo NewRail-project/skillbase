@@ -14,6 +14,7 @@ import {
 import { KIND_TRAINING, validateAssignmentDraft } from "../../core/assignment-logic.js";
 import { icons } from "../../shared/icons.js";
 import { toast } from "../components/toast.js";
+import { t as tr, lt } from "../../core/i18n.js";
 
 function errorBody(err, fallback) {
   if (err?.code === "permission-denied") {
@@ -59,7 +60,7 @@ export default async function LaunchPage() {
       h("div", { class: "panel" },
         h("div", { class: "empty-state" },
           h("div", { class: "empty-state-icon", innerHTML: icons.book }),
-          h("h2", {}, "Тест недоступен"),
+          h("h2", {}, lt("launch.notFound")),
           h("p", { class: "muted" }, errorBody(err, "Не удалось загрузить тест.")),
           h("a", { class: "btn secondary", href: "#tests" }, "В каталог")
         )
@@ -72,8 +73,8 @@ export default async function LaunchPage() {
       h("div", { class: "panel" },
         h("div", { class: "empty-state" },
           h("div", { class: "empty-state-icon", innerHTML: icons.book }),
-          h("h2", {}, "Тест ещё не опубликован"),
-          h("p", { class: "muted" }, "Запустить можно только опубликованный тест."),
+          h("h2", {}, lt("launch.notPublished")),
+          h("p", { class: "muted" }, lt("launch.notPublishedHint")),
           h("a", { class: "btn primary", href: `#create-test/${encodeURIComponent(testId)}` }, "Открыть редактор")
         )
       )
@@ -113,13 +114,13 @@ export default async function LaunchPage() {
       secInput),
     h("label", { class: "option", for: "live-shuffle" }, shuffleInput, "Случайный порядок вопросов"),
     h("label", { class: "option", for: "live-speed" }, speedInput, "Дополнительные баллы за скорость"),
-    h("label", { class: "option", for: "live-board" }, boardInput, "Показывать рейтинг участникам во время теста")
+    h("label", { class: "option", for: "live-board" }, boardInput, lt("launch.showBoard"))
   );
   const modeForm = h("fieldset", { class: "role-picker" },
     h("legend", { class: "muted" }, "Режим"),
     h("label", { class: "role-option", for: "live-mode-auto" }, modeAuto,
       h("span", { class: "role-option-body" },
-        h("b", {}, "Автономный тест"),
+        h("b", {}, lt("launch.autoTest")),
         h("span", { class: "muted" }, "Запускаете один раз — вопросы идут сами"))),
     h("label", { class: "role-option", for: "live-mode-manual" }, modeManual,
       h("span", { class: "role-option-body" },
@@ -136,10 +137,10 @@ export default async function LaunchPage() {
 
   grid.appendChild(modeCard({
     title: "Live-комната",
-    lead: "Участники входят по QR или коду и выбирают роль: участник проходит тест на своём телефоне, наблюдатель видит рейтинг и ход теста.",
+    lead: lt("launch.liveHint"),
     bullets: [
       "Код комнаты вместо ссылки — 6 символов",
-      "Автономный режим: «Начать тест» нажимается один раз",
+      lt("launch.autoBullet"),
       "Общий рейтинг обновляется в реальном времени"
     ],
     form: modeForm,
@@ -183,7 +184,7 @@ export default async function LaunchPage() {
 
   // Режим 2 и 3 — форма задания (kind training/exam).
   function assignmentForm(kind) {
-    const groupInput = h("input", { type: "text", placeholder: "Например, ИТ-01", maxlength: "100" });
+    const groupInput = h("input", { type: "text", placeholder: lt("launch.groupPlaceholder"), maxlength: "100" });
     const startAtInput = h("input", { type: "datetime-local" });
     const deadlineInput = h("input", { type: "datetime-local" });
     const limitInput = h("input", { type: "number", min: "1", max: "50", value: "1" });
@@ -192,7 +193,7 @@ export default async function LaunchPage() {
     const materialUrlInput = h("input", { type: "url", placeholder: "https://…", maxlength: "500" });
 
     const fields = h("div", { class: "field-grid" },
-      h("div", { class: "field" }, h("label", {}, "Группа"), groupInput),
+      h("div", { class: "field" }, h("label", {}, lt("launch.groupLabel")), groupInput),
       h("div", { class: "field" }, h("label", {}, "Открыть с (необязательно)"), startAtInput),
       h("div", { class: "field" }, h("label", {}, "Срок сдачи"), deadlineInput)
     );
@@ -206,7 +207,7 @@ export default async function LaunchPage() {
     fields.appendChild(h("div", { class: "field" }, h("label", {}, "Попыток"), limitInput));
 
     const message = h("div", { class: "form-hint", role: "status" });
-    const submit = h("button", { type: "button", class: "btn primary" }, "Назначить группе");
+    const submit = h("button", { type: "button", class: "btn primary" }, lt("launch.assignBtn"));
 
     submit.addEventListener("click", async () => {
       message.textContent = "";
@@ -214,7 +215,7 @@ export default async function LaunchPage() {
 
       const groupId = groupInput.value.trim();
       if (!groupId) {
-        message.textContent = "Укажите группу.";
+        message.textContent = tr("launch.groupMissing");
         message.className = "form-error";
         return;
       }
@@ -259,7 +260,7 @@ export default async function LaunchPage() {
           materialUrl: kind === KIND_TRAINING ? materialUrlInput.value : "",
           startAt: startAtInput.value || null
         });
-        message.textContent = `Задание создано для группы «${groupId}».`;
+        message.textContent = tr("launch.assigned", { group: groupId });
         toast("Задание создано", "success");
       } catch (err) {
         console.error("Назначение теста:", err);
@@ -267,7 +268,7 @@ export default async function LaunchPage() {
         message.className = "form-error";
       } finally {
         submit.disabled = false;
-        submit.textContent = "Назначить группе";
+        submit.textContent = tr("launch.assignBtn");
       }
     });
 
@@ -275,15 +276,15 @@ export default async function LaunchPage() {
   }
 
   grid.appendChild(modeCard({
-    title: "Обучающее задание",
-    lead: "Тест с материалом и пояснениями: участники могут учиться по нему, срок обязателен.",
+    title: lt("launch.modeLearn"),
+    lead: lt("launch.modeLearnHint"),
     bullets: ["Заметка и материал до 6000 символов", "Ссылка на материал только по https", "Можно отложить открытие"],
     form: assignmentForm(KIND_TRAINING)
   }));
 
   grid.appendChild(modeCard({
-    title: "Проверка знаний",
-    lead: "Контрольный тест: материал скрыт, попытки ограничены, результаты идут на проверку как обычно.",
+    title: lt("launch.modeCheck"),
+    lead: lt("launch.modeCheckHint"),
     form: assignmentForm("exam")
   }));
 
@@ -293,13 +294,13 @@ export default async function LaunchPage() {
 function hero(test, questions) {
   return h("div", { class: "page-head" },
     h("div", {},
-      h("div", { class: "eyebrow" }, "Запуск теста"),
-      h("h1", {}, "Как провести тест"),
+      h("div", { class: "eyebrow" }, lt("launch.eyebrow")),
+      h("h1", {}, lt("launch.title")),
       h("p", { class: "page-sub" }, `«${test.title || "Без названия"}» · ${questions} ${questions === 1 ? "вопрос" : "вопросов"}.`),
       h("p", { class: "page-sub" }, test.description || "")
     ),
     h("div", { class: "page-head-actions" },
-      h("a", { class: "btn secondary", href: "#tests" }, "Мои тесты")
+      h("a", { class: "btn secondary", href: "#tests" }, lt("launch.backToList"))
     )
   );
 }

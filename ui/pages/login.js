@@ -6,6 +6,7 @@ import { authErrorMessage } from "../../shared/errors.js";
 import { peekReturnTo, safeReturnTo, clearReturnTo } from "../../shared/return-to.js";
 import { createGoogleButton, handleIncomingGoogleRedirect, googleDivider } from "../components/google-button.js";
 import { railScene, brandLockup } from "../../ui/components/brand.js";
+import { t as tr, lt, roleLabel } from "../../core/i18n.js";
 
 export default function LoginPage() {
   const page = h("div", { class: "page auth-page" });
@@ -95,7 +96,7 @@ export default function LoginPage() {
     h("div", {},
       h("div", { class: "eyebrow" }, "Вход"),
       h("h1", { style: "margin:4px 0 8px" }, "С возвращением"),
-      h("p", { class: "muted", style: "margin:0" }, "Войдите, чтобы продолжить обучение.")
+      h("p", { class: "muted", style: "margin:0" }, lt("login.lead"))
     ),
     errorBox,
     createGoogleButton({ onSuccess: onGoogleEvent, onError: onGoogleEvent }),
@@ -114,7 +115,7 @@ export default function LoginPage() {
     submit,
     guestBtn,
     h("p", { class: "muted", style: "margin:0;font-size:.8125rem" },
-      "Гость проходит тест по ссылке от преподавателя — регистрация не требуется."),
+      lt("login.guestNote")),
     h("p", { class: "muted", style: "margin:0;font-size:.875rem" },
       "Нет аккаунта? ", h("a", { href: "#register" }, "Зарегистрироваться"))
   );
@@ -123,8 +124,8 @@ export default function LoginPage() {
   scene.innerHTML = railScene();
   scene.appendChild(h("div", { class: "auth-aside-text" },
     h("div", { class: "eyebrow" }, "Skillbase"),
-    h("h2", {}, "Знания, которые держат движение"),
-    h("p", {}, "Курсы, проверка знаний и результаты — в одной среде для железнодорожных предприятий.")
+    h("h2", {}, lt("login.sideTitle")),
+    h("p", {}, lt("login.sideLead"))
   ));
 
   page.append(h("div", { class: "auth-split" }, form, scene));

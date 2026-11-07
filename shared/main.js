@@ -4,6 +4,10 @@ import { renderSidebar, initSidebar, setSidebarOpen } from '../ui/components/sid
 import { initTheme, toggleTheme, getTheme, subscribeTheme } from './theme.js';
 import { icons } from './icons.js';
 import { skinSwitch } from '../ui/components/skin-switch.js';
+import { modeToggle } from '../ui/components/mode-toggle.js';
+import { initMode, subscribeMode } from '../core/mode.js';
+import { t } from '../core/i18n.js';
+import { liveText, liveAttr } from './live.js';
 
 function mountSidebar() {
   const box = document.getElementById("sidebar-container");
@@ -29,7 +33,13 @@ function paintThemeButton() {
 function initThemeToggle() {
   const btn = document.getElementById("theme-toggle");
   if (!btn) return;
-  // Переключатель скина слева от кнопки темы: доступен и гостю.
+  // Слева от кнопки темы: переключатель режима Education / Workforce и
+  // (только в Education) переключатель скина. Доступны и гостю.
+  if (!document.getElementById("mode-toggle-top")) {
+    const mt = modeToggle({ className: "mode-toggle-top" });
+    mt.id = "mode-toggle-top";
+    btn.before(mt);
+  }
   if (!document.getElementById("skin-switch-top")) {
     const sw = skinSwitch({ className: "skin-switch-top" });
     sw.id = "skin-switch-top";
@@ -56,8 +66,20 @@ function renderKey() {
   return [State.user?.uid || "guest", status].join("|");
 }
 
+// Подписи оболочки (слоган, подвал) зависят от режима и обновляются на месте.
+function bindShellTexts() {
+  const tagline = document.getElementById("brand-tagline");
+  if (tagline) tagline.replaceChildren(liveText(() => t("app.tagline")));
+  const footer = document.getElementById("footer-text");
+  if (footer) footer.replaceChildren(liveText(() => t("app.footer")));
+  const meta = document.querySelector('meta[name="description"]');
+  if (meta) liveAttr(meta, "content", () => t("app.description"));
+}
+
 document.addEventListener("DOMContentLoaded", () => {
+  initMode();
   initTheme();
+  bindShellTexts();
   initThemeToggle();
   initSidebar();
 

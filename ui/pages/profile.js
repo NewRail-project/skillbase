@@ -11,8 +11,8 @@ import { toast } from "../../ui/components/toast.js";
 import { modal } from "../../ui/components/modal.js";
 import { brandLockup } from "../../ui/components/brand.js";
 import { authErrorMessage } from "../../shared/errors.js";
+import { t as tr, lt, roleLabel } from "../../core/i18n.js";
 
-const ROLE_LABEL = { student: "Студент", teacher: "Преподаватель", admin: "Администратор" };
 const MODE_LABEL = { light: "Светлая", dark: "Тёмная", system: "Как в системе" };
 
 function formatDate(value) {
@@ -56,7 +56,7 @@ function signedOutState() {
     stateCard({
       icon: icons.users,
       title: "Вы не вошли в аккаунт",
-      text: "Войдите, чтобы открыть профиль, историю обучения и настройки.",
+      text: lt("prof.notSignedIn"),
       actions: [
         h("a", { class: "btn primary", href: "#login" }, "Войти"),
         h("a", { class: "btn secondary", href: "#register" }, "Создать аккаунт")
@@ -113,7 +113,7 @@ function missingProfileState() {
   const form = h("form", { class: "panel", novalidate: "novalidate" },
     h("div", { class: "eyebrow" }, "Профиль не создан"),
     h("h1", { style: "margin:0 0 8px" }, "Заполните профиль"),
-    h("p", { class: "muted" }, "Аккаунт существует, но документа профиля ещё нет. Укажите ФИО — этого достаточно, чтобы начать обучение."),
+    h("p", { class: "muted" }, lt("prof.leadEmpty")),
     errors,
     h("div", { class: "form-field" },
       h("label", { for: "fullName" }, "ФИО"),
@@ -251,7 +251,7 @@ function themeControl() {
 function attemptsBlock(profile) {
   const wrap = h("div", { class: "panel" },
     h("div", { class: "section-title" },
-      h("h2", {}, "История тестов"),
+      h("h2", {}, lt("prof.history")),
       h("span", { class: "muted", id: "attempts-count" }, "")
     ),
     h("div", { id: "attempts-body" }, h("div", { class: "skeleton-line", style: "height:64px" }))
@@ -274,8 +274,8 @@ function attemptsBlock(profile) {
     if (!attempts.length) {
       body.replaceChildren(h("div", { class: "empty-state" },
         h("div", { class: "empty-state-icon", innerHTML: icons.trophy }),
-        h("p", {}, "Пройденных тестов пока нет."),
-        h("a", { class: "btn secondary", href: "#assignments" }, "Перейти к заданиям")
+        h("p", {}, lt("prof.historyEmpty")),
+        h("a", { class: "btn secondary", href: "#assignments" }, lt("prof.toAssignments"))
       ));
       return;
     }
@@ -294,7 +294,7 @@ function attemptsBlock(profile) {
       list.appendChild(h("div", { class: "list-row" },
         h("span", { class: "dot " + (graded ? (percent >= 60 ? "ok" : "warn") : "muted") }),
         h("div", { class: "list-row-main" },
-          h("div", { class: "list-row-title" }, a.testTitle || "Тест"),
+          h("div", { class: "list-row-title" }, a.testTitle || lt("home.row.untitledTest")),
           h("div", { class: "list-row-sub" }, formatDate(a.submittedAt || a.startedAt))
         ),
         h("div", { class: "list-row-end" }, badge)
@@ -309,7 +309,7 @@ function attemptsBlock(profile) {
 function statsBlock(profile) {
   const grid = h("div", { class: "stat-grid" });
   const block = h("div", { class: "panel" },
-    h("div", { class: "section-title" }, h("h2", {}, "Статистика обучения")),
+    h("div", { class: "section-title" }, h("h2", {}, lt("prof.stats"))),
     grid
   );
 
@@ -325,7 +325,7 @@ function statsBlock(profile) {
     const stats = computeProfileStats(attempts);
     grid.textContent = "";
     if (!stats) {
-      grid.appendChild(h("p", { class: "muted" }, "Статистика появится после первого пройденного теста."));
+      grid.appendChild(h("p", { class: "muted" }, lt("prof.statsEmpty")));
       return;
     }
     const items = [
@@ -450,7 +450,6 @@ function avatarDialog(profile) {
 
 function renderReady(profile, avatarUrl) {
   const name = displayName(profile, { viewerIsStaff: true, uid: profile.uid });
-  const role = ROLE_LABEL[profile.role] || "Студент";
 
   const header = h("section", { class: "profile-hero" },
     avatarNode(profile, avatarUrl),
@@ -458,7 +457,7 @@ function renderReady(profile, avatarUrl) {
       h("div", { class: "eyebrow" }, "Профиль"),
       h("h1", {}, name),
       h("div", { class: "profile-hero-meta" },
-        h("span", { class: "badge badge-info" }, role),
+        h("span", { class: "badge badge-info" }, () => roleLabel(profile.role)),
         profile.position ? h("span", {}, profile.position) : null,
         profile.department ? h("span", {}, "· " + profile.department) : null,
         profile.createdAt ? h("span", { class: "muted" }, "· в Skillbase с " + formatDate(profile.createdAt)) : null
@@ -495,7 +494,7 @@ function renderReady(profile, avatarUrl) {
         h("span", { class: "value" }, profile.orgId || "—")
       ),
       h("div", { class: "field" },
-        h("span", { class: "muted" }, "Группа"),
+        h("span", { class: "muted" }, lt("prof.group")),
         h("span", { class: "value" }, profile.groupId || "не назначена")
       ),
       h("div", { class: "field" },

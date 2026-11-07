@@ -4,6 +4,7 @@ import { listOrgAttempts } from "../../core/attempts.js";
 import { loadPublicProfiles, displayName } from "../../core/profile.js";
 import { toCsv } from "../../shared/csv.js";
 import { icons } from "../../shared/icons.js";
+import { t as tr, lt } from "../../core/i18n.js";
 
 function formatDate(value) {
   if (!value) return "—";
@@ -26,9 +27,9 @@ function explainError(err) {
 
 function downloadCsv(rows) {
   const data = rows.map(r => ({
-    "Участник": r.student,
+    [tr("res.colUser")]: r.student,
     "Почта": r.email,
-    "Тест": r.test,
+    [tr("res.colTest")]: r.test,
     "Балл": r.score,
     "Всего": r.total,
     "Процент": r.percent === null ? "" : r.percent,
@@ -52,8 +53,8 @@ export default async function ResultsPage() {
   const head = h("div", { class: "page-head" },
     h("div", {},
       h("div", { class: "eyebrow" }, "Аналитика"),
-      h("h1", {}, "Результаты"),
-      h("p", { class: "page-sub" }, "Попытки сотрудников вашей организации. Выгрузка — в CSV для Excel.")
+      h("h1", {}, lt("res.title")),
+      h("p", { class: "page-sub" }, lt("res.sub"))
     ),
     h("div", { class: "page-head-actions" })
   );
@@ -65,7 +66,7 @@ export default async function ResultsPage() {
   const stats = h("section", { class: "stat-grid" });
   page.appendChild(stats);
 
-  const search = h("input", { type: "search", placeholder: "Поиск по участнику или тесту", "aria-label": "Поиск по результатам" });
+  const search = h("input", { type: "search", placeholder: lt("res.search"), "aria-label": lt("res.search") });
   const filters = h("div", { class: "filter-bar" }, search);
   page.appendChild(filters);
 
@@ -92,7 +93,7 @@ export default async function ResultsPage() {
         h("h2", {}, rows.length ? "Ничего не найдено" : "Попыток пока нет"),
         h("p", { class: "muted" }, rows.length
           ? "Измените поисковый запрос."
-          : "Результаты появятся, когда участники пройдут опубликованные тесты.")
+          : lt("res.emptyHint"))
       ));
       return;
     }
@@ -100,8 +101,8 @@ export default async function ResultsPage() {
     const table = h("div", { class: "table-wrap" });
     const el = h("table", { class: "table" },
       h("thead", {}, h("tr", {},
-        h("th", {}, "Участник"),
-        h("th", {}, "Тест"),
+        h("th", {}, lt("res.colUser")),
+        h("th", {}, lt("res.colTest")),
         h("th", {}, "Результат"),
         h("th", {}, "Статус"),
         h("th", {}, "Отправлено"),

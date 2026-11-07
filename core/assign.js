@@ -3,6 +3,7 @@ import {
   query, where, serverTimestamp, orderBy, Timestamp
 } from "../shared/firebase.js";
 import { validateAssignmentDraft } from "./assignment-logic.js";
+import { t } from "./i18n.js";
 
 function toDeadline(value) {
   if (!value) return null;
@@ -31,7 +32,7 @@ export async function assignTest({
 
   const group = String(groupId || "").trim();
   if (group.length < 1 || group.length > 100) {
-    throw new Error("Укажите группу (от 1 до 100 символов).");
+    throw new Error(t("group.required"));
   }
 
   const testSnap = await getDoc(doc(db, "tests", test.id));

@@ -6,6 +6,7 @@ import { isCorrect, normalizeKeys, questionPoints, scoreAttempt } from "../../co
 import { loadPublicProfiles, displayName } from "../../core/profile.js";
 import { icons } from "../../shared/icons.js";
 import { toast } from "../components/toast.js";
+import { t as tr, lt } from "../../core/i18n.js";
 
 const STATUS_LABEL = {
   in_progress: "Не завершена",
@@ -63,7 +64,7 @@ function correctIndices(key) {
 
 export default async function ReviewPage() {
   const page = h("div", { class: "page" });
-  const back = h("a", { class: "btn secondary", href: "#results" }, "К результатам");
+  const back = h("a", { class: "btn secondary", href: "#results" }, lt("rev.backToResults"));
   const attemptId = decodeURIComponent((State.routeParam || "").split("/")[0] || "");
 
   if (!attemptId) {
@@ -72,7 +73,7 @@ export default async function ReviewPage() {
   }
 
   if (!isStaff()) {
-    page.append(errorPanel("Нет доступа", "Проверять попытки могут преподаватели и администраторы.", back));
+    page.append(errorPanel("Нет доступа", tr("rev.noAccess"), back));
     return page;
   }
 
@@ -223,12 +224,12 @@ export default async function ReviewPage() {
         )
       ),
       h("p", { class: "muted" },
-        `Ученик: ${studentName}. Отправлено: ${formatDateTime(attempt.submittedAt || attempt.startedAt)}.`)
+        () => `${tr("rev.learner")}: ${studentName}. Отправлено: ${formatDateTime(attempt.submittedAt || attempt.startedAt)}.`)
     ));
 
     if (attempt.status === "in_progress") {
       body.append(h("div", { class: "notice" },
-        "Ученик ещё не отправил попытку. Проверять и сохранять оценку можно только после отправки."));
+        lt("rev.learnerNotSent")));
     }
 
     const list = h("section", { class: "panel" });
@@ -259,7 +260,7 @@ export default async function ReviewPage() {
         const expected = key.answer ?? "—";
         card.append(
           h("div", { class: "option", style: "white-space:pre-wrap" },
-            h("strong", {}, "Ответ ученика: "),
+            h("strong", {}, () => `${tr("rev.learnerAnswer")}: `),
             typeof answer === "string" && answer.trim() ? answer : "нет ответа"),
           h("div", { class: "option correct", style: "white-space:pre-wrap" },
             h("strong", {}, "Ожидаемый ответ: "), String(expected))
@@ -305,13 +306,13 @@ export default async function ReviewPage() {
           },
             h("span", {}, `${String.fromCharCode(65 + optionIndex)}) ${option.text || "—"}`),
             isExpected ? h("span", { class: "badge badge-success" }, "Верный") : null,
-            isSelected ? h("span", { class: "badge badge-info" }, "Ответ ученика") : null
+            isSelected ? h("span", { class: "badge badge-info" }, lt("rev.learnerAnswer")) : null
           );
           optionsBox.append(row);
         });
 
         if (!selected.size) {
-          optionsBox.append(h("div", { class: "muted" }, "Ученик не выбрал ответ."));
+          optionsBox.append(h("div", { class: "muted" }, lt("rev.learnerNoAnswer")));
         }
         card.append(optionsBox);
       }
@@ -364,7 +365,7 @@ export default async function ReviewPage() {
     const actions = h("section", { class: "panel" },
       h("div", { class: "section-title" }, h("h2", {}, "Оценка")),
       h("p", { class: "muted" },
-        "Объективные вопросы проверяются автоматически. Для коротких ответов преподаватель может засчитать ответ вручную."),
+        lt("rev.autoCheck")),
       h("div", { class: "btn-row" },
         saveBtn,
         h("a", { class: "btn secondary", href: "#results" }, "К результатам")),

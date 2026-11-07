@@ -4,8 +4,8 @@ import { listMyTests } from "../../core/editor.js";
 import { listOrgAttempts } from "../../core/attempts.js";
 import { icons } from "../../shared/icons.js";
 import { brandLockup } from "../../ui/components/brand.js";
+import { t as tr, lt, roleLabel } from "../../core/i18n.js";
 
-const ROLE_LABEL = { student: "Студент", teacher: "Преподаватель", admin: "Администратор" };
 
 function tile({ icon, title, text, href, action }) {
   const card = h("a", { class: "quick-action", href });
@@ -29,11 +29,11 @@ export default async function AdminPanelPage() {
     h("div", {},
       h("div", { class: "eyebrow" }, "Управление"),
       h("h1", {}, "Админ-панель"),
-      h("p", { class: "page-sub" }, "Сводка по организации, доступ к управлению пользователями и тестами.")
+      h("p", { class: "page-sub" }, lt("adm.sub"))
     ),
     h("div", { class: "page-head-actions" },
-      h("span", { class: "badge badge-info" }, ROLE_LABEL[profile.role] || "Сотрудник"),
-      isStaff() ? h("a", { class: "btn primary", href: "#create-test" }, "Создать тест") : null
+      h("span", { class: "badge badge-info" }, () => roleLabel(profile.role)),
+      isStaff() ? h("a", { class: "btn primary", href: "#create-test" }, lt("adm.createBtn")) : null
     )
   ));
 
@@ -57,7 +57,7 @@ export default async function AdminPanelPage() {
   page.appendChild(h("section", { class: "stat-grid" },
     h("div", { class: "stat" },
       h("div", { class: "stat-value" }, state.testsError ? "—" : String(state.tests.length)),
-      h("div", { class: "stat-label" }, "ваших тестов"),
+      h("div", { class: "stat-label" }, lt("adm.statTests")),
       h("div", { class: "stat-hint" }, state.testsError ? "нет доступа к данным" : `опубликовано: ${published}`)
     ),
     h("div", { class: "stat" },
@@ -67,7 +67,7 @@ export default async function AdminPanelPage() {
     ),
     h("div", { class: "stat" },
       h("div", { class: "stat-value" }, state.attemptsError ? "—" : String(participants)),
-      h("div", { class: "stat-label" }, "участников"),
+      h("div", { class: "stat-label" }, lt("adm.statMembers")),
       h("div", { class: "stat-hint" }, "уникальных авторов попыток")
     ),
     h("div", { class: "stat" },
@@ -90,21 +90,21 @@ export default async function AdminPanelPage() {
     h("div", { class: "quick-actions", style: "margin-top:16px" },
       tile({
         icon: icons.users,
-        title: "Пользователи",
-        text: "Роли, подразделения и доступ сотрудников.",
+        title: lt("usr.title"),
+        text: lt("adm.usersHint"),
         href: "#users",
         action: "Открыть"
       }),
       tile({
         icon: icons.book,
-        title: "Тесты",
-        text: "Создание, публикация и снятие с публикации.",
+        title: lt("adm.testsTitle"),
+        text: lt("adm.testsHint"),
         href: "#tests",
         action: "Каталог"
       }),
       tile({
         icon: icons.chart,
-        title: "Результаты",
+        title: lt("adm.resultsTitle"),
         text: "Попытки организации и выгрузка в CSV.",
         href: "#results",
         action: "Открыть"

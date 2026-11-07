@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html data-ui="education" lang="ru">
+<html data-ui="education" data-mode="education" lang="ru">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Skillbase</title>
-  <meta name="description" content="Skillbase — корпоративная платформа обучения и проверки знаний для железнодорожной отрасли.">
+  <meta name="description" content="Skillbase — платформа обучения и проверки знаний: Education для студентов колледжей и университетов, Workforce для профессионального обучения сотрудников предприятий.">
   <meta name="theme-color" content="#F5F3EF">
   <link rel="icon" type="image/svg+xml" href="ui/brand/favicon.svg">
   <link rel="manifest" href="ui/brand/manifest.webmanifest">
@@ -25,20 +25,21 @@
   <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js">
   <link rel="modulepreload" href="core/auth.js">
   <link rel="modulepreload" href="shared/firebase.js">
-  <link rel="stylesheet" href="ui/css/tokens.css?v=1.0.0.20261107150540">
-  <link rel="stylesheet" href="ui/css/themes/education.css?v=1.0.0.20261107150540">
-  <link rel="stylesheet" href="ui/css/themes/operations.css?v=1.0.0.20261107150540">
-  <link rel="stylesheet" href="ui/css/themes/depot.css?v=1.0.0.20261107150540">
-  <link rel="stylesheet" href="ui/css/base.css?v=1.0.0.20261107150540">
-  <link rel="stylesheet" href="ui/css/components.css?v=1.0.0.20261107150540">
-  <link rel="stylesheet" href="ui/css/brand.css?v=1.0.0.20261107150540">
+  <link rel="stylesheet" href="ui/css/tokens.css?v=1.0.0.20261107214324">
+  <link rel="stylesheet" href="ui/css/themes/education.css?v=1.0.0.20261107214324">
+  <link rel="stylesheet" href="ui/css/themes/operations.css?v=1.0.0.20261107214324">
+  <link rel="stylesheet" href="ui/css/themes/depot.css?v=1.0.0.20261107214324">
+  <link rel="stylesheet" href="ui/css/themes/workforce.css?v=1.0.0.20261107214324">
+  <link rel="stylesheet" href="ui/css/base.css?v=1.0.0.20261107214324">
+  <link rel="stylesheet" href="ui/css/components.css?v=1.0.0.20261107214324">
+  <link rel="stylesheet" href="ui/css/brand.css?v=1.0.0.20261107214324">
   <!-- Inter подключён последним: font-display: swap не блокирует отрисовку,
        а системный fallback уже отрисовал текст. -->
-  <link rel="stylesheet" href="ui/css/fonts.css?v=1.0.0.20261107150540">
+  <link rel="stylesheet" href="ui/css/fonts.css?v=1.0.0.20261107214324">
   <!-- live.css (21 КБ) нужен только Live-комнатам и запуску теста:
        подключается точечно в room.js/launch.js, а не блокирует первую
        отрисовку главной. -->
-  <script type="module" src="shared/main.js?v=1.0.0.20261107150540"></script>
+  <script type="module" src="shared/main.js?v=1.0.0.20261107214324"></script>
   <script>
     // Тема применяется до первой отрисовки, чтобы не было вспышки светлого фона.
     (function () {
@@ -49,14 +50,19 @@
         theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
       }
       var root = document.documentElement;
+      var wf = false;
       try {
+        // Режим платформы (Education / Workforce) — до первой отрисовки, без вспышки чужого оформления.
+        wf = localStorage.getItem("sb-mode") === "workforce";
         var ui = localStorage.getItem("sb-ui");
         if (ui === "education" || ui === "operations" || ui === "depot") root.setAttribute("data-ui", ui);
       } catch (_) {}
+      root.setAttribute("data-mode", wf ? "workforce" : "education");
+      if (wf) root.setAttribute("data-ui", "workforce");
       root.setAttribute("data-theme", theme);
       root.style.colorScheme = theme;
       var meta = document.querySelector('meta[name="theme-color"]');
-      if (meta) meta.setAttribute("content", theme === "dark" ? "#0D1218" : "#F5F3EF");
+      if (meta) meta.setAttribute("content", wf ? (theme === "dark" ? "#0B1220" : "#0F1A2E") : (theme === "dark" ? "#0D1218" : "#F5F3EF"));
     })();
   </script>
 </head>
@@ -81,7 +87,7 @@
         </svg>
         <span class="brand-text">
           <span class="brand-name">Skillbase</span>
-          <span class="brand-tagline">обучение на пути</span>
+          <span class="brand-tagline" id="brand-tagline">обучение на пути</span>
         </span>
       </a>
 
@@ -95,7 +101,7 @@
     </header>
     <main id="app" tabindex="-1"></main>
     <footer class="site-footer">
-      <span>Skillbase · корпоративное обучение железнодорожной отрасли</span>
+      <span id="footer-text">Skillbase · платформа обучения и проверки знаний для колледжей и университетов</span>
       <span class="site-footer-links">
         <a href="#/">Главная</a>
         <a href="#login">Вход</a>

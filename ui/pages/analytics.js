@@ -11,13 +11,14 @@ import { db, getDoc, doc } from "../../shared/firebase.js";
 import { buildAnalytics, ANALYTICS_LIMIT, LOW_PERCENT_THRESHOLD } from "../../core/analytics-logic.js";
 import { icons } from "../../shared/icons.js";
 import { toast } from "../components/toast.js";
+import { t as tr, lt } from "../../core/i18n.js";
 
 export default async function AnalyticsPage() {
   const page = h("div", { class: "page" });
   page.appendChild(h("div", { class: "page-head" },
     h("div", {},
       h("div", { class: "eyebrow" }, "Аналитика"),
-      h("h1", {}, "Аналитика по тесту"),
+      h("h1", {}, lt("ana.title")),
       h("p", { class: "page-sub" },
         `Последние ${ANALYTICS_LIMIT} попыток с ключами из testKeys. ` +
         `Вопросы ниже ${LOW_PERCENT_THRESHOLD}% верных — на пересдачу.`)
@@ -38,8 +39,8 @@ export default async function AnalyticsPage() {
     return page;
   }
 
-  const select = h("select", { class: "form-control", "aria-label": "Тест" });
-  select.appendChild(h("option", { value: "" }, tests.length ? "Выберите тест" : "Опубликованных тестов нет"));
+  const select = h("select", { class: "form-control", "aria-label": lt("ana.testLabel") });
+  select.appendChild(h("option", { value: "" }, tests.length ? lt("ana.pickTest") : lt("ana.noPublished")));
   tests.forEach(t => {
     select.appendChild(h("option", { value: t.id }, t.title || t.id));
   });
@@ -115,7 +116,7 @@ function drawReport(report, data, titles) {
       h("div", { class: "empty-state" },
         h("div", { class: "empty-state-icon", innerHTML: icons.chart }),
         h("h2", {}, "Попыток пока нет"),
-        h("p", { class: "muted" }, "Ещё никто не прошёл этот тест.")
+        h("p", { class: "muted" }, lt("ana.noAttempts"))
       )
     ));
     return;
@@ -168,7 +169,7 @@ function drawReport(report, data, titles) {
   // Средний балл по группам.
   if (data.groups.length) {
     report.appendChild(h("div", { class: "panel" },
-      h("div", { class: "panel-head" }, h("h2", {}, "Средний балл по группам")),
+      h("div", { class: "panel-head" }, h("h2", {}, lt("group.avgScore"))),
       h("div", { class: "table-wrap" }, groupTable(data.groups))
     ));
   }
@@ -216,7 +217,7 @@ function questionTable(data, titles) {
 function groupTable(groups) {
   const table = h("table", { class: "table analytics-table" },
     h("thead", {}, h("tr", {},
-      h("th", {}, "Группа"), h("th", {}, "Попыток"),
+      h("th", {}, lt("ana.colGroup")), h("th", {}, "Попыток"),
       h("th", {}, "Средний %"), h("th", {}, "Мин — макс")))
   );
   const tbody = h("tbody");
@@ -236,7 +237,7 @@ function groupTable(groups) {
 
 function explainError(err) {
   if (err?.code === "permission-denied") {
-    return "Правила Firestore не разрешают чтение (нужна роль преподавателя или администратора).";
+    return tr("ana.deniedRole");
   }
   return "Не удалось загрузить данные. Проверьте подключение к сети.";
 }

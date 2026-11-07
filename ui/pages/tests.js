@@ -7,6 +7,7 @@ import { getDocs, query, collection, db, where } from "../../shared/firebase.js"
 import { confirmAction } from "../../ui/components/confirm.js";
 import { toast } from "../../ui/components/toast.js";
 import { icons } from "../../shared/icons.js";
+import { t as tr, lt } from "../../core/i18n.js";
 
 function formatDate(value) {
   if (!value) return "—";
@@ -18,7 +19,7 @@ function formatDate(value) {
 function explainError(err) {
   const code = err && err.code;
   if (code === "permission-denied") {
-    return "Нет доступа к каталогу: правила Firestore не разрешают чтение этих тестов.";
+    return tr("tests.catalogDenied");
   }
   if (code === "failed-precondition") {
     // failed-precondition означает и «индекса нет», и «индекс ещё строится» —
@@ -28,7 +29,7 @@ function explainError(err) {
   if (code === "unavailable") {
     return "Нет связи с Firestore. Проверьте подключение к интернету.";
   }
-  return "Не удалось загрузить каталог тестов. Попробуйте ещё раз.";
+  return tr("tests.catalogError");
 }
 
 function testCard(test, staff) {
@@ -94,7 +95,7 @@ function testCard(test, staff) {
 
       const plan = deletionPlan({ test, session: { uid: State.user.uid, role: State.profile.role }, assignments, rooms });
 
-      let warnText = "Тест будет скрыт из каталога. Статистика и результаты уже пройденных попыток сохранятся.";
+      let warnText = tr("tests.deleteHint");
       const details = [];
       if (plan.closeAssignmentIds.length) {
         details.push(h("p", { class: "warning-msg" }, `Будет закрыто активных заданий: ${plan.closeAssignmentIds.length}`));
@@ -103,11 +104,11 @@ function testCard(test, staff) {
         details.push(h("p", { class: "warning-msg" }, `Будет закрыто активных Live-комнат: ${plan.closeRoomCodes.length}`));
       }
       if (plan.foreignAssignmentIds.length || plan.foreignRooms.length) {
-        details.push(h("p", { class: "muted", style: "font-size:0.9em" }, "Внимание: есть активные задания или комнаты других преподавателей, которые вы не можете закрыть. Они перестанут работать после удаления теста."));
+        details.push(h("p", { class: "muted", style: "font-size:0.9em" }, tr("tests.deleteForeign")));
       }
 
       const ok = await confirmAction({
-        title: `Удалить тест «${test.title}»?`,
+        title: tr("tests.deleteConfirm", { title: test.title }),
         text: warnText,
         details,
         confirmLabel: "Удалить",
@@ -117,7 +118,7 @@ function testCard(test, staff) {
       if (ok) {
         try {
           await deleteTest(test.id, plan);
-          toast("Тест удалён", "success");
+          toast(tr("tests.deleted"), "success");
           // Перерисовываем страницу через роутер или находим и удаляем карточку.
           // Проще всего вызвать роутер, так как страница тестов асинхронная.
           window.location.reload();
@@ -134,7 +135,7 @@ function testCard(test, staff) {
         ? h("a", { class: "btn primary", href: `#launch/${encodeURIComponent(test.id)}` }, "Запустить")
         : null,
       h("a", { class: "btn secondary", href: `#quiz/${encodeURIComponent(test.id)}` }, "Открыть"),
-      h("button", { type: "button", class: "btn secondary danger-text", onclick: onDelete, title: "Удалить тест" }, "Удалить")
+      h("button", { type: "button", class: "btn secondary danger-text", onclick: onDelete, title: lt("tests.deleteTitle") }, "Удалить")
     );
   } else {
     foot.append(status, h("a", {
@@ -153,14 +154,12 @@ export default async function TestsPage() {
 
   const head = h("div", { class: "page-head" },
     h("div", {},
-      h("div", { class: "eyebrow" }, "Обучение"),
-      h("h1", {}, staff ? "Мои тесты" : "Каталог тестов"),
-      h("p", { class: "page-sub" }, staff
-        ? "Тесты, которые вы создали. Черновики видны только вам."
-        : "Опубликованные тесты вашей организации. Выберите тест, чтобы начать.")
+      h("div", { class: "eyebrow" }, lt("tests.eyebrow")),
+      h("h1", {}, staff ? lt("tests.titleMine") : lt("tests.titleCatalog")),
+      h("p", { class: "page-sub" }, staff ? lt("tests.subMine") : lt("tests.subCatalog"))
     ),
     staff ? h("div", { class: "page-head-actions" },
-      h("a", { class: "btn primary", href: "#create-test" }, "Создать тест")
+      h("a", { class: "btn primary", href: "#create-test" }, lt("tests.create"))
     ) : null
   );
   page.appendChild(head);
@@ -209,13 +208,13 @@ export default async function TestsPage() {
       grid.appendChild(h("div", { class: "panel", style: "grid-column:1/-1" },
         h("div", { class: "empty-state" },
           h("div", { class: "empty-state-icon", innerHTML: icons.book }),
-          h("h2", {}, tests.length ? "Ничего не найдено" : (staff ? "Тестов пока нет" : "Опубликованных тестов нет")),
+          h("h2", {}, tests.length ? "Ничего не найдено" : (staff ? lt("tests.emptyMine") : lt("tests.emptyCatalog"))),
           h("p", { class: "muted" }, tests.length
             ? "Измените запрос или фильтр."
             : staff
-              ? "Создайте первый тест — он появится в этом списке."
-              : "Как только преподаватель опубликует тест, он появится здесь."),
-          staff && !tests.length ? h("a", { class: "btn primary", href: "#create-test" }, "Создать тест") : null
+              ? lt("tests.emptyMineHint")
+              : lt("tests.emptyCatalogHint")),
+          staff && !tests.length ? h("a", { class: "btn primary", href: "#create-test" }, lt("tests.create")) : null
         )
       ));
       return;
@@ -259,7 +258,7 @@ export default async function TestsPage() {
         h("div", { class: "empty-state" },
           h("div", { class: "empty-state-icon", innerHTML: icons.book }),
           h("h2", {}, "Каталог недоступен"),
-          h("p", { class: "muted" }, explainError(err)),
+          h("p", { class: "muted" }, () => explainError(err)),
           h("button", {
             type: "button",
             class: "btn secondary",
