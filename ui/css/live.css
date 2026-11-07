@@ -211,10 +211,6 @@
 .lb-board .lb-place { font-size: clamp(1.4rem, 3.2vw, 2.6rem); color: var(--lcd); }
 .lb-board .lb-score { font-size: clamp(1.4rem, 3.2vw, 2.6rem); text-shadow: 0 0 10px rgba(255, 194, 74, .45); }
 .lb-board .avatar-chip { width: clamp(44px, 5vw, 72px); height: clamp(44px, 5vw, 72px); }
-.lb-board .lb-card.lb-gold { background: #3A2A06; color: #FFD97A; border-color: #FFC24A; }
-.lb-board .lb-card.lb-silver { background: #20262C; color: #DCE4EC; border-color: #8FA3B5; }
-.lb-board .lb-card.lb-bronze { background: #35200F; color: #F0B27A; border-color: #D9965B; }
-.lb-board .lb-card.lb-gold .lb-meta, .lb-board .lb-card.lb-silver .lb-meta, .lb-board .lb-card.lb-bronze .lb-meta { color: inherit; opacity: .85; }
 .room-screen-page .pod-name, .room-screen-page .pod-score { color: var(--lcd); }
 .room-screen-page .pod-name { font-size: clamp(1.1rem, 2.4vw, 2rem); text-transform: uppercase; }
 .room-screen-page .pod-stage { min-height: 46vh; }
@@ -236,4 +232,96 @@
     animation: none !important; transition: none !important;
   }
   .streak-broke { opacity: 0; }
+}
+
+/* ---------- Кнопка «Прочитать материал» в лобби ---------- */
+.room-material-cta { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; margin-top: var(--space-3); }
+.room-material-cta-text { display: grid; gap: 2px; min-width: 0; flex: 1 1 14rem; }
+.room-material-cta .btn { flex: 0 0 auto; }
+
+/* ============================================================
+   Топ и подиум: сдержанные «металлы» вместо жирной заливки.
+   Фон карточки остаётся нейтральным (из темы), медаль выражена
+   полосой слева, значком места и лёгким оттенком.
+   ============================================================ */
+:root {
+  --metal-gold: #C6A04A;
+  --metal-silver: #A3B1C0;
+  --metal-bronze: #B97D52;
+}
+.lb-card.lb-gold   { --metal: var(--metal-gold); }
+.lb-card.lb-silver { --metal: var(--metal-silver); }
+.lb-card.lb-bronze { --metal: var(--metal-bronze); }
+.lb-card.lb-gold, .lb-card.lb-silver, .lb-card.lb-bronze {
+  background: color-mix(in srgb, var(--metal) 11%, var(--row-bg));
+  color: var(--row-text);
+  border-color: color-mix(in srgb, var(--metal) 40%, var(--border));
+  box-shadow: inset 4px 0 0 var(--metal), var(--shadow);
+}
+.lb-card.lb-gold .lb-meta, .lb-card.lb-silver .lb-meta, .lb-card.lb-bronze .lb-meta { color: var(--row-text-2); }
+.lb-card.lb-gold .lb-place, .lb-card.lb-silver .lb-place, .lb-card.lb-bronze .lb-place {
+  display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; justify-self: center;
+  font-size: .95rem; color: #1D1A12;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--metal) 62%, #fff), var(--metal) 55%, color-mix(in srgb, var(--metal) 72%, #000));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .45);
+}
+.lb-card.is-me.lb-gold, .lb-card.is-me.lb-silver, .lb-card.is-me.lb-bronze { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lb-card { transition: background-color .35s ease, border-color .35s ease; }
+.lb-score { letter-spacing: .01em; }
+
+@keyframes lb-in { from { opacity: 0; transform: translateY(16px) scale(.97); } to { opacity: 1; transform: none; } }
+@keyframes lb-bump { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 50%, transparent); } 100% { box-shadow: 0 0 0 12px transparent; } }
+.lb-enter .lb-card { animation: lb-in .55s cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(var(--i, 0) * 70ms); }
+.lb-card.lb-bump { animation: lb-bump .9s ease-out; }
+
+/* Табло проектора: тёмные карточки с цветной полосой медали */
+.lb-board .lb-card.lb-gold   { background: #1B1609; color: #F2E2B3; border-color: #6B5624; box-shadow: inset 6px 0 0 var(--metal-gold); }
+.lb-board .lb-card.lb-silver { background: #151A1F; color: #DDE5EC; border-color: #4F5E6B; box-shadow: inset 6px 0 0 var(--metal-silver); }
+.lb-board .lb-card.lb-bronze { background: #1D140C; color: #EBCBAA; border-color: #74502F; box-shadow: inset 6px 0 0 var(--metal-bronze); }
+.lb-board .lb-card.lb-gold .lb-meta, .lb-board .lb-card.lb-silver .lb-meta, .lb-board .lb-card.lb-bronze .lb-meta { color: inherit; opacity: .8; }
+.lb-board .lb-card.lb-gold .lb-place, .lb-board .lb-card.lb-silver .lb-place, .lb-board .lb-card.lb-bronze .lb-place { width: 1.9em; height: 1.9em; color: #1D1A12; }
+
+/* ---------- Подиум ---------- */
+.pod-stage { gap: var(--space-2); padding: var(--space-5, 28px) 0 0; min-height: 280px; }
+.pod-col { max-width: 160px; transition: opacity .45s ease; }
+.pod-col.pod-hidden { opacity: 0; transform: none; }
+.pod-col.pod-in { opacity: 1; transform: none; }
+.pod-col.pod-rank-1 { --metal: var(--metal-gold); }
+.pod-col.pod-rank-2 { --metal: var(--metal-silver); }
+.pod-col.pod-rank-3 { --metal: var(--metal-bronze); }
+.pod-person { position: relative; transition: transform .7s cubic-bezier(.2, .9, .25, 1.25) .3s, opacity .5s ease .3s; }
+.pod-col.pod-hidden .pod-person { transform: translateY(-36px) scale(.92); opacity: 0; }
+.pod-col.pod-in .pod-person { transform: none; opacity: 1; }
+.pod-person .avatar-chip { box-shadow: 0 0 0 3px var(--metal), 0 6px 16px -6px rgba(0, 0, 0, .5); }
+.pod-rank-1 .pod-person::before {
+  content: ""; position: absolute; left: 50%; top: 18px; width: 120px; height: 120px; z-index: -1;
+  transform: translateX(-50%); border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--metal-gold) 38%, transparent), transparent 68%);
+}
+.pod-finished .pod-rank-1 .pod-person::before { animation: pod-glow 2.4s ease-in-out infinite; }
+@keyframes pod-glow { 0%, 100% { opacity: .55; transform: translateX(-50%) scale(.95); } 50% { opacity: 1; transform: translateX(-50%) scale(1.08); } }
+.pod-medal { font-size: 1.6rem; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .3)); }
+.pod-name { font-size: .95rem; }
+.pod-block {
+  position: relative; overflow: hidden; transform-origin: bottom center; color: #1D1A12;
+  font-size: 2rem; letter-spacing: .02em; border-radius: 14px 14px 0 0;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--metal) 60%, #fff) 0%, var(--metal) 42%, color-mix(in srgb, var(--metal) 70%, #000) 100%);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, .4), inset 0 -14px 20px rgba(0, 0, 0, .14), 0 10px 24px -14px rgba(0, 0, 0, .6);
+}
+.pod-block::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: -60%; width: 40%; transform: skewX(-20deg);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .4), transparent); opacity: 0;
+}
+.pod-rank-1 .pod-block { height: 140px; background: linear-gradient(180deg, color-mix(in srgb, var(--metal-gold) 60%, #fff) 0%, var(--metal-gold) 42%, color-mix(in srgb, var(--metal-gold) 70%, #000) 100%); }
+.pod-rank-2 .pod-block { height: 100px; background: linear-gradient(180deg, color-mix(in srgb, var(--metal-silver) 60%, #fff) 0%, var(--metal-silver) 42%, color-mix(in srgb, var(--metal-silver) 70%, #000) 100%); }
+.pod-rank-3 .pod-block { height: 72px; background: linear-gradient(180deg, color-mix(in srgb, var(--metal-bronze) 60%, #fff) 0%, var(--metal-bronze) 42%, color-mix(in srgb, var(--metal-bronze) 70%, #000) 100%); }
+.pod-col.pod-hidden .pod-block { transform: scaleY(0); }
+.pod-col.pod-in .pod-block { transform: scaleY(1); transition: transform .8s cubic-bezier(.2, .9, .25, 1.12); }
+.pod-col.pod-in .pod-block::after { animation: pod-sweep 1.4s ease-out .8s 1 both; }
+@keyframes pod-sweep { 0% { left: -60%; opacity: 0; } 20% { opacity: 1; } 100% { left: 130%; opacity: 0; } }
+.pod-finished .pod-rank-1 .pod-block { animation: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .lb-card, .lb-enter .lb-card, .lb-card.lb-bump, .pod-person, .pod-person::before, .pod-block::after { animation: none !important; transition: none !important; }
+  .pod-col.pod-hidden .pod-block { transform: none; }
 }

@@ -103,5 +103,58 @@ export function leaderCard(row, ctx = {}) {
 }
 
 export function leaderList(rows, ctx = {}) {
-  return h("ol", { class: `lb-list${ctx.board ? " lb-board" : ""}` }, rows.map(row => leaderCard(row, ctx)));
+  const cards = rows.map(row => {
+    const card = leaderCard(row, ctx);
+    card.dataset.sig = rowSignature(row, ctx);
+    return card;
+  });
+  const ol = h("ol", { class: `lb-list${ctx.board ? " lb-board" : ""}` }, cards);
+  // Каскадное появление карточек — только при первой сборке списка:
+  // последующие обновления идут точечно и ничего не проигрывают заново.
+  if (ctx.enter && !reduced()) {
+    cards.forEach((card, i) => card.style.setProperty("--i", String(Math.min(i, 12))));
+    ol.classList.add("lb-enter");
+    setTimeout(() => ol.classList.remove("lb-enter"), 1600);
+  }
+  return ol;
+}
+
+// Подпись карточки: пока она не изменилась, DOM-узел не трогаем
+// (аватар, анимации и фокус остаются на месте — нет мигания).
+function rowSignature(row, ctx) {
+  return [
+    row.uid, row.place, row.score ?? 0, row.correctCount ?? 0, row.streak ?? 0,
+    row.percent ?? 0, row.answered ?? 0, row.finished ?? 0, row.status || "",
+    row.name || "", ctx.moves?.get(row.uid) || 0, ctx.me && row.uid === ctx.me ? 1 : 0
+  ].join("|");
+}
+
+// Точечное обновление списка: меняются только изменившиеся карточки,
+// остальные переставляются без пересоздания. Возвращает true, если был
+// готовый список (его обновили), иначе false — тогда нужно собрать с нуля.
+export function reconcileLeaderList(ol, rows, ctx = {}) {
+  if (!ol || !ol.classList?.contains("lb-list")) return false;
+  ol.classList.toggle("lb-board", Boolean(ctx.board));
+  const existing = new Map();
+  ol.querySelectorAll(":scope > [data-uid]").forEach(el => existing.set(el.getAttribute("data-uid"), el));
+  rows.forEach((row, index) => {
+    const sig = rowSignature(row, ctx);
+    let el = existing.get(row.uid);
+    existing.delete(row.uid);
+    if (!el || el.dataset.sig !== sig) {
+      const fresh = leaderCard(row, ctx);
+      fresh.dataset.sig = sig;
+      // Короткая подсветка изменившейся карточки (новые очки, место).
+      if (el && !reduced()) {
+        fresh.classList.add("lb-bump");
+        setTimeout(() => fresh.classList.remove("lb-bump"), 1000);
+      }
+      if (el && el.parentNode === ol) ol.replaceChild(fresh, el);
+      el = fresh;
+    }
+    const at = ol.children[index] || null;
+    if (at !== el) ol.insertBefore(el, at);
+  });
+  existing.forEach(el => el.remove());
+  return true;
 }

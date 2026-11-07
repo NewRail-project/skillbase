@@ -25,7 +25,9 @@ service cloud.firestore {
 
     function hasProfile() {
       return signedIn()
-        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+        && exists(
+          /databases/$(database)/documents/users/$(request.auth.uid)
+        );
     }
 
     function role() {

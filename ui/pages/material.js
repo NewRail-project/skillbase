@@ -3,7 +3,9 @@
 // бумажная типографика, листание кнопками/свайпом/стрелками.
 // Хеш-страж: пока читалка открыта, hashchange возвращает на текущую
 // страницу; выйти можно только кнопкой «К тесту» после последней страницы.
-// Тёмная тема в читалке не применяется.
+// Читалка имеет свои режимы «бумага» / «ночь» и размер шрифта (A− / A+),
+// выбор хранится на устройстве. Из лобби Live-комнаты открывается как
+// #material/<testId>/free/<код комнаты> и возвращает обратно в комнату.
 import { h } from "../../shared/dom.js";
 import { State } from "../../core/auth.js";
 import { loadMaterial, loadMaterialProgress, saveMaterialProgress } from "../../core/materials.js";
@@ -18,6 +20,22 @@ const REDUCED = window.matchMedia
   : false;
 
 let exit = null;
+
+const PREFS_KEY = "sb-reader";
+const SIZE_MIN = 15, SIZE_MAX = 28, SIZE_STEP = 1;
+
+function loadPrefs() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}") || {}; } catch (_) { /* нет storage */ }
+  const siteDark = document.documentElement.getAttribute("data-theme") === "dark";
+  const mode = saved.mode === "night" || saved.mode === "paper" ? saved.mode : (siteDark ? "night" : "paper");
+  const size = Math.min(SIZE_MAX, Math.max(SIZE_MIN, Number(saved.size) || 19));
+  return { mode, size };
+}
+
+function savePrefs(prefs) {
+  try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch (_) { /* приватный режим */ }
+}
 
 function blockEl(block) {
   switch (block?.type) {
@@ -60,6 +78,12 @@ export default async function MaterialPage() {
   const testId = decodeURIComponent(routeParts[0] || "");
   // #material/<id>/free — добровольное чтение: выйти к тесту можно в любой момент.
   const freeMode = routeParts[1] === "free";
+  // Код комнаты (чтение из лобби): «К тесту» возвращает в комнату.
+  const roomCode = routeParts[2] ? decodeURIComponent(routeParts[2]).toUpperCase() : "";
+  const backHash = roomCode ? `#room/${roomCode}` : `#quiz/${testId}`;
+  const prefs = loadPrefs();
+  page.dataset.rd = prefs.mode;
+  page.style.setProperty("--rd-size", `${prefs.size}px`);
 
   let material = null;
   let progress = { lastPage: 0, completed: false };
@@ -76,7 +100,7 @@ export default async function MaterialPage() {
             err?.code === "permission-denied"
               ? "Во время активной попытки учебный материал закрыт, чтобы его не подсматривали."
               : "Книга не найдена или сеть недоступна."),
-          exitBtn("#quiz/" + testId)
+          exitBtn(backHash)
         )
       )
     ));
@@ -88,7 +112,7 @@ export default async function MaterialPage() {
       h("div", { class: "book" }, h("div", { class: "book-page" },
         h("h1", { class: "book-h" }, "Материала пока нет"),
         h("p", { class: "book-p" }, "К этому тесту ещё не добавлен учебный материал."),
-        exitBtn("#quiz/" + testId)
+        exitBtn(backHash)
       ))
     ));
     return page;
@@ -111,6 +135,34 @@ export default async function MaterialPage() {
   document.body.classList.add("reading-mode");
 
   const title = h("div", { class: "reader-title" }, material.title || "Материал");
+  const progressBar = h("div", { class: "reader-progress-bar" });
+  const progressWrap = h("div", { class: "reader-progress", role: "progressbar", "aria-label": "Прогресс чтения" }, progressBar);
+
+  const sizeDown = h("button", { type: "button", class: "reader-tool", "aria-label": "Уменьшить шрифт" }, "A−");
+  const sizeUp = h("button", { type: "button", class: "reader-tool", "aria-label": "Увеличить шрифт" }, "A+");
+  const modeBtn = h("button", { type: "button", class: "reader-tool" });
+  const paintMode = () => {
+    modeBtn.textContent = prefs.mode === "night" ? "Бумага" : "Ночь";
+    modeBtn.setAttribute("aria-label", prefs.mode === "night" ? "Включить светлый режим" : "Включить ночной режим");
+    page.dataset.rd = prefs.mode;
+  };
+  paintMode();
+  const applySize = (delta) => {
+    prefs.size = Math.min(SIZE_MAX, Math.max(SIZE_MIN, prefs.size + delta));
+    page.style.setProperty("--rd-size", `${prefs.size}px`);
+    sizeDown.disabled = prefs.size <= SIZE_MIN;
+    sizeUp.disabled = prefs.size >= SIZE_MAX;
+    savePrefs(prefs);
+  };
+  sizeDown.addEventListener("click", () => applySize(-SIZE_STEP));
+  sizeUp.addEventListener("click", () => applySize(SIZE_STEP));
+  modeBtn.addEventListener("click", () => {
+    prefs.mode = prefs.mode === "night" ? "paper" : "night";
+    paintMode();
+    savePrefs(prefs);
+  });
+  applySize(0);
+  const bar = h("div", { class: "reader-bar" }, title, h("div", { class: "reader-tools" }, sizeDown, sizeUp, modeBtn));
   const pageNumEl = h("div", { class: "reader-page-num" });
   const stage = h("div", { class: "reader-stage" });
   const book = h("article", { class: "book" });
@@ -121,14 +173,17 @@ export default async function MaterialPage() {
 
   const exitRow = h("div", { class: "reader-exit" });
 
-  page.append(title, stage, prevBtn, nextBtn, pageNumEl, exitRow);
+  page.append(progressWrap, bar, stage, prevBtn, nextBtn, pageNumEl, exitRow);
 
   function paintPage() {
     book.style.transition = REDUCED ? "none" : "transform .25s ease";
     book.textContent = "";
     const blocks = material.pages[index];
-    const body = h("div", { class: "book-page" },
+    const body = h("div", { class: "book-page" + (index === 0 ? " is-first" : "") },
       ...blocks.map(blockEl).filter(Boolean));
+    const pct = Math.round(((index + 1) / material.pages.length) * 100);
+    progressBar.style.width = `${pct}%`;
+    progressWrap.setAttribute("aria-valuenow", String(pct));
     book.appendChild(body);
 
     pageNumEl.textContent = `${index + 1} / ${material.pages.length}`;
@@ -145,12 +200,12 @@ export default async function MaterialPage() {
     if (freeMode && !isLast) {
       exitRow.appendChild(h("button", {
         type: "button", class: "btn secondary",
-        onclick: () => exitTo("#quiz/" + testId)
+        onclick: () => exitTo(backHash)
       }, "К тесту"));
     } else if (isLast) {
       exitRow.appendChild(h("button", {
         type: "button", class: "btn primary",
-        onclick: () => exitTo("#quiz/" + testId)
+        onclick: () => exitTo(backHash)
       }, "К тесту"));
       exitRow.appendChild(h("span", { class: "reader-complete badge badge-success" }, "Прочитано"));
     } else {

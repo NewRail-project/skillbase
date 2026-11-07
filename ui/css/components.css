@@ -288,3 +288,44 @@ input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; min-hei
 @keyframes fadeIn { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
 .modal-content, .modal-overlay { animation: none; }
 
+
+
+/* ---------- Переключатель скина ---------- */
+.skin-switch { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-ctl, 10px); overflow: hidden; background: var(--surface); }
+.skin-switch-btn { font: inherit; font-size: .75rem; font-weight: 600; padding: 6px 9px; min-height: 36px; border: 0; background: transparent; color: var(--text-2); cursor: pointer; }
+.skin-switch-btn + .skin-switch-btn { border-left: 1px solid var(--border); }
+.skin-switch-btn:hover { background: var(--elevated); color: var(--text); }
+.skin-switch-btn.active { background: var(--accent); color: var(--on-accent); }
+.skin-switch-btn:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; }
+.skin-switch-top { margin-left: auto; margin-right: var(--space-2); }
+.auth-corner { align-items: center; gap: var(--space-2); }
+@media (max-width: 480px) { .skin-switch-btn { padding: 6px 7px; font-size: .7rem; } .skin-switch-top { margin-right: var(--space-1); } }
+
+/* ---------- Карточка QR (О проекте, лобби комнаты) ----------
+   Все цвета — из токенов, поэтому карточка следует за темой и скином. */
+.brand-qr-card {
+  position: relative; overflow: hidden; text-align: center;
+  margin-top: var(--space-3); padding: var(--space-6) var(--space-4);
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--accent); border-radius: calc(var(--radius, 12px) * 1.5);
+  box-shadow: var(--shadow-lg, 0 8px 24px rgba(0, 0, 0, .12));
+}
+.brand-qr-card::before {
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 3px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+}
+.brand-qr-head { margin-bottom: var(--space-4); }
+.brand-qr-title { font-family: var(--font-brand, inherit); font-weight: 800; font-size: 1.4rem; letter-spacing: .1em; color: var(--accent); }
+.brand-qr-sub { margin-top: .25rem; font-size: .8rem; letter-spacing: .05em; text-transform: uppercase; color: var(--text-2); }
+.qr-frame {
+  display: inline-block; line-height: 0; padding: 1rem;
+  border: 2px solid var(--accent); border-radius: calc(var(--radius, 12px) * 1.25);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .14);
+}
+.brand-qr-hint { margin: var(--space-4) 0; font-size: .95rem; color: var(--text-2); }
+.brand-qr-actions { justify-content: center; gap: var(--space-2); }
+.brand-qr-toggle { margin-top: var(--space-3); }
+
+.link-btn { align-self: flex-start; margin-top: var(--space-1); padding: 4px 0; border: 0; background: none; font: inherit; font-size: .875rem; color: var(--accent); text-decoration: underline; cursor: pointer; }
+.link-btn:hover { text-decoration-thickness: 2px; }
+.link-btn:disabled { opacity: .6; cursor: default; }

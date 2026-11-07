@@ -1,7 +1,7 @@
 import { h } from "../../shared/dom.js";
 import { State, saveOwnProfile } from "../../core/auth.js";
 import { validateFullName } from "../../core/profile.js";
-import { getThemeMode, setThemeMode, subscribeTheme } from "../../shared/theme.js";
+import { getThemeMode, setThemeMode, subscribeTheme, setSkin } from "../../shared/theme.js";
 import { toast } from "../../ui/components/toast.js";
 
 const MODES = [
@@ -55,6 +55,7 @@ export default function SettingsPage() {
   skinSelect.value = profile.ui || "education";
   skinSelect.addEventListener("change", async () => {
     try {
+      setSkin(skinSelect.value);
       await saveOwnProfile({ ui: skinSelect.value });
       toast("Скин применён", "success");
     } catch (e) {

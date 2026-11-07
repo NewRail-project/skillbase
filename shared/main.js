@@ -3,6 +3,7 @@ import { initRouter, router } from './app.js';
 import { renderSidebar, initSidebar, setSidebarOpen } from '../ui/components/sidebar.js';
 import { initTheme, toggleTheme, getTheme, subscribeTheme } from './theme.js';
 import { icons } from './icons.js';
+import { skinSwitch } from '../ui/components/skin-switch.js';
 
 function mountSidebar() {
   const box = document.getElementById("sidebar-container");
@@ -28,6 +29,12 @@ function paintThemeButton() {
 function initThemeToggle() {
   const btn = document.getElementById("theme-toggle");
   if (!btn) return;
+  // Переключатель скина слева от кнопки темы: доступен и гостю.
+  if (!document.getElementById("skin-switch-top")) {
+    const sw = skinSwitch({ className: "skin-switch-top" });
+    sw.id = "skin-switch-top";
+    btn.before(sw);
+  }
   btn.addEventListener("click", () => toggleTheme());
   paintThemeButton();
   subscribeTheme(() => {

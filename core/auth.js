@@ -2,9 +2,9 @@ import {
   auth, db, signInWithEmailAndPassword, createUserWithEmailAndPassword,
   signOut, onAuthStateChanged, signInAnonymously, doc, getDoc, setDoc, updateDoc, serverTimestamp,
   GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
-  linkWithCredential, clearLocalFirestoreCache
+  linkWithCredential, sendPasswordResetEmail, clearLocalFirestoreCache
 } from "../shared/firebase.js";
-import { applyThemeMode, getThemeMode } from "../shared/theme.js";
+import { applyThemeMode, getThemeMode, getLocalSkin } from "../shared/theme.js";
 import {
   DEFAULT_UI,
   VALID_UI,
@@ -71,7 +71,8 @@ function fallbackProfile(user) {
 }
 
 export function applyTheme(uiName) {
-  const ui = safeUi(uiName);
+  // Выбор скина на устройстве (в том числе гостем) сильнее профиля.
+  const ui = safeUi(getLocalSkin() || uiName);
   document.documentElement.setAttribute("data-ui", ui);
   // data-ui — это "скин" интерфейса; светлота/темнота живёт в data-theme
   // и не должна сбрасываться при смене скина.
@@ -215,11 +216,33 @@ export async function refreshProfile() {
 }
 
 export async function login(email, password) {
-  const cred = await signInWithEmailAndPassword(auth, email, password);
+  // Мобильные клавиатуры добавляют заглавную букву и пробел после подсказки;
+  // Firebase различает регистр пароля, но не email — приводим email к виду.
+  const cleanEmail = String(email || "").trim().toLowerCase();
+  let cred;
+  try {
+    cred = await signInWithEmailAndPassword(auth, cleanEmail, password);
+  } catch (err) {
+    // Пароль с пробелом по краям (подсказка клавиатуры): пробуем без него.
+    const trimmed = String(password || "").trim();
+    if (err?.code === "auth/invalid-credential" && trimmed && trimmed !== password) {
+      cred = await signInWithEmailAndPassword(auth, cleanEmail, trimmed);
+    } else {
+      throw err;
+    }
+  }
   // Загружаем профиль до возврата управления: иначе переход на #profile
   // срабатывает раньше, чем State.user/profile заполнены.
   await loadProfile(cred.user);
   return cred.user;
+}
+
+// Письмо для сброса пароля. Работает и для аккаунта, созданного через Google:
+// после сброса к нему добавляется вход по паролю.
+export async function resetPassword(email) {
+  const clean = String(email || "").trim().toLowerCase();
+  await sendPasswordResetEmail(auth, clean);
+  return clean;
 }
 
 // ---------- Вход через Google ----------

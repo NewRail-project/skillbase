@@ -9,6 +9,7 @@
 // своей ПРЕЖНЕЙ ролью: наблюдатель не превращается в участника, а выбор
 // роли пережившей перезагрузку сессии восстанавливается из sessionStorage.
 import { themeToggle } from "../components/theme-toggle.js";
+import { skinSwitch } from "../components/skin-switch.js";
 import { h } from "../../shared/dom.js";
 import { State, signInAsGuest, isStaff } from "../../core/auth.js";
 import { getRoom, joinRoom, getMyRoomRole } from "../../core/rooms.js";
@@ -48,7 +49,7 @@ function recallRole(code) {
 export default async function JoinPage() {
   const page = h("div", { class: "page" });
   // Тема хранится на устройстве (localStorage), поэтому доступна и гостю.
-  page.appendChild(h("div", { class: "auth-corner" }, themeToggle({ withLabel: true })));
+  page.appendChild(h("div", { class: "auth-corner" }, skinSwitch(), themeToggle({ withLabel: true })));
   const codeRaw = (State.routeParam || "").split("/")[0] || "";
   const codeFromRoute = normalizeRoomCode(codeRaw) || "";
   const signedIn = Boolean(State.user);

@@ -102,3 +102,44 @@ export function initTheme() {
     else if (mediaQuery.addListener) mediaQuery.addListener(onChange);
   }
 }
+
+
+// ---------- Скин интерфейса (education / operations / depot) ----------
+// Выбор хранится на устройстве (ключ sb-ui), поэтому доступен и гостю.
+// Локальный выбор сильнее значения из профиля.
+const UI_KEY = "sb-ui";
+const UI_EVENT = "sb:skinchange";
+export const SKINS = [
+  ["education", "Edu", "Education — просторный"],
+  ["operations", "Ops", "Operations — плотнее"],
+  ["depot", "Depot", "Depot — строгий"]
+];
+const SKIN_IDS = SKINS.map(x => x[0]);
+
+export function getLocalSkin() {
+  try {
+    const v = localStorage.getItem(UI_KEY);
+    return SKIN_IDS.includes(v) ? v : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+export function getSkin() {
+  if (typeof document === "undefined") return "education";
+  return document.documentElement.getAttribute("data-ui") || "education";
+}
+
+export function setSkin(value) {
+  const ui = SKIN_IDS.includes(value) ? value : "education";
+  try { localStorage.setItem(UI_KEY, ui); } catch (_) { /* приватный режим */ }
+  document.documentElement.setAttribute("data-ui", ui);
+  window.dispatchEvent(new CustomEvent(UI_EVENT, { detail: { ui } }));
+  return ui;
+}
+
+export function subscribeSkin(fn) {
+  const handler = (e) => fn(e.detail.ui);
+  window.addEventListener(UI_EVENT, handler);
+  return () => window.removeEventListener(UI_EVENT, handler);
+}

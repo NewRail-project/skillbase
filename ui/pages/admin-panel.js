@@ -9,8 +9,11 @@ const ROLE_LABEL = { student: "Студент", teacher: "Преподавате
 
 function tile({ icon, title, text, href, action }) {
   const card = h("a", { class: "quick-action", href });
-  card.innerHTML = `<span class="icon">${icon}</span>`;
+  // icon — статичная SVG-константа из shared/icons.js.
+  const ic = h("span", { class: "icon" });
+  ic.innerHTML = icon;
   card.append(
+    ic,
     h("b", {}, title),
     h("span", {}, text),
     h("span", { class: "badge badge-neutral", style: "margin-top:8px;align-self:flex-start" }, action)

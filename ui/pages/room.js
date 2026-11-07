@@ -34,7 +34,7 @@ import { avatarChip as avatarChipEl } from "../components/avatar.js";
 import { play, soundEnabled, setSoundEnabled, vibrate } from "../../shared/sound.js";
 import { REACTIONS, REACTION_COOLDOWN_MS, canSendReaction } from "../../shared/reactions.js";
 import { reactionGlyph, reactionLabel } from "../components/reaction-icons.js";
-import { leaderList, captureRects, playFlip, MOVE_VISIBLE_MS } from "../components/leaderboard.js";
+import { leaderList, reconcileLeaderList, captureRects, playFlip, MOVE_VISIBLE_MS } from "../components/leaderboard.js";
 import { streakMeter } from "../components/streak.js";
 import { ringTimer, updateRings, pulseRings, gapCountdown, updateGap } from "../components/ring-timer.js";
 import { buildPodium, playPodium, showPodiumNow, podiumOrder, STEP_MS } from "../components/podium.js";
@@ -45,6 +45,9 @@ import { themeToggle } from "../components/theme-toggle.js";
 import { icons } from "../../shared/icons.js";
 import { toast } from "../components/toast.js";
 import { generateQRSvg } from "../../shared/qr.js";
+import { hasMaterial } from "../../core/materials.js";
+import { themedQrOptions, qrPalette } from "../../shared/qr-theme.js";
+import { subscribeTheme, subscribeSkin } from "../../shared/theme.js";
 
 let unsubs = [];
 let autoTimer = null;   // автозакрытие у ведущего (ручной режим)
@@ -120,6 +123,7 @@ function reset() {
   local = {
     room: null, players: [], scores: [], reveals: {}, reactions: [],
     profiles: new Map(), test: null, keys: null, keysReady: false,
+    hasMaterial: false,    // у теста есть учебный материал (кнопка «Прочитать»)
     receivedMs: 0, code: "", playersLoaded: false,
     // Независимые источники состояния подключения:
     ownPlayer: null,       // собственный документ players/{uid}
@@ -309,7 +313,8 @@ function signature() {
     `role=${me}`,
     `removed=${local.removed ? 1 : 0}`,
     `test=${local.test ? 1 : 0}`,
-    `keys=${local.keysReady ? 1 : 0}`
+    `keys=${local.keysReady ? 1 : 0}`,
+    `mat=${local.hasMaterial ? 1 : 0}`
   ].join("|");
 }
 
@@ -447,7 +452,7 @@ export default async function RoomPage() {
     page.appendChild(notFoundPanel());
     return page;
   }
-  local.code = String(codeRaw || "").toUpperCase();
+  local.code = code;
   local.room = decorateRoom(probeResult);
   local.roomLoaded = true;
   local.receivedMs = Date.now();
@@ -457,13 +462,18 @@ export default async function RoomPage() {
   // Тест и ключи грузятся параллельно; недоступное (ключи у студента)
   // не ломает отрисовку.
   try {
-    const [testDoc, keys] = await Promise.all([
+    const [testDoc, keys, materialExists] = await Promise.all([
       loadTestPublic(probeResult.testId).catch(err => {
         console.error("Тест комнаты:", err);
         return null;
       }),
-      isHost ? loadKeys(probeResult.testId) : Promise.resolve(null)
+      isHost ? loadKeys(probeResult.testId) : Promise.resolve(null),
+      // Материал читает участник с профилем; гостю правила его не отдают.
+      isHost || State.user?.isAnonymous
+        ? Promise.resolve(false)
+        : hasMaterial(probeResult.testId)
     ]);
+    local.hasMaterial = Boolean(materialExists);
     local.test = testDoc;
     local.keys = keys;
     local.keysReady = true;
@@ -815,8 +825,18 @@ function renderPage(page) {
   syncBoardFrame();
   const oldTops = captureRects(existing);
   const next = buildView();
-  if (existing) existing.replaceWith(next);
-  else page.insertBefore(next, page.querySelector(".room-leaderboard-host"));
+  if (existing) {
+    // Фиксируем высоту и прокрутку на время подмены: страница не
+    // «проваливается» и не прыгает, когда вид собирается заново.
+    const scrollY = window.scrollY;
+    const lockH = page.offsetHeight;
+    page.style.minHeight = `${lockH}px`;
+    existing.replaceWith(next);
+    if (window.scrollY !== scrollY) window.scrollTo(0, scrollY);
+    requestAnimationFrame(() => requestAnimationFrame(() => { page.style.minHeight = ""; }));
+  } else {
+    page.insertBefore(next, page.querySelector(".room-leaderboard-host"));
+  }
   playFlip(next, oldTops);
   updateLeaderboard();
   updateLiveTexts();
@@ -1057,7 +1077,7 @@ function syncBoardFrame() {
   return rows;
 }
 
-function leaderCtx({ board = false } = {}) {
+function leaderCtx({ board = false, enter = false } = {}) {
   const now = Date.now();
   const moves = new Map();
   for (const [uid, m] of moveState) {
@@ -1071,7 +1091,8 @@ function leaderCtx({ board = false } = {}) {
     prevScores: fresh ? new Map(frame.prev.scores) : new Map(),
     prevStreaks: fresh ? new Map(frame.prev.streaks) : new Map(),
     statusLabel: RATING_STATUS_LABEL,
-    board
+    board,
+    enter
   };
 }
 
@@ -1115,11 +1136,17 @@ function updateLeaderboard() {
   const sig = leaderSignature(rows);
   if (host.querySelector(".lb-list") && sig === lastBoardSig) return;
 
-  // FLIP: запомнить позиции ДО перерисовки, доехать ПОСЛЕ.
+  // FLIP: запомнить позиции ДО обновления, доехать ПОСЛЕ.
   const oldTops = captureRects(host);
-  host.textContent = "";
-  host.appendChild(h("h2", { class: "lb-title" }, "Рейтинг"));
-  host.appendChild(leaderListFor(rows));
+  // Список уже на экране — обновляем только изменившиеся карточки,
+  // без пересоздания всего блока (иначе страница мигает).
+  const list = host.querySelector(".lb-list");
+  if (!(list && host.querySelector(".lb-title") && reconcileLeaderList(list, rows, leaderCtx()))) {
+    host.replaceChildren(
+      h("h2", { class: "lb-title" }, "Рейтинг"),
+      leaderListFor(rows, { enter: true })
+    );
+  }
   lastBoardSig = sig;
   playFlip(host, oldTops);
 }
@@ -1160,14 +1187,12 @@ function joinUrl(code) {
 }
 
 // Настройки QR-кода для Live-комнат (фирменные цвета Skillbase)
+// Цвета модулей берутся из текущей темы/скина (shared/qr-theme.js).
 const roomQROptions = {
   width: 280,
   height: 280,
   ecc: "H",
-  rounded: true,
-  dark: "#172817",        // тёмно-зелёные модули
-  light: "#F5F7ED",       // светлый фон QR
-  finderDark: "#101810"   // ещё более тёмные маркеры
+  rounded: true
 }
 
 // Рисует SVG QR-кода внутрь элемента. size — сторона в px: один механизм
@@ -1175,11 +1200,14 @@ const roomQROptions = {
 function paintQR(box, code, size = 280) {
   if (!box || !code) return;
   try {
-    box.innerHTML = generateQRSvg(joinUrl(code), {
+    box.style.background = qrPalette().light;
+    box.dataset.qrCode = code;
+    box.dataset.qrSize = String(size);
+    box.innerHTML = generateQRSvg(joinUrl(code), themedQrOptions({
       ...roomQROptions,
       width: size,
       height: size
-    });
+    }));
   } catch (err) {
     console.error("QR generation failed:", err);
   }
@@ -1198,6 +1226,17 @@ async function initRoomQR(room, root) {
   // Размер задаёт карточка ведущего (компактный 160 / крупный 280);
   // ссылка и генерация общие с режимом проектора.
   paintQR(qrWrapper, room.code, Number(qrWrapper.dataset.qrSize || 280));
+  // Смена темы или скина перекрашивает QR; после ухода со страницы — отписка.
+  const repaintQR = () => {
+    if (!qrWrapper.isConnected) {
+      if (qrWrapper.dataset.seen) { offTheme(); offSkin(); }
+      return;
+    }
+    qrWrapper.dataset.seen = "1";
+    paintQR(qrWrapper, qrWrapper.dataset.qrCode || room.code, Number(qrWrapper.dataset.qrSize || 280));
+  };
+  const offTheme = subscribeTheme(repaintQR);
+  const offSkin = subscribeSkin(repaintQR);
 
   // Копирование ссылки.
   copyBtn.addEventListener('click', async () => {
@@ -1229,7 +1268,7 @@ async function initRoomQR(room, root) {
       const exportSize = 1024;
       canvas.width = exportSize;
       canvas.height = exportSize;
-      ctx.fillStyle = "#F5F7ED";
+      ctx.fillStyle = qrPalette().light;
       ctx.fillRect(0, 0, exportSize, exportSize);
       ctx.drawImage(img, 0, 0, exportSize, exportSize);
 
@@ -1460,22 +1499,16 @@ function hostHeader(wrap, room) {
   // QR-код комнаты в фирменном стиле Skillbase: компактный по умолчанию,
   // кнопка «Показать крупнее» переключает на увеличенный для камер
   // издалека. Ссылка и генерация — те же, что в режиме проектора.
-  wrap.appendChild(h("div", {
-    class: "room-qr-card brand-qr-card",
-    style: "text-align: center; margin-top: 1rem; padding: 2.5rem 1.5rem; background: linear-gradient(135deg, #101810 0%, #0a0f0a 100%); color: #fff; border-radius: 2rem; border: 1px solid #C5E747; box-shadow: var(--shadow-lg); position: relative; overflow: hidden;"
-  },
-    h("div", {
-      style: "position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, transparent, #C5E747, transparent);"
-    }),
-    h("div", { style: "margin-bottom: 1.5rem; position: relative;" },
-      h("div", { style: "font-family: var(--font-brand); font-weight: 800; font-size: 1.5rem; letter-spacing: 0.1em; color: #C5E747; text-shadow: 0 0 10px rgba(197, 231, 71, 0.3);" }, "SKILLBASE"),
-      h("div", { style: "font-size: 0.8rem; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.25rem;" }, "Официальная платформа")
+  wrap.appendChild(h("div", { class: "room-qr-card brand-qr-card" },
+    h("div", { class: "brand-qr-head" },
+      h("div", { class: "brand-qr-title" }, "SKILLBASE"),
+      h("div", { class: "brand-qr-sub" }, "Live-комната")
     ),
-    h("div", { class: "qr-wrapper", style: "display: inline-block; background: #F5F7ED; padding: 1.25rem; border-radius: 1.5rem; box-shadow: 0 8px 24px rgba(0,0,0,0.2); line-height: 0; border: 2px solid #C5E747;" }),
-    h("p", { style: "margin: 1.5rem 0; font-size: 0.95rem; opacity: 0.9; position: relative;" }, "Отсканируйте, чтобы войти в комнату"),
-    h("div", { class: "btn-row", style: "justify-content: center; gap: 0.75rem; position: relative;" },
-      h("button", { type: "button", class: "btn secondary", id: "copy-link", style: "background: #C5E747; color: #101810; border: none; font-weight: 600; padding: 0.75rem 1.5rem;" }, "Ссылка"),
-      h("button", { type: "button", class: "btn", id: "download-qr", style: "background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); backdrop-filter: blur(10px); padding: 0.75rem 1.5rem;" }, "PNG")
+    h("div", { class: "qr-wrapper qr-frame" }),
+    h("p", { class: "brand-qr-hint" }, "Отсканируйте, чтобы войти в комнату"),
+    h("div", { class: "btn-row brand-qr-actions" },
+      h("button", { type: "button", class: "btn primary", id: "copy-link" }, "Ссылка"),
+      h("button", { type: "button", class: "btn secondary", id: "download-qr" }, "PNG")
     )
   ));
   // Компактный размер: initRoomQR читает data-qr-size, toggle перерисует
@@ -1487,9 +1520,8 @@ function hostHeader(wrap, room) {
     let larger = false;
     const toggle = h("button", {
       type: "button",
-      class: "btn",
-      "aria-expanded": "false",
-      style: "margin-top: 0.75rem; background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); padding: 0.5rem 1.25rem; position: relative;"
+      class: "btn secondary brand-qr-toggle",
+      "aria-expanded": "false"
     }, "Показать крупнее");
     toggle.addEventListener("click", () => {
       larger = !larger;
@@ -1751,12 +1783,16 @@ function playerView() {
 function materialButton() {
   const room = local.room;
   if (!room || room.phase === "opened") return null;
-  // Гость не может читать материалы (правила требуют профиль) —
-  // не показываем кнопку, ведущую на закрытый для гостя раздел.
-  if (State.user?.isAnonymous) return null;
-  return h("div", { class: "btn-row", style: "margin-top:var(--space-2)" },
-    h("a", { class: "btn secondary", href: `#material/${encodeURIComponent(room.testId || "")}` },
-      "Открыть материал"));
+  // Нет книги у теста или читать нельзя (гость): кнопку не показываем.
+  if (!local.hasMaterial || State.user?.isAnonymous) return null;
+  // Добровольное чтение (#material/<id>/free/<код>): выйти можно в любой
+  // момент, «К тесту» возвращает обратно в эту комнату.
+  const href = `#material/${encodeURIComponent(room.testId || "")}/free/${encodeURIComponent(room.code || local.code || "")}`;
+  return h("div", { class: "panel room-material-cta" },
+    h("div", { class: "room-material-cta-text" },
+      h("b", {}, "Пока ждёте — прочитайте материал"),
+      h("span", { class: "muted" }, "Откроется читалка, из неё можно вернуться в комнату.")),
+    h("a", { class: "btn primary", href }, "Прочитать материал"));
 }
 
 function waitPanel(text) {

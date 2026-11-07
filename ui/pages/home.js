@@ -145,8 +145,10 @@ function quickActions(items) {
   return h("div", { class: "quick-actions" },
     items.map(item => {
       const a = h("a", { class: "quick-action", href: item.href });
-      a.innerHTML = `<span class="icon">${item.icon}</span>`;
-      a.append(h("b", {}, item.label), h("span", {}, item.hint));
+      // item.icon — статичная SVG-константа из shared/icons.js.
+      const ic = h("span", { class: "icon" });
+      ic.innerHTML = item.icon;
+      a.append(ic, h("b", {}, item.label), h("span", {}, item.hint));
       return a;
     })
   );
@@ -163,16 +165,31 @@ function resultChart(attempts) {
   const barWidth = 18;
   const gap = 8;
   const width = graded.length * (barWidth + gap) - gap;
-  const bars = graded.map((a, i) => {
+  // График собирается через DOM (createElementNS): числа попадают в атрибуты,
+  // а не в разметку строкой.
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("width", "100%");
+  svg.setAttribute("height", String(height));
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "Проценты последних попыток");
+  graded.forEach((a, i) => {
     const percent = Math.round((a.score / a.total) * 100);
     const barH = Math.max(4, Math.round((percent / 100) * (height - 8)));
-    const x = i * (barWidth + gap);
-    const y = height - barH;
-    const fill = percent >= 60 ? "var(--accent)" : "var(--signal)";
-    return `<rect x="${x}" y="${y}" width="${barWidth}" height="${barH}" rx="3" fill="${fill}">
-      <title>${percent}%</title>
-    </rect>`;
-  }).join("");
+    const rect = document.createElementNS(NS, "rect");
+    rect.setAttribute("x", String(i * (barWidth + gap)));
+    rect.setAttribute("y", String(height - barH));
+    rect.setAttribute("width", String(barWidth));
+    rect.setAttribute("height", String(barH));
+    rect.setAttribute("rx", "3");
+    rect.setAttribute("fill", percent >= 60 ? "var(--accent)" : "var(--signal)");
+    const title = document.createElementNS(NS, "title");
+    title.textContent = `${percent}%`;
+    rect.appendChild(title);
+    svg.appendChild(rect);
+  });
 
   const wrap = h("div", { class: "panel" },
     h("div", { class: "section-title" },
@@ -181,8 +198,7 @@ function resultChart(attempts) {
     )
   );
   const chart = h("div", { style: "margin-top:12px" });
-  chart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}"
-    preserveAspectRatio="none" role="img" aria-label="Проценты последних попыток">${bars}</svg>`;
+  chart.appendChild(svg);
   wrap.appendChild(chart);
   return wrap;
 }

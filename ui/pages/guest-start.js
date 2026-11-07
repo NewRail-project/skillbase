@@ -8,6 +8,7 @@
 // #guest/<testId> допускает прямой заход: testId берётся из параметра,
 // иначе — из сохранённого returnTo (#quiz/<testId>).
 import { themeToggle } from "../components/theme-toggle.js";
+import { skinSwitch } from "../components/skin-switch.js";
 import { h } from "../../shared/dom.js";
 import { State, signInGuestForTest, logout } from "../../core/auth.js";
 import { getGuestName, validateGuestForm } from "../../core/guest.js";
@@ -41,7 +42,7 @@ function attemptsLimitOf(test) {
 export default async function GuestStartPage() {
   const page = h("div", { class: "page auth-page" });
   // Тема хранится на устройстве (localStorage), поэтому доступна и гостю.
-  page.appendChild(h("div", { class: "auth-corner" }, themeToggle({ withLabel: true })));
+  page.appendChild(h("div", { class: "auth-corner" }, skinSwitch(), themeToggle({ withLabel: true })));
   const errorBox = h("div", { class: "form-error", role: "alert" });
 
   // Целевой тест: параметр маршрута #guest/<testId> или сохранённый

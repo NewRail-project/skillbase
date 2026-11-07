@@ -1,28 +1,32 @@
 import { h } from "../../shared/dom.js";
 import { generateQRSvg, generateQRDataUrl } from "../../shared/qr.js";
 import { icons } from "../../shared/icons.js";
+import { themedQrOptions, qrPalette } from "../../shared/qr-theme.js";
+import { subscribeTheme, subscribeSkin } from "../../shared/theme.js";
 
 export default function AboutPage() {
   const page = h("div", { class: "page about-page" });
 
   const siteUrl = "https://newrail-project.github.io/skillbase/";
 
-  // Настройки QR-кода: фирменные цвета Skillbase
-  const qrOptions = {
-    width: 280,
-    height: 280,
-    ecc: "H",
-    rounded: true,
-    dark: "#172817",        // тёмно-зелёные модули
-    light: "#F5F7ED",       // светлый фон QR
-    finderDark: "#101810"   // ещё более тёмные маркеры
+  // QR берёт цвета из текущей темы и скина и перерисовывается при их смене.
+  const qrWrapper = h("div", { class: "qr-wrapper qr-frame" });
+  const paintQr = () => {
+    const pal = qrPalette();
+    qrWrapper.style.background = pal.light;
+    qrWrapper.innerHTML = generateQRSvg(siteUrl, themedQrOptions({
+      width: 280, height: 280, ecc: "H", rounded: true
+    }));
   };
-
-  const qrWrapper = h("div", {
-    class: "qr-wrapper",
-    style: "display: inline-block; background: #F5F7ED; padding: 1.25rem; border-radius: 1.5rem; box-shadow: 0 8px 24px rgba(0,0,0,0.2); line-height: 0; border: 2px solid #C5E747;"
-  });
-  qrWrapper.innerHTML = generateQRSvg(siteUrl, qrOptions);
+  paintQr();
+  // Подписки живут, пока страница в документе; после ухода — снимаются.
+  const offs = [];
+  const repaint = () => {
+    if (!page.isConnected && page.dataset.seen) { offs.forEach(f => f()); return; }
+    if (page.isConnected) page.dataset.seen = "1";
+    paintQr();
+  };
+  offs.push(subscribeTheme(repaint), subscribeSkin(repaint));
 
   const card = h("section", { class: "panel" },
     h("div", { class: "panel-head" },
@@ -47,32 +51,16 @@ export default function AboutPage() {
           h("h3", { style: "margin-top: 1.5rem;" }, "Live-занятия"),
           h("p", {}, "Интерактивные live-комнаты позволяют проводить тестирования в реальном времени. Ведущий задает вопросы, участники отвечают, а результаты отображаются на экране. Система поддерживает QR-код для быстрого входа, таймеры вопросов и таблицу лидеров.")
         ),
-        h("div", {
-          class: "brand-qr-card",
-          style: "text-align: center; margin-top: 1rem; padding: 2.5rem 1.5rem; background: linear-gradient(135deg, #101810 0%, #0a0f0a 100%); color: #fff; border-radius: 2rem; border: 1px solid #C5E747; box-shadow: var(--shadow-lg); position: relative; overflow: hidden;"
-        },
-          h("div", {
-            style: "position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, transparent, #C5E747, transparent);"
-          }),
-          h("div", { style: "margin-bottom: 1.5rem; position: relative;" },
-            h("div", { style: "font-family: var(--font-brand); font-weight: 800; font-size: 1.5rem; letter-spacing: 0.1em; color: #C5E747; text-shadow: 0 0 10px rgba(197, 231, 71, 0.3);" }, "SKILLBASE"),
-            h("div", { style: "font-size: 0.8rem; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.25rem;" }, "Официальная платформа")
+        h("div", { class: "brand-qr-card" },
+          h("div", { class: "brand-qr-head" },
+            h("div", { class: "brand-qr-title" }, "SKILLBASE"),
+            h("div", { class: "brand-qr-sub" }, "Официальная платформа")
           ),
           qrWrapper,
-          h("p", { style: "margin: 1.5rem 0; font-size: 0.95rem; opacity: 0.9; position: relative;" }, "Отсканируйте, чтобы открыть платформу"),
-          h("div", { class: "btn-row", style: "justify-content: center; gap: 0.75rem; position: relative;" },
-            h("a", {
-              class: "btn",
-              href: siteUrl,
-              target: "_blank",
-              rel: "noopener",
-              style: "background: #C5E747; color: #101810; border: none; font-weight: 600; padding: 0.75rem 1.5rem;"
-            }, "Открыть сайт"),
-            h("button", {
-              class: "btn",
-              id: "download-qr-btn",
-              style: "background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); backdrop-filter: blur(10px);"
-            }, "PNG")
+          h("p", { class: "brand-qr-hint" }, "Отсканируйте, чтобы открыть платформу"),
+          h("div", { class: "btn-row brand-qr-actions" },
+            h("a", { class: "btn primary", href: siteUrl, target: "_blank", rel: "noopener" }, "Открыть сайт"),
+            h("button", { class: "btn secondary", id: "download-qr-btn", type: "button" }, "PNG")
           )
         )
       )
@@ -101,7 +89,7 @@ export default function AboutPage() {
         canvas.width = exportSize;
         canvas.height = exportSize;
         // Фон карточки: светлый цвет QR, чтобы сохранить дизайн при скачивании
-        ctx.fillStyle = "#F5F7ED";
+        ctx.fillStyle = qrPalette().light;
         ctx.fillRect(0, 0, exportSize, exportSize);
         ctx.drawImage(img, 0, 0, exportSize, exportSize);
         
