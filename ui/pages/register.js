@@ -5,6 +5,7 @@ import { toast } from "../../ui/components/toast.js";
 import { authErrorMessage } from "../../shared/errors.js";
 import { peekReturnTo, safeReturnTo, clearReturnTo, isReturnableHash } from "../../shared/return-to.js";
 import { createGoogleButton, handleIncomingGoogleRedirect, googleDivider } from "../components/google-button.js";
+import { t as tr, lt, roleLabel } from "../../core/i18n.js";
 
 const initialState = {
   fullName: "",
@@ -57,9 +58,9 @@ export default function RegisterPage() {
     const pending = peekReturnTo();
     div.append(
       h("h2", {}, "Регистрация"),
-      h("p", { class: "muted" }, "Аккаунт для обучения и проверки знаний."),
+      h("p", { class: "muted" }, lt("reg.lead")),
       isReturnableHash(pending)
-        ? h("p", { class: "form-hint", role: "status" }, "После регистрации вернём вас к выбранному тесту.")
+        ? h("p", { class: "form-hint", role: "status" }, lt("reg.returnNote"))
         : null,
       state.errors.general ? h("div", { class: "form-error", role: "alert" }, state.errors.general) : null,
       createGoogleButton({ onSuccess: onGoogleEvent, onError: onGoogleEvent }),

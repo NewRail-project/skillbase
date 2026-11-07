@@ -13,6 +13,7 @@ import {
 } from "../../core/assignment-logic.js";
 import { icons } from "../../shared/icons.js";
 import { generateQRDataUrl } from "../../shared/qr.js";
+import { t as tr, lt } from "../../core/i18n.js";
 
 function formatDate(value) {
   if (!value) return null;
@@ -74,12 +75,12 @@ function startWithPreview(a) {
             a.materialUrl.replace(/^https:\/\//, "")))
       : null,
     !(a.note || a.materialText || a.materialUrl)
-      ? h("p", { class: "muted" }, "Материала нет: сразу к вопросам.")
+      ? h("p", { class: "muted" }, lt("asg.noMaterial"))
       : null
   );
   overlay.appendChild(h("div", { class: "modal-panel panel" },
     h("div", { class: "modal-head" },
-      h("h2", {}, a.title || a.testTitle || "Назначенный тест"),
+      h("h2", {}, a.title || a.testTitle || lt("asg.assignedTest")),
       h("button", { class: "btn secondary", onclick: () => overlay.remove() }, "Закрыть")
     ),
     body,
@@ -87,7 +88,7 @@ function startWithPreview(a) {
       h("a", {
         class: "btn primary",
         href: `#quiz/${encodeURIComponent(a.testId)}/${encodeURIComponent(a.id)}`
-      }, "Начать тест")
+      }, lt("asg.startTest"))
     )
   ));
 
@@ -103,12 +104,12 @@ export default async function Assignments() {
 
   page.appendChild(h("div", { class: "page-head" },
     h("div", {},
-      h("div", { class: "eyebrow" }, "Обучение"),
-      h("h1", {}, "Мои задания"),
-      h("p", { class: "page-sub" }, "Обучающие и проверочные задания вашей группы, сроки и материалы.")
+      h("div", { class: "eyebrow" }, lt("asg.eyebrow")),
+      h("h1", {}, lt("asg.title")),
+      h("p", { class: "page-sub" }, lt("asg.sub"))
     ),
     h("div", { class: "page-head-actions" },
-      h("a", { class: "btn secondary", href: "#tests" }, "Каталог тестов"),
+      h("a", { class: "btn secondary", href: "#tests" }, lt("asg.catalog")),
       h("a", { class: "btn secondary", href: "#join" }, "Войти по коду")
     )
   ));
@@ -119,8 +120,8 @@ export default async function Assignments() {
   if (!profile.groupId) {
     panel.appendChild(h("div", { class: "empty-state" },
       h("div", { class: "empty-state-icon", innerHTML: icons.clipboard }),
-      h("h2", {}, "Группа не назначена"),
-      h("p", { class: "muted" }, "Задания выдаются на группу. Обратитесь к администратору, чтобы вас добавили в группу — после этого назначенные тесты появятся здесь."),
+      h("h2", {}, lt("asg.noGroup")),
+      h("p", { class: "muted" }, lt("asg.noGroupHint")),
       h("a", { class: "btn secondary", href: "#tests" }, "Открыть каталог")
     ));
     return page;
@@ -145,10 +146,10 @@ export default async function Assignments() {
       body.textContent = "";
       body.appendChild(h("div", { class: "empty-state" },
         h("div", { class: "empty-state-icon", innerHTML: icons.clipboard }),
-        h("h2", {}, items.length ? "Задания ещё не открыты" : "Активных заданий нет"),
+        h("h2", {}, items.length ? "Задания ещё не открыты" : lt("asg.emptyTitle")),
         h("p", { class: "muted" }, items.length
-          ? "Преподаватель запланировал открытия. Задания появятся здесь."
-          : "Как только преподаватель назначит тест вашей группе, он появится здесь.")
+          ? lt("asg.scheduledHint")
+          : lt("asg.emptyHint"))
       ));
       return page;
     }
@@ -169,7 +170,7 @@ export default async function Assignments() {
       const row = h("div", { class: "list-row" },
         h("span", { class: "dot " + STATE_DOT[state] }),
         h("div", { class: "list-row-main" },
-          h("div", { class: "list-row-title" }, a.title || a.testTitle || "Назначенный тест"),
+          h("div", { class: "list-row-title" }, a.title || a.testTitle || lt("asg.assignedTest")),
           h("div", { class: "list-row-sub" }, subParts.join(" · "))
         ),
         h("div", { class: "list-row-end", style: "display:flex;gap:8px;align-items:center" },
@@ -204,7 +205,7 @@ export default async function Assignments() {
     body.textContent = "";
     body.appendChild(h("div", { class: "empty-state" },
       h("div", { class: "empty-state-icon", innerHTML: icons.clipboard }),
-      h("h2", {}, "Не удалось загрузить задания"),
+      h("h2", {}, lt("asg.loadError")),
       h("p", { class: "muted" }, err?.code === "permission-denied"
         ? "Правила Firestore не разрешают чтение назначений."
         : "Проверьте подключение к сети и попробуйте снова."),

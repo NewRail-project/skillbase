@@ -8,7 +8,9 @@
 // 404: ui/pages/404.js. Очистка страницы при уходе. Один вызов router() при старте.
 
 import { State, applyTheme, logout } from "../core/auth.js";
-import { initMode } from "../core/mode.js";
+import { initMode, subscribeMode } from "../core/mode.js";
+import { t } from "../core/i18n.js";
+import { liveText } from "./live.js";
 import { profileSetupIncomplete } from "../core/registration.js";
 import { saveReturnTo, consumeReturnTo } from "./return-to.js";
 import { skeleton } from "../ui/components/skeleton.js";
@@ -36,42 +38,50 @@ const STAFF = ["teacher", "admin"];
 const ADMIN = ["admin"];
 
 const routes = {
-  "":             { file: "ui/pages/home.js",              title: "Главная" },
+  "":             { file: "ui/pages/home.js",              title: "Главная",              tkey: "title.home" },
   "login":        { file: "ui/pages/login.js",             title: "Вход",                 guestOnly: true },
   "register":     { file: "ui/pages/register.js",          title: "Регистрация",          guestOnly: true },
   // Гостевое прохождение теста по прямой ссылке: ФИО вместо регистрации.
   // Страница сама разбирается с вошедшими (аккаунт ≠ гость) пользователями.
-  "guest":        { file: "ui/pages/guest-start.js",       title: "Гостевой тест" },
+  "guest":        { file: "ui/pages/guest-start.js",       title: "Гостевой тест",         tkey: "title.guest" },
   // Первоначальная настройка профиля после первого входа через Google.
   "setup":        { file: "ui/pages/setup-profile.js",     title: "Настройка профиля",    auth: true },
   "profile":      { file: "ui/pages/profile.js",           title: "Профиль",              auth: true },
-  "tests":        { file: "ui/pages/tests.js",             title: "Каталог тестов",       auth: true },
-  "create-test":  { file: "ui/pages/create-test.js",       title: "Создать тест",         auth: true, roles: STAFF },
-  "quiz":         { file: "ui/pages/quiz.js",              title: "Тест",                 auth: true, guest: true },
+  "tests":        { file: "ui/pages/tests.js",             title: "Каталог тестов",       tkey: "title.tests",       auth: true },
+  "create-test":  { file: "ui/pages/create-test.js",       title: "Создать тест",         tkey: "title.create",      auth: true, roles: STAFF },
+  "quiz":         { file: "ui/pages/quiz.js",              title: "Тест",                 tkey: "title.quiz",        auth: true, guest: true },
   // Пробное прохождение: преподаватель проходит собственный тест как
   // студент. Попытка живёт только в памяти клиента — в Firestore ничего
   // не пишется, в результаты и аналитику пробная попытка не попадает.
-  "trial":        { file: "ui/pages/quiz.js",              title: "Пробное прохождение",  auth: true, roles: STAFF },
-  "launch":       { file: "ui/pages/launch.js",            title: "Как провести тест",    auth: true, roles: STAFF },
+  "trial":        { file: "ui/pages/quiz.js",              title: "Пробное прохождение",  tkey: "title.trial",       auth: true, roles: STAFF },
+  "launch":       { file: "ui/pages/launch.js",            title: "Как провести тест",    tkey: "title.launch",      auth: true, roles: STAFF },
   "join":         { file: "ui/pages/join.js",              title: "Вход по коду" },
   "about":        { file: "ui/pages/about.js",             title: "О проекте" },
   // guest: маршрут открыт анонимному гостю (участие в live-комнате —
   // единственная гостевая функция; остальное требует регистрации).
   "room":         { file: "ui/pages/room.js",              title: "Live-комната",         auth: true, guest: true },
-  "material":     { file: "ui/pages/material.js",          title: "Материал",             auth: true },
-  "results":      { file: "ui/pages/results.js",           title: "Результаты",           auth: true, roles: STAFF },
-  "analytics":    { file: "ui/pages/analytics.js",         title: "Аналитика по тесту",   auth: true, roles: STAFF },
+  "material":     { file: "ui/pages/material.js",          title: "Материал",             tkey: "title.material",    auth: true },
+  "results":      { file: "ui/pages/results.js",           title: "Результаты",           tkey: "title.results",     auth: true, roles: STAFF },
+  "analytics":    { file: "ui/pages/analytics.js",         title: "Аналитика по тесту",   tkey: "title.analytics",   auth: true, roles: STAFF },
   "review":       { file: "ui/pages/review.js",            title: "Проверка попытки",     auth: true, roles: STAFF },
-  "assignments":  { file: "ui/pages/assignments.js",       title: "Задания",              auth: true },
-  "student":      { file: "ui/pages/student-dashboard.js", title: "Панель студента",      auth: true },
-  "teacher":      { file: "ui/pages/teacher-dashboard.js", title: "Панель преподавателя", auth: true, roles: STAFF },
-  "users":        { file: "ui/pages/users.js",             title: "Пользователи",         auth: true, roles: STAFF },
+  "assignments":  { file: "ui/pages/assignments.js",       title: "Задания",              tkey: "title.assignments", auth: true },
+  "student":      { file: "ui/pages/student-dashboard.js", title: "Панель студента",      tkey: "title.student",     auth: true },
+  "teacher":      { file: "ui/pages/teacher-dashboard.js", title: "Панель преподавателя", tkey: "title.teacher",     auth: true, roles: STAFF },
+  "users":        { file: "ui/pages/users.js",             title: "Пользователи",         tkey: "title.users",       auth: true, roles: STAFF },
   "admins":       { file: "ui/pages/admins.js",            title: "Администраторы",       auth: true, roles: ADMIN },
   "settings":     { file: "ui/pages/settings.js",          title: "Настройки",            auth: true },
   "admin":        { file: "ui/pages/admin-panel.js",       title: "Админ-панель",         auth: true, roles: STAFF }
 };
 
 let renderId = 0;
+
+// Заголовок вкладки следует за режимом: «Каталог тестов» ↔ «Проверка знаний».
+let currentTitle = null;
+function paintDocumentTitle() {
+  if (!currentTitle) return;
+  const name = currentTitle.tkey ? t(currentTitle.tkey) : currentTitle.title;
+  document.title = `${name} — Skillbase`;
+}
 let currentCleanup = null;
 
 function message(container, text, isError) {
@@ -80,7 +90,9 @@ function message(container, text, isError) {
   card.className = "card";
   const p = document.createElement("p");
   p.className = isError ? "error-msg" : "";
-  p.textContent = text;
+  // text — строка или функция (живой текст: следует за режимом Education/Workforce).
+  if (typeof text === "function") p.appendChild(liveText(text));
+  else p.textContent = text;
   card.appendChild(p);
   container.appendChild(card);
 }
@@ -222,7 +234,8 @@ export async function router() {
   }
 
   const target = route || { file: "ui/pages/404.js", title: "Не найдено" };
-  document.title = `${target.title} — Skillbase`;
+  currentTitle = target;
+  paintDocumentTitle();
 
   const container = document.getElementById("app");
   if (!container) return;
@@ -247,7 +260,7 @@ export async function router() {
     const onlyAdmins = target.roles.length === 1 && target.roles[0] === "admin";
     message(container, onlyAdmins
       ? "Этот раздел доступен только администраторам."
-      : "Этот раздел доступен преподавателям.", true);
+      : () => t("sys.teachersOnly"), true);
     return;
   }
 
@@ -328,7 +341,9 @@ export async function router() {
 function link(href, label) {
   const a = document.createElement("a");
   a.href = href;
-  a.textContent = label;
+  // label — строка или функция (живой текст для режима Education/Workforce).
+  if (typeof label === "function") a.appendChild(liveText(label));
+  else a.textContent = label;
   if (window.location.hash === href) a.setAttribute("aria-current", "page");
   return a;
 }
@@ -354,12 +369,12 @@ export function updateHeaderNav() {
     return;
   }
   if (STAFF.includes(State.profile?.role)) {
-    nav.append(link("#create-test", "Тесты"), link("#results", "Результаты"), link("#analytics", "Аналитика"));
+    nav.append(link("#create-test", () => t("nav.testsStaff")), link("#results", () => t("nav.results")), link("#analytics", () => t("nav.analytics")));
   }
   if (State.profile?.role === "admin") {
     nav.append(link("#admins", "Администраторы"));
   }
-  nav.append(link("#assignments", "Задания"), link("#profile", "Профиль"));
+  nav.append(link("#assignments", () => t("nav.assignments")), link("#profile", () => t("nav.profile")));
 }
 
 export function initRouter() {
@@ -367,6 +382,8 @@ export function initRouter() {
   initRouter._started = true;
   window.addEventListener("hashchange", router);
   initMode();
+  // Смена режима: обновляем заголовок вкладки; страница не перерисовывается.
+  subscribeMode(() => paintDocumentTitle());
   if (State.profile?.ui) applyTheme(State.profile.ui);
   router();
 }

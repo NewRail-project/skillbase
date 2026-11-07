@@ -11,7 +11,7 @@
 // при каждой публикации: старый кэш удаляется целиком на активации, поэтому
 // старые и новые JS-модули не смешиваются.
 
-const CACHE_VERSION = 'v1.0.0.20261107150540';
+const CACHE_VERSION = 'v1.0.0.20261107214324';
 const CACHE_NAME = `skillbase-${CACHE_VERSION}`;
 const OFFLINE_URL = './index.html';
 
@@ -30,6 +30,7 @@ const PRECACHE_URLS = [
   './ui/css/themes/education.css',
   './ui/css/themes/operations.css',
   './ui/css/themes/depot.css',
+  './ui/css/themes/workforce.css',
   './ui/css/base.css',
   './ui/css/components.css',
   './ui/css/brand.css',
@@ -43,8 +44,11 @@ const PRECACHE_URLS = [
   './shared/theme.js',
   './shared/icons.js',
   './shared/dom.js',
+  './shared/live.js',
   './shared/return-to.js',
   './core/auth.js',
+  './core/mode.js',
+  './core/i18n.js',
   './core/registration.js',
   './core/guest.js',
   './configs/firebase.js',
@@ -57,6 +61,8 @@ const PRECACHE_URLS = [
   './ui/components/modal.js',
   './ui/components/toast.js',
   './ui/components/brand.js',
+  './ui/components/mode-toggle.js',
+  './ui/components/skin-switch.js',
   './ui/pages/home.js',
   './ui/pages/404.js'
 ];

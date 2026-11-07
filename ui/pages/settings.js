@@ -3,6 +3,7 @@ import { State, saveOwnProfile } from "../../core/auth.js";
 import { validateFullName } from "../../core/profile.js";
 import { getThemeMode, setThemeMode, subscribeTheme, setSkin } from "../../shared/theme.js";
 import { toast } from "../../ui/components/toast.js";
+import { t as tr, lt, roleLabel } from "../../core/i18n.js";
 
 const MODES = [
   ["light", "Светлая", "Всегда светлая"],
@@ -75,7 +76,7 @@ export default function SettingsPage() {
       h("div", { class: "field" },
         h("label", { for: "skin" }, "Скин интерфейса"),
         skinSelect,
-        h("span", { class: "muted", style: "font-size:.8125rem" }, "Влияет на акценты и плотность, но не отменяет тему.")
+        h("span", { class: "muted", style: "font-size:.8125rem" }, lt("set.skinHint"))
       )
     )
   ));
@@ -136,7 +137,7 @@ export default function SettingsPage() {
     h("div", { class: "field-grid" },
       h("div", { class: "field" },
         h("span", { class: "muted" }, "Роль"),
-        h("span", { class: "value" }, { student: "Студент", teacher: "Преподаватель", admin: "Администратор" }[profile.role] || "—")
+        h("span", { class: "value" }, () => (profile.role ? roleLabel(profile.role) : "—"))
       ),
       h("div", { class: "field" },
         h("span", { class: "muted" }, "Организация"),

@@ -1,77 +1,251 @@
-/* Скин Workforce — строгий корпоративный стиль: тёмно-синий, графитовый и янтарный.
-   Используется в режиме Workforce для профессионального обучения сотрудников. */
+/* ============================================================
+   Скин Workforce — строгий корпоративный интерфейс для
+   профессионального обучения сотрудников.
+
+   Палитра: тёмно-синий, графит, холодные нейтральные, янтарный акцент.
+   Без собственной символики: только цвета и формы Skillbase.
+
+   Скин включается режимом Workforce (core/mode.js ставит
+   html[data-ui="workforce"] и html[data-mode="workforce"]) и работает с
+   обеими темами (data-theme = light | dark).
+
+   Структура файла:
+     1. Токены светлой и тёмной темы (проверяются scripts/check-contrast.mjs).
+     2. Шапка и боковая панель — тёмно-синие в обеих темах.
+     3. Структурные правила: плоские карточки, малые радиусы, «таблички»
+        показателей, строгая шапка-hero без иллюстрации.
+   ============================================================ */
+
+/* ---------- 1. Токены ---------- */
 
 html[data-ui="workforce"] {
-  --radius-s: 6px;
-  --radius-m: 8px;
-  --radius-l: 12px;
+  --radius-s: 4px;
+  --radius-m: 6px;
+  --radius-l: 8px;
+  --topbar-h: var(--topbar-h-workforce, 64px);
+  --wf-amber: #F2A900;
+  --wf-amber-ink: #0E1A2B;
 }
 
 html[data-ui="workforce"][data-theme="light"] {
-  --bg: #EDF2F5;
+  --bg: #EEF2F7;
   --surface: #FFFFFF;
-  --elevated: #DDE5EA;
-  --border: #BCCBD6;
-  --text: #111820;
-  --text-2: #54626E;
-  --accent: #D9A441; /* Янтарный акцент */
-  --on-accent: #111820;
-  --accent-2: #477FA6;
-  --signal: #D9A441;
-  --warn: #7A4E00;
+  --elevated: #E4EAF2;
+  --border: #C3CDDB;
+  --text: #0E1A2B;
+  --text-2: #475569;
+  --accent: #1B3A6B;
+  --on-accent: #FFFFFF;
+  --accent-2: #2F5E9E;
+  --signal: #F2A900;
+  --warn: #8A5A00;
   --on-warn: #FFFFFF;
-  --ok: #72B995;
-  --danger: #D97979;
-  --focus: #477FA6;
-  --ok-bg: #E8F5EE;
-  --ok-border: #B7DFC9;
-  --warn-bg: #FAF3E6;
-  --warn-border: #EBD4A8;
-  --danger-bg: #F9EBEB;
-  --danger-border: #EBBBBB;
-  --shadow: 0 1px 2px rgba(17, 24, 32, .08), 0 8px 20px rgba(17, 24, 32, .1);
-  --shadow-lift: 0 2px 4px rgba(17, 24, 32, .1), 0 16px 32px rgba(17, 24, 32, .15);
-  
-  --row-bg: #DDE5EA;
-  --row-text: #111820;
-  --row-me-bg: #477FA6;
+  --ok: #1E7A4F;
+  --danger: #B3261E;
+  --focus: #2F5E9E;
+  --ok-bg: #E6F4EC;
+  --ok-border: #B5DCC6;
+  --warn-bg: #FBF2DC;
+  --warn-border: #EBD08A;
+  --danger-bg: #FBE9E7;
+  --danger-border: #EFB8B3;
+  --shadow: 0 1px 2px rgba(14, 26, 43, .08);
+  --shadow-lift: 0 2px 6px rgba(14, 26, 43, .12);
+  --row-bg: #E4EAF2;
+  --row-text: #0E1A2B;
+  --row-text-2: #475569;
+  --row-me-bg: #1B3A6B;
   --row-me-text: #FFFFFF;
-}
-
-html[data-ui="workforce"][data-theme="dark"] {
-  --bg: #111820; /* Основной фон: графитовый */
-  --surface: #19232D; /* Поверхности: чуть светлее */
-  --elevated: #202D38; /* Вторичные поверхности */
-  --border: #2D3E4F;
-  --text: #EDF2F5;
-  --text-2: #A8B5C0;
-  --accent: #D9A441; /* Акцент: янтарный */
-  --on-accent: #111820;
-  --accent-2: #477FA6;
-  --signal: #D9A441;
-  --warn: #E3B45C;
-  --on-warn: #111820;
-  --ok: #72B995;
-  --danger: #D97979;
-  --focus: #477FA6;
-  --ok-bg: #1A2822;
-  --ok-border: #2E523F;
-  --warn-bg: #2B261A;
-  --warn-border: #614D24;
-  --danger-bg: #2B1D1D;
-  --danger-border: #5E2B2B;
-  --shadow: 0 1px 0 rgba(255, 255, 255, .05), 0 12px 30px rgba(0, 0, 0, .5);
-  --shadow-lift: 0 2px 0 rgba(255, 255, 255, .06), 0 20px 44px rgba(0, 0, 0, .6);
-
-  --row-bg: #202D38;
-  --row-text: #EDF2F5;
-  --row-me-bg: #D9A441;
-  --row-me-text: #111820;
-}
-
-html[data-ui="workforce"][data-theme="light"] {
+  --medal-gold-bg: #F2B233;
+  --medal-silver-bg: #C9D1D9;
+  --medal-bronze-bg: #D9965B;
+  --medal-text: #15212B;
   color-scheme: light;
 }
+
 html[data-ui="workforce"][data-theme="dark"] {
+  --bg: #0B1220;
+  --surface: #111C31;
+  --elevated: #182641;
+  --border: #2A3B5E;
+  --text: #E6ECF5;
+  --text-2: #9FB0C8;
+  --accent: #F2B33D;
+  --on-accent: #0B1220;
+  --accent-2: #6EA0E0;
+  --signal: #F2B33D;
+  --warn: #F2B33D;
+  --on-warn: #0B1220;
+  --ok: #5FBF8F;
+  --danger: #F08A85;
+  --focus: #7FB0F0;
+  --ok-bg: #10261F;
+  --ok-border: #24523F;
+  --warn-bg: #2A2310;
+  --warn-border: #5C4A1E;
+  --danger-bg: #2B1719;
+  --danger-border: #5E2B2E;
+  --shadow: 0 1px 0 rgba(255, 255, 255, .04);
+  --shadow-lift: 0 2px 10px rgba(0, 0, 0, .45);
+  --row-bg: #182641;
+  --row-text: #E6ECF5;
+  --row-text-2: #9FB0C8;
+  --row-me-bg: #F2B33D;
+  --row-me-text: #0B1220;
+  --medal-gold-bg: #F2B233;
+  --medal-silver-bg: #C9D1D9;
+  --medal-bronze-bg: #D9965B;
+  --medal-text: #15212B;
   color-scheme: dark;
+}
+
+/* ---------- 2. Шапка и боковая панель: тёмно-синие в обеих темах ---------- */
+
+html[data-ui="workforce"] .topbar,
+html[data-ui="workforce"] .sidebar,
+html[data-ui="workforce"] .hero {
+  --bg: #0B1220;
+  --surface: #0F1B33;
+  --elevated: #182A4D;
+  --border: #2A3B5E;
+  --text: #E6ECF5;
+  --text-2: #A9B8CF;
+  --accent: #F2B33D;
+  --on-accent: #0B1220;
+  --focus: #7FB0F0;
+  --danger: #F08A85;
+  --danger-bg: #2B1719;
+  --danger-border: #5E2B2E;
+  --hero-ink: #F1F5FB;
+}
+
+html[data-ui="workforce"] .topbar {
+  background: #0B1630;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-bottom: 2px solid var(--wf-amber);
+  color: var(--text);
+}
+html[data-ui="workforce"] .brand { color: #E6ECF5; }
+html[data-ui="workforce"] .brand-mark { color: var(--wf-amber); }
+html[data-ui="workforce"] .brand-name { letter-spacing: .02em; font-weight: 700; }
+html[data-ui="workforce"] .brand-tagline { color: #A9B8CF; letter-spacing: .1em; }
+html[data-ui="workforce"] #sidebar-toggle { color: #E6ECF5; }
+html[data-ui="workforce"] .topbar nav a { color: #E6ECF5; border-radius: var(--radius-s); }
+html[data-ui="workforce"] .topbar nav a:hover { background: #182A4D; }
+html[data-ui="workforce"] .topbar nav a[aria-current="page"] { background: var(--wf-amber); color: var(--wf-amber-ink); }
+
+html[data-ui="workforce"] .sidebar {
+  background: #0B1630;
+  border-right: 1px solid #22345A;
+  color: #E6ECF5;
+}
+html[data-ui="workforce"] .sidebar-section-label { color: #8FA2C0; letter-spacing: .14em; }
+html[data-ui="workforce"] .sidebar-item { color: #D7E0EE; border-radius: var(--radius-s); }
+html[data-ui="workforce"] .sidebar-item:hover { background: #162747; color: #FFFFFF; }
+html[data-ui="workforce"] .sidebar-item.active,
+html[data-ui="workforce"] .sidebar-item[aria-current="page"] {
+  background: #182A4D;
+  color: #FFFFFF;
+}
+html[data-ui="workforce"] .sidebar-item.active::before,
+html[data-ui="workforce"] .sidebar-item[aria-current="page"]::before {
+  background: var(--wf-amber);
+  border-radius: 0;
+  width: 3px;
+}
+html[data-ui="workforce"] .sidebar-profile { background: #122140; border-color: #22345A; border-radius: var(--radius-m); }
+html[data-ui="workforce"] .theme-toggle { background: #182A4D; color: #E6ECF5; border-color: #2A3B5E; }
+html[data-ui="workforce"] .theme-toggle:hover { background: var(--wf-amber); color: var(--wf-amber-ink); border-color: var(--wf-amber); }
+
+/* Скин Education/Operations/Depot в Workforce не выбирается: переключатель скрыт. */
+html[data-mode="workforce"] .skin-switch { display: none; }
+
+/* ---------- 3. Структура ---------- */
+
+html[data-ui="workforce"] body { letter-spacing: 0; }
+html[data-ui="workforce"] h1,
+html[data-ui="workforce"] h2,
+html[data-ui="workforce"] h3 { letter-spacing: -.005em; }
+
+/* Основные действия — янтарные с тёмно-синим текстом в обеих темах. */
+html[data-ui="workforce"] button.primary,
+html[data-ui="workforce"] .btn.primary {
+  background: var(--wf-amber);
+  color: var(--wf-amber-ink);
+  border-color: var(--wf-amber);
+  font-weight: 650;
+}
+html[data-ui="workforce"] button.primary:hover,
+html[data-ui="workforce"] .btn.primary:hover { filter: brightness(1.06); }
+html[data-ui="workforce"] .btn,
+html[data-ui="workforce"] button { border-radius: var(--radius-s); }
+
+/* Плоские карточки: тонкая рамка вместо глубокой тени. */
+html[data-ui="workforce"] .card,
+html[data-ui="workforce"] .panel,
+html[data-ui="workforce"] .stat,
+html[data-ui="workforce"] .quick-action {
+  box-shadow: none;
+  border-radius: var(--radius-m);
+}
+
+/* «Номерная табличка»: подпись капителью сверху, крупное число с табличными цифрами. */
+html[data-ui="workforce"] .stat { padding: var(--space-4) var(--space-4) var(--space-3); display: flex; flex-direction: column; }
+html[data-ui="workforce"] .stat::before {
+  background: var(--accent-2);
+  width: 3px;
+  height: auto;
+  inset: 0 auto 0 0;
+}
+html[data-ui="workforce"] .stat-label { order: -1; margin: 0 0 var(--space-1); text-transform: uppercase; letter-spacing: .08em; font-size: .6875rem; font-weight: 600; }
+html[data-ui="workforce"] .stat-value { font-variant-numeric: tabular-nums; font-weight: 700; letter-spacing: 0; }
+html[data-ui="workforce"] .hero-stat b { font-variant-numeric: tabular-nums; }
+
+/* Строгая шапка-hero: без иллюстрации, сплошной тёмно-синий фон с янтарной линией. */
+html[data-ui="workforce"] .rail-scene { display: none; }
+html[data-ui="workforce"] .hero {
+  min-height: 0;
+  border-radius: var(--radius-m);
+  border: 1px solid #22345A;
+  border-top: 3px solid var(--wf-amber);
+  box-shadow: none;
+  background:
+    linear-gradient(rgba(255, 255, 255, .035) 1px, transparent 1px) 0 0 / 100% 28px,
+    linear-gradient(90deg, rgba(255, 255, 255, .035) 1px, transparent 1px) 0 0 / 28px 100%,
+    #0F1B33;
+}
+html[data-ui="workforce"] .hero::after { display: none; }
+html[data-ui="workforce"] .hero-inner { padding: var(--space-5) var(--space-6); max-width: min(720px, 100%); }
+html[data-ui="workforce"] .hero-title { letter-spacing: -.01em; font-weight: 700; }
+html[data-ui="workforce"] .hero-lead { opacity: .9; }
+html[data-ui="workforce"] .hero .eyebrow { color: var(--wf-amber); letter-spacing: .14em; }
+html[data-ui="workforce"] .hero-stat {
+  background: #14264A;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-radius: var(--radius-s);
+}
+html[data-ui="workforce"] .hero-stat span { color: #A9B8CF; }
+html[data-ui="workforce"] .hero .btn.secondary { background: transparent; border-color: #4A5E85; color: #E6ECF5; }
+html[data-ui="workforce"] .hero .btn.secondary:hover { border-color: var(--wf-amber); }
+
+/* Таблицы и списки: строгие разделители, плотнее. */
+html[data-ui="workforce"] table th {
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  font-size: .75rem;
+  color: var(--text-2);
+}
+html[data-ui="workforce"] .badge,
+html[data-ui="workforce"] .tag { border-radius: var(--radius-s); }
+
+/* Подвал: спокойный, без декора. */
+html[data-ui="workforce"] .site-footer { border-top: 1px solid var(--border); }
+
+/* Фокус клавиатуры — холодный голубой, виден на тёмном и светлом. */
+html[data-ui="workforce"] :focus-visible { outline-color: var(--focus); }
+
+@media (max-width: 780px) {
+  html[data-ui="workforce"] .hero-inner { padding: var(--space-4); }
 }

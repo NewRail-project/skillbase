@@ -1,6 +1,6 @@
 import { h } from "../../shared/dom.js";
 import { State, isStaff } from "../../core/auth.js";
-import { getMode, MODES } from "../../core/mode.js";
+import { t, lt, roleLabel } from "../../core/i18n.js";
 import { listMyAttempts, listOrgAttempts, countMyAttemptsByStatus, countOrgAttempts, countOrgAttemptsByStatus } from "../../core/attempts.js";
 import { listMyTests, countPublishedTests, countMyTests, countMyTestsByStatus, deleteTest } from "../../core/editor.js";
 import { canDeleteTest, deletionPlan, explainDeleteError } from "../../core/test-delete-logic.js";
@@ -11,23 +11,16 @@ import { getStudentAssignments, listAssignments } from "../../core/assign.js";
 import { icons } from "../../shared/icons.js";
 import { railScene } from "../../ui/components/brand.js";
 
+// Тексты героя зависят от режима Education / Workforce: функции (lt) обновляются
+// на месте при переключении, страница не перерисовывается.
 const HERO = {
   guest: {
-    eyebrow: "Корпоративная платформа обучения",
-    title: "Знания, которые держат движение",
-    lead: "Skillbase — учебная среда для железнодорожных предприятий: курсы, проверка знаний и прозрачная аналитика результатов.",
+    eyebrow: lt("home.guest.eyebrow"),
+    title: lt("home.guest.title"),
+    lead: lt("home.guest.lead"),
     actions: [
-      { href: "#login", label: "Войти", cls: "btn primary" },
-      { href: "#register", label: "Создать аккаунт", cls: "btn secondary" }
-    ]
-  },
-  workforce: {
-    eyebrow: "Профессиональное обучение сотрудников",
-    title: "Знания для вашего бизнеса",
-    lead: "Skillbase — платформа для корпоративного обучения: программы, проверка знаний и аналитика результатов.",
-    actions: [
-      { href: "#login", label: "Войти", cls: "btn primary" },
-      { href: "#register", label: "Создать аккаунт", cls: "btn secondary" }
+      { href: "#login", label: lt("home.signIn"), cls: "btn primary" },
+      { href: "#register", label: lt("home.signUp"), cls: "btn secondary" }
     ]
   }
 };
@@ -122,7 +115,7 @@ function fillPanel(panel, items, { emptyText, emptyAction }) {
 // Панель графика: скелет до данных, потом график или удаление панели.
 function chartPanelPlaceholder() {
   return h("section", { class: "panel" },
-    h("div", { class: "section-title" }, h("h2", {}, "Динамика результатов")),
+    h("div", { class: "section-title" }, h("h2", {}, lt("home.chartTitle"))),
     h("div", { class: "skeleton", style: "height:64px;margin-top:12px" })
   );
 }
@@ -203,7 +196,7 @@ function resultChart(attempts) {
 
   const wrap = h("div", { class: "panel" },
     h("div", { class: "section-title" },
-      h("h2", {}, "Динамика результатов"),
+      h("h2", {}, lt("home.chartTitle")),
       h("span", { class: "muted" }, "последние " + graded.length)
     )
   );
@@ -250,9 +243,7 @@ function row({ dot, title, sub, end, href }) {
 // не ломают остальные.
 
 function renderStudentHome(page, profile) {
-  const mode = getMode();
-  const isWorkforce = mode === MODES.WORKFORCE;
-  const name = profile.fullName ? profile.fullName.split(" ")[0] : (isWorkforce ? "коллега" : "студент");
+  const firstName = profile.fullName ? profile.fullName.split(" ")[0] : null;
   const errors = errorNotice();
   const setHeroStat = (key, value) => {
     const el = page.querySelector(`[data-stat="${key}"]`);
@@ -260,36 +251,34 @@ function renderStudentHome(page, profile) {
   };
 
   const heroEl = hero({
-    eyebrow: isWorkforce ? "Рабочий кабинет" : "Личный кабинет",
-    title: `Здравствуйте, ${name}`,
-    lead: isWorkforce 
-      ? "Продолжайте профессиональное обучение. Ниже — назначенные задания и результаты проверки знаний."
-      : "Продолжайте обучение с того места, где остановились. Ниже — задания, дедлайны и последние результаты.",
-    actions: [{ href: "#assignments", label: isWorkforce ? "Задания на обучение" : "Мои задания", cls: "btn primary" }],
+    eyebrow: lt("home.learner.eyebrow"),
+    title: () => t("home.learner.hello", { name: firstName || t("role.colleagueName") }),
+    lead: lt("home.learner.lead"),
+    actions: [{ href: "#assignments", label: lt("home.learner.myAssignments"), cls: "btn primary" }],
     stats: [
-      { key: "tests", value: "—", label: isWorkforce ? "программ подготовки" : "доступных тестов" },
-      { key: "graded", value: "—", label: isWorkforce ? "пройдено проверок" : "пройдено" },
-      { key: "avg", value: "—", label: isWorkforce ? "средний результат" : "средний результат" }
+      { key: "tests", value: "—", label: lt("home.learner.statTests") },
+      { key: "graded", value: "—", label: lt("home.learner.statDone") },
+      { key: "avg", value: "—", label: lt("home.learner.statAvg") }
     ]
   });
 
-  const tAssignments = statTile(isWorkforce ? "назначенных заданий" : "активных заданий", "Загружаем…");
-  const tGraded = statTile(isWorkforce ? "выполненных заданий" : "проверенных попыток", "Загружаем…");
-  const tAvg = statTile("средний результат", "Загружаем…");
-  const tDeadlines = statTile(isWorkforce ? "срочных заданий" : "ближайших дедлайнов", "Загружаем…");
+  const tAssignments = statTile(lt("home.learner.tileActive"), "Загружаем…");
+  const tGraded = statTile(lt("home.learner.tileGraded"), "Загружаем…");
+  const tAvg = statTile(lt("home.learner.statAvg"), "Загружаем…");
+  const tDeadlines = statTile(lt("home.learner.tileDeadlines"), "Загружаем…");
 
   const deadlinesPanel = listPanel({
-    title: isWorkforce ? "Срочные задания" : "Ближайшие дедлайны",
+    title: lt("home.learner.deadlinesTitle"),
     items: skeletonRows(2),
-    emptyText: isWorkforce ? "Назначенных заданий со сроком нет." : "Активных дедлайнов нет.",
-    emptyAction: { href: "#assignments", label: isWorkforce ? "Все программы" : "Все задания" }
+    emptyText: lt("home.learner.deadlinesEmpty"),
+    emptyAction: { href: "#assignments", label: lt("home.learner.allAssignments") }
   });
   const chartPanel = chartPanelPlaceholder();
   const recentPanel = listPanel({
-    title: isWorkforce ? "Результаты проверки знаний" : "Недавние результаты",
+    title: lt("home.learner.recentTitle"),
     items: skeletonRows(3),
-    emptyText: isWorkforce ? "Результатов пока нет." : "Результатов пока нет. Первый пройденный тест появится здесь.",
-    emptyAction: { href: "#assignments", label: "К заданиям" }
+    emptyText: lt("home.learner.recentEmpty"),
+    emptyAction: { href: "#assignments", label: lt("home.learner.toAssignments") }
   });
 
   page.append(
@@ -300,9 +289,9 @@ function renderStudentHome(page, profile) {
     h("div", { class: "split" },
       deadlinesPanel,
       quickActions([
-        { icon: icons.clipboard, label: "Задания", hint: isWorkforce ? "Программы обучения" : "Назначенные тесты", href: "#assignments" },
-        { icon: icons.book, label: isWorkforce ? "Материалы" : "Каталог", hint: isWorkforce ? "Техническая подготовка" : "Доступные тесты", href: "#tests" },
-        { icon: icons.qr, label: "Войти по коду", hint: "Комната или тест", href: "#join" },
+        { icon: icons.clipboard, label: lt("nav.assignments"), hint: lt("home.quick.assignmentsHint"), href: "#assignments" },
+        { icon: icons.book, label: lt("home.quick.catalog"), hint: lt("home.quick.catalogHint"), href: "#tests" },
+        { icon: icons.qr, label: lt("nav.join"), hint: lt("home.quick.joinHint"), href: "#join" },
         { icon: icons.users, label: "Профиль", hint: "Данные и тема", href: "#profile" }
       ])
     ),
@@ -325,7 +314,7 @@ function renderStudentHome(page, profile) {
 
       setHeroStat("graded", gradedCount);
       setHeroStat("avg", avg === null ? "—" : avg + "%");
-      tGraded.set(gradedCount, gradedCount ? "Продолжайте в том же ритме" : "Начните с первого теста");
+      tGraded.set(gradedCount, gradedCount ? "Продолжайте в том же ритме" : t("home.learner.startFirst"));
       tAvg.set(avg === null ? "—" : avg + "%",
         avg === null ? "Появится после проверки" : avg >= 60 ? "по последним проверенным" : "Есть над чем поработать");
 
@@ -335,7 +324,7 @@ function renderStudentHome(page, profile) {
         const inProgress = a.status === "in_progress";
         return row({
           dot: percent === null ? (inProgress ? "muted" : "warn") : percent >= 60 ? "ok" : "warn",
-          title: a.testTitle || "Тест",
+          title: a.testTitle || lt("home.row.untitledTest"),
           sub: formatDate(a.submittedAt || a.startedAt),
           end: h("span", {
             class: "badge " + (percent === null
@@ -344,8 +333,8 @@ function renderStudentHome(page, profile) {
           }, percent === null ? (inProgress ? "Не завершена" : "На проверке") : percent + "%")
         });
       }), {
-        emptyText: "Результатов пока нет. Первый пройденный тест появится здесь.",
-        emptyAction: { href: "#assignments", label: "К заданиям" }
+        emptyText: lt("home.learner.recentEmpty"),
+        emptyAction: { href: "#assignments", label: lt("home.learner.toAssignments") }
       });
     } catch (e) {
       console.error("Попытки:", e);
@@ -355,7 +344,7 @@ function renderStudentHome(page, profile) {
       chartPanel.remove();
       fillPanel(recentPanel, [], {
         emptyText: "Результаты не загрузились. Проверьте подключение к сети.",
-        emptyAction: { href: "#assignments", label: "К заданиям" }
+        emptyAction: { href: "#assignments", label: lt("home.learner.toAssignments") }
       });
     }
   })();
@@ -378,12 +367,12 @@ function renderStudentHome(page, profile) {
 
       fillPanel(deadlinesPanel, deadlines.map(a => row({
         dot: a.left <= 2 ? "warn" : "ok",
-        title: a.title || a.testTitle || "Назначенный тест",
+        title: a.title || a.testTitle || lt("asg.assignedTest"),
         sub: `Срок: ${formatDate(a.deadline)} · ${a.left <= 0 ? "просрочено" : `осталось ${a.left} дн.`}`,
         end: h("a", { class: "btn secondary", href: `#quiz/${encodeURIComponent(a.testId)}/${encodeURIComponent(a.id)}` }, "Начать")
       })), {
-        emptyText: "Активных дедлайнов нет.",
-        emptyAction: { href: "#assignments", label: "Все задания" }
+        emptyText: lt("home.learner.deadlinesEmpty"),
+        emptyAction: { href: "#assignments", label: lt("home.learner.allAssignments") }
       });
     } catch (e) {
       console.error("Задания:", e);
@@ -392,7 +381,7 @@ function renderStudentHome(page, profile) {
       tDeadlines.set("—", "нет данных");
       fillPanel(deadlinesPanel, [], {
         emptyText: "Задания не загрузились. Проверьте подключение к сети.",
-        emptyAction: { href: "#assignments", label: "Все задания" }
+        emptyAction: { href: "#assignments", label: lt("home.learner.allAssignments") }
       });
     }
   })();
@@ -404,7 +393,7 @@ function renderStudentHome(page, profile) {
       setHeroStat("tests", total);
     } catch (e) {
       console.error("Тесты:", e);
-      errors.fail("каталог тестов");
+      errors.fail(t("home.learner.catalogError"));
     }
   })();
 }
@@ -419,39 +408,39 @@ function renderStaffHome(page, profile) {
   };
 
   const heroEl = hero({
-    eyebrow: profile.role === "admin" ? "Администрирование" : "Кабинет преподавателя",
-    title: "Управление обучением",
-    lead: "Тесты, проверка результатов и аналитика по вашей организации — в одном месте.",
+    eyebrow: profile.role === "admin" ? lt("home.staff.eyebrowAdmin") : lt("home.staff.eyebrowTeacher"),
+    title: lt("home.staff.title"),
+    lead: lt("home.staff.lead"),
     actions: [
-      { href: "#create-test", label: "Создать тест", cls: "btn primary" },
-      { href: "#results", label: "Результаты", cls: "btn secondary" }
+      { href: "#create-test", label: lt("home.staff.heroCreate"), cls: "btn primary" },
+      { href: "#results", label: lt("home.staff.heroResults"), cls: "btn secondary" }
     ],
     stats: [
-      { key: "tests", value: "—", label: "ваших тестов" },
-      { key: "published", value: "—", label: "опубликовано" },
-      { key: "attempts", value: "—", label: "попыток в организации" }
+      { key: "tests", value: "—", label: lt("home.staff.statTests") },
+      { key: "published", value: "—", label: lt("home.staff.statPublished") },
+      { key: "attempts", value: "—", label: lt("home.staff.statAttempts") }
     ]
   });
 
-  const tTests = statTile("созданных тестов", "Загружаем…");
+  const tTests = statTile(lt("home.staff.tileTests"), "Загружаем…");
   const tAttempts = statTile("попыток", "Загружаем…");
   const tPending = statTile("ожидают проверки", "Загружаем…");
   const tAvg = statTile("средний результат", "Загружаем…");
 
   const testsPanel = listPanel({
-    title: "Мои тесты",
+    title: lt("home.staff.myTests"),
     action: { href: "#create-test", label: "Создать" },
     items: skeletonRows(2),
-    emptyText: "Вы ещё не создали ни одного теста.",
-    emptyAction: { href: "#create-test", label: "Создать тест" }
+    emptyText: lt("home.staff.myTestsEmpty"),
+    emptyAction: { href: "#create-test", label: lt("home.staff.newBtn") }
   });
   const chartPanel = chartPanelPlaceholder();
   const recentPanel = listPanel({
     title: "Последние попытки",
     action: { href: "#results", label: "Все результаты" },
     items: skeletonRows(3),
-    emptyText: "Попыток пока нет. Опубликуйте тест и назначьте его группе.",
-    emptyAction: { href: "#create-test", label: "Создать тест" }
+    emptyText: lt("home.staff.recentEmpty"),
+    emptyAction: { href: "#create-test", label: lt("home.staff.newBtn") }
   });
 
   page.append(
@@ -462,10 +451,10 @@ function renderStaffHome(page, profile) {
     h("div", { class: "split" },
       testsPanel,
       quickActions([
-        { icon: icons.plus, label: "Новый тест", hint: "Конструктор", href: "#create-test" },
-        { icon: icons.chart, label: "Результаты", hint: "Проверка и экспорт", href: "#results" },
-        { icon: icons.qr, label: "Войти по коду", hint: "Live-комната", href: "#join" },
-        { icon: icons.users, label: "Пользователи", hint: "Роли и группы", href: "#users" }
+        { icon: icons.plus, label: lt("home.staff.quickNew"), hint: "Конструктор", href: "#create-test" },
+        { icon: icons.chart, label: lt("nav.results"), hint: "Проверка и экспорт", href: "#results" },
+        { icon: icons.qr, label: lt("nav.join"), hint: "Live-комната", href: "#join" },
+        { icon: icons.users, label: lt("home.staff.quickUsers"), hint: lt("home.staff.quickUsersHint"), href: "#users" }
       ])
     ),
     chartPanel,
@@ -497,7 +486,7 @@ function renderStaffHome(page, profile) {
         const inProgress = a.status === "in_progress";
         return row({
           dot: percent === null ? (inProgress ? "muted" : "warn") : percent >= 60 ? "ok" : "warn",
-          title: a.testTitle || "Тест",
+          title: a.testTitle || lt("home.row.untitledTest"),
           sub: (a.userEmail || "участник") + " · " + formatDate(a.submittedAt || a.startedAt),
           end: h("span", {
             class: "badge " + (percent === null
@@ -507,8 +496,8 @@ function renderStaffHome(page, profile) {
           href: inProgress ? null : "#review/" + encodeURIComponent(a.id)
         });
       }), {
-        emptyText: "Попыток пока нет. Опубликуйте тест и назначьте его группе.",
-        emptyAction: { href: "#create-test", label: "Создать тест" }
+        emptyText: lt("home.staff.recentEmpty"),
+        emptyAction: { href: "#create-test", label: lt("home.staff.newBtn") }
       });
     } catch (e) {
       console.error("Попытки организации:", e);
@@ -539,11 +528,11 @@ function renderStaffHome(page, profile) {
       setHeroStat("published", published);
       tTests.set(total, `опубликовано: ${published}`);
 
-      fillPanel(testsPanel, tests.map(t => {
+      fillPanel(testsPanel, tests.map(test => {
         const onDelete = async (e) => {
           e.preventDefault();
           e.stopPropagation();
-          const can = canDeleteTest(t, { uid: State.user.uid, role: State.profile.role, orgId: State.profile.orgId });
+          const can = canDeleteTest(test, { uid: State.user.uid, role: State.profile.role, orgId: State.profile.orgId });
           if (!can.allowed) { toast(can.reason, "error"); return; }
 
           let assignments = [];
@@ -553,20 +542,20 @@ function renderStaffHome(page, profile) {
           try {
             const rSnap = await getDocs(query(
               collection(db, "rooms"),
-              where("testId", "==", t.id),
+              where("testId", "==", test.id),
               where("hostId", "==", State.user.uid)
             ));
             rooms = rSnap.docs.map(d => ({ id: d.id, ...d.data() }));
           } catch (_) {}
 
-          const plan = deletionPlan({ test: t, session: { uid: State.user.uid, role: State.profile.role }, assignments, rooms });
+          const plan = deletionPlan({ test, session: { uid: State.user.uid, role: State.profile.role }, assignments, rooms });
           const details = [];
           if (plan.closeAssignmentIds.length) details.push(h("p", { class: "warning-msg" }, `Будет закрыто активных заданий: ${plan.closeAssignmentIds.length}`));
           if (plan.closeRoomCodes.length) details.push(h("p", { class: "warning-msg" }, `Будет закрыто активных Live-комнат: ${plan.closeRoomCodes.length}`));
 
           const ok = await confirmAction({
-            title: `Удалить тест «${t.title}»?`,
-            text: "Тест будет скрыт из каталога. Результаты сохранятся.",
+            title: t("tests.deleteConfirm", { title: test.title }),
+            text: t("tests.deleteHint"),
             details,
             confirmLabel: "Удалить",
             tone: "danger"
@@ -574,8 +563,8 @@ function renderStaffHome(page, profile) {
 
           if (ok) {
             try {
-              await deleteTest(t.id, plan);
-              toast("Тест удалён", "success");
+              await deleteTest(test.id, plan);
+              toast(t("tests.deleted"), "success");
               window.location.reload();
             } catch (err) {
               toast(explainDeleteError(err), "error");
@@ -586,29 +575,29 @@ function renderStaffHome(page, profile) {
         const delBtn = h("button", {
           type: "button",
           class: "btn-icon danger-text",
-          title: "Удалить тест",
+          title: t("tests.deleteTitle"),
           onclick: onDelete,
           style: "margin-left:var(--space-2);padding:0;min-height:0;border:0;background:transparent"
         }, h("span", { style: "font-size:1.2em" }, "×"));
 
         return row({
-          dot: t.status === "published" ? "ok" : "muted",
-          title: t.title || "Без названия",
-          sub: `${(t.questions || []).length} вопросов · ${formatDate(t.updatedAt)}`,
+          dot: test.status === "published" ? "ok" : "muted",
+          title: test.title || "Без названия",
+          sub: `${(test.questions || []).length} вопросов · ${formatDate(test.updatedAt)}`,
           end: h("div", { style: "display:flex;align-items:center" },
-            h("span", { class: "badge " + (t.status === "published" ? "badge-success" : "badge-warning") },
-              t.status === "published" ? "Опубликован" : "Черновик"),
+            h("span", { class: "badge " + (test.status === "published" ? "badge-success" : "badge-warning") },
+              test.status === "published" ? "Опубликован" : "Черновик"),
             delBtn
           ),
-          href: "#create-test/" + encodeURIComponent(t.id)
+          href: "#create-test/" + encodeURIComponent(test.id)
         });
       }), {
-        emptyText: "Вы ещё не создали ни одного теста.",
-        emptyAction: { href: "#create-test", label: "Создать тест" }
+        emptyText: lt("home.staff.myTestsEmpty"),
+        emptyAction: { href: "#create-test", label: lt("home.staff.newBtn") }
       });
     } catch (e) {
       console.error("Мои тесты:", e);
-      errors.fail("тесты");
+      errors.fail(t("nav.testsStaff").toLowerCase());
       tTests.set("—", "нет данных");
       fillPanel(testsPanel, [], {
         emptyText: e?.code === "failed-precondition"
@@ -616,7 +605,7 @@ function renderStaffHome(page, profile) {
           : e?.code === "permission-denied"
             ? "Нет доступа к списку тестов: правила Firestore запрещают чтение."
             : "Тесты не загрузились. Проверьте подключение к сети.",
-        emptyAction: { href: "#create-test", label: "Создать тест" }
+        emptyAction: { href: "#create-test", label: lt("home.staff.newBtn") }
       });
     }
   })();
@@ -628,19 +617,19 @@ function guestView() {
     hero({ eyebrow, title, lead, actions }),
     h("section", { class: "grid grid-3" },
       h("div", { class: "panel" },
-        h("div", { class: "eyebrow" }, "01 · Курсы"),
-        h("h2", {}, "Обучение по стандартам отрасли"),
-        h("p", { class: "muted" }, "Материалы и проверочные тесты собраны в одном кабинете.")
+        h("div", { class: "eyebrow" }, lt("home.guest.p1.eyebrow")),
+        h("h2", {}, lt("home.guest.p1.title")),
+        h("p", { class: "muted" }, lt("home.guest.p1.text"))
       ),
       h("div", { class: "panel" },
-        h("div", { class: "eyebrow" }, "02 · Проверка"),
-        h("h2", {}, "Объективная оценка знаний"),
-        h("p", { class: "muted" }, "Автоматическая проверка, ручная оценка и прозрачные критерии.")
+        h("div", { class: "eyebrow" }, lt("home.guest.p2.eyebrow")),
+        h("h2", {}, lt("home.guest.p2.title")),
+        h("p", { class: "muted" }, lt("home.guest.p2.text"))
       ),
       h("div", { class: "panel" },
-        h("div", { class: "eyebrow" }, "03 · Аналитика"),
-        h("h2", {}, "Результаты по организации"),
-        h("p", { class: "muted" }, "Сводка по тестам, вопросам и участникам — без ручных таблиц.")
+        h("div", { class: "eyebrow" }, lt("home.guest.p3.eyebrow")),
+        h("h2", {}, lt("home.guest.p3.title")),
+        h("p", { class: "muted" }, lt("home.guest.p3.text"))
       )
     ),
     h("section", { class: "panel" },
@@ -649,7 +638,7 @@ function guestView() {
         h("a", { class: "quick-action", href: "#login" },
           h("b", {}, "Войти"), h("span", {}, "Если аккаунт уже выдан организацией")),
         h("a", { class: "quick-action", href: "#register" },
-          h("b", {}, "Зарегистрироваться"), h("span", {}, "Самостоятельное обучение"))
+          h("b", {}, "Зарегистрироваться"), h("span", {}, lt("home.guest.registerHint")))
       )
     )
   ].filter(Boolean);

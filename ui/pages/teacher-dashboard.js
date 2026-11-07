@@ -1,6 +1,7 @@
 // STATUS: stub, будет заменён на этапе 6.
 import { h, esc } from "../../shared/dom.js";
 import { State } from "../../core/auth.js";
+import { t as tr, lt } from "../../core/i18n.js";
 
 const getTeacherResults = async (testId) => {
   // TODO: Заменить на Firestore-запрос
@@ -9,7 +10,7 @@ const getTeacherResults = async (testId) => {
 
 async function TeacherDashboardPage() {
   const div = h("div", { class: "card" });
-  div.append(h("h2", {}, "Панель преподавателя"), h("div", { id: "results" }));
+  div.append(h("h2", {}, lt("title.teacher")), h("div", { id: "results" }));
 
   try {
     const results = await getTeacherResults('testId', State.profile?.teacherGroups || null);

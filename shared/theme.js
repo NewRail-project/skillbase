@@ -12,6 +12,8 @@
 // CSS-скины (data-ui: education/operations/depot) не должны хранить собственные
 // переключатели светлого/тёмного: они обязаны реагировать на data-theme.
 
+import { applyUi, getMode, MODES } from "../core/mode.js";
+
 const STORAGE_KEY = "sb-theme";
 const EVENT = "sb:themechange";
 const VALID = ["light", "dark", "system"];
@@ -49,7 +51,11 @@ function applyResolved(theme) {
   // Нативная прокрутка, поля ввода и полосы прокрутки подстраиваются под тему.
   root.style.colorScheme = theme;
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute("content", theme === "dark" ? "#0D1218" : "#F5F3EF");
+  if (meta) {
+    const workforce = getMode() === MODES.WORKFORCE;
+    const dark = theme === "dark";
+    meta.setAttribute("content", workforce ? (dark ? "#0B1220" : "#0F1A2E") : (dark ? "#0D1218" : "#F5F3EF"));
+  }
 }
 
 function emit(theme, mode) {
@@ -127,13 +133,16 @@ export function getLocalSkin() {
 
 export function getSkin() {
   if (typeof document === "undefined") return "education";
-  return document.documentElement.getAttribute("data-ui") || "education";
+  const ui = document.documentElement.getAttribute("data-ui") || "education";
+  // Workforce — не скин на выбор: для переключателя Edu/Ops/Depot возвращаем сохранённый.
+  return ui === "workforce" ? (getLocalSkin() || "education") : ui;
 }
 
 export function setSkin(value) {
   const ui = SKIN_IDS.includes(value) ? value : "education";
   try { localStorage.setItem(UI_KEY, ui); } catch (_) { /* приватный режим */ }
-  document.documentElement.setAttribute("data-ui", ui);
+  // В режиме Workforce скин фиксирован; выбор запоминается и вернётся в Education.
+  applyUi(ui);
   window.dispatchEvent(new CustomEvent(UI_EVENT, { detail: { ui } }));
   return ui;
 }

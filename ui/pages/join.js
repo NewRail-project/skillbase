@@ -21,6 +21,7 @@ import { getGuestName } from "../../core/guest.js";
 import { saveReturnTo } from "../../shared/return-to.js";
 import { avatarPicker } from "../components/avatar.js";
 import { toast } from "../components/toast.js";
+import { t as tr, lt } from "../../core/i18n.js";
 
 const ROLE_LABEL = { [ROLE_PLAYER]: "Участник", [ROLE_OBSERVER]: "Наблюдатель" };
 
@@ -162,12 +163,12 @@ export default async function JoinPage() {
     class: "role-cards", role: "radiogroup", "aria-label": "Как вы хотите войти?"
   },
     roleCard(ROLE_PLAYER, "Участник", [
-      "Сами проходите вопросы теста",
+      lt("join.passTest"),
       "Получаете баллы и место в общем рейтинге",
       "Ждёте старта — вопросы идут автоматически"
-    ], staffObserverOnly ? "Преподаватель входит только наблюдателем" : ""),
+    ], staffObserverOnly ? lt("join.hostObserver") : ""),
     roleCard(ROLE_OBSERVER, "Наблюдатель", [
-      "Видите общий рейтинг и ход теста",
+      lt("join.watchTest"),
       "Видите число участников и прогресс",
       "Отвечать и получать баллы нельзя"
     ])

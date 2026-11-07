@@ -5,6 +5,7 @@ import {
   linkWithCredential, sendPasswordResetEmail, clearLocalFirestoreCache
 } from "../shared/firebase.js";
 import { applyThemeMode, getThemeMode, getLocalSkin } from "../shared/theme.js";
+import { applyUi } from "./mode.js";
 import {
   DEFAULT_UI,
   VALID_UI,
@@ -73,7 +74,8 @@ function fallbackProfile(user) {
 export function applyTheme(uiName) {
   // Выбор скина на устройстве (в том числе гостем) сильнее профиля.
   const ui = safeUi(getLocalSkin() || uiName);
-  document.documentElement.setAttribute("data-ui", ui);
+  // В режиме Workforce скин фиксирован (applyUi сам это учитывает).
+  applyUi(ui);
   // data-ui — это "скин" интерфейса; светлота/темнота живёт в data-theme
   // и не должна сбрасываться при смене скина.
   applyThemeMode(getThemeMode());
