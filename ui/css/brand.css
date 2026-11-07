@@ -566,6 +566,10 @@ main#app {
 
 @media (max-width: 640px) {
   :root { --topbar-h: 56px; }
+
+:root[data-ui="workforce"] {
+  --topbar-h: var(--topbar-h-workforce);
+}
   .brand-tagline { display: none; }
   .brand-name { font-size: 1rem; }
   .topbar { padding: var(--space-2) var(--space-3); gap: var(--space-2); }

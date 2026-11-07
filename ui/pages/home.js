@@ -1,5 +1,6 @@
 import { h } from "../../shared/dom.js";
 import { State, isStaff } from "../../core/auth.js";
+import { getMode, MODES } from "../../core/mode.js";
 import { listMyAttempts, listOrgAttempts, countMyAttemptsByStatus, countOrgAttempts, countOrgAttemptsByStatus } from "../../core/attempts.js";
 import { listMyTests, countPublishedTests, countMyTests, countMyTestsByStatus, deleteTest } from "../../core/editor.js";
 import { canDeleteTest, deletionPlan, explainDeleteError } from "../../core/test-delete-logic.js";
@@ -15,6 +16,15 @@ const HERO = {
     eyebrow: "Корпоративная платформа обучения",
     title: "Знания, которые держат движение",
     lead: "Skillbase — учебная среда для железнодорожных предприятий: курсы, проверка знаний и прозрачная аналитика результатов.",
+    actions: [
+      { href: "#login", label: "Войти", cls: "btn primary" },
+      { href: "#register", label: "Создать аккаунт", cls: "btn secondary" }
+    ]
+  },
+  workforce: {
+    eyebrow: "Профессиональное обучение сотрудников",
+    title: "Знания для вашего бизнеса",
+    lead: "Skillbase — платформа для корпоративного обучения: программы, проверка знаний и аналитика результатов.",
     actions: [
       { href: "#login", label: "Войти", cls: "btn primary" },
       { href: "#register", label: "Создать аккаунт", cls: "btn secondary" }
@@ -240,7 +250,9 @@ function row({ dot, title, sub, end, href }) {
 // не ломают остальные.
 
 function renderStudentHome(page, profile) {
-  const name = profile.fullName ? profile.fullName.split(" ")[0] : "коллега";
+  const mode = getMode();
+  const isWorkforce = mode === MODES.WORKFORCE;
+  const name = profile.fullName ? profile.fullName.split(" ")[0] : (isWorkforce ? "коллега" : "студент");
   const errors = errorNotice();
   const setHeroStat = (key, value) => {
     const el = page.querySelector(`[data-stat="${key}"]`);
@@ -248,33 +260,35 @@ function renderStudentHome(page, profile) {
   };
 
   const heroEl = hero({
-    eyebrow: "Личный кабинет",
+    eyebrow: isWorkforce ? "Рабочий кабинет" : "Личный кабинет",
     title: `Здравствуйте, ${name}`,
-    lead: "Продолжайте обучение с того места, где остановились. Ниже — задания, дедлайны и последние результаты.",
-    actions: [{ href: "#assignments", label: "Мои задания", cls: "btn primary" }],
+    lead: isWorkforce 
+      ? "Продолжайте профессиональное обучение. Ниже — назначенные задания и результаты проверки знаний."
+      : "Продолжайте обучение с того места, где остановились. Ниже — задания, дедлайны и последние результаты.",
+    actions: [{ href: "#assignments", label: isWorkforce ? "Задания на обучение" : "Мои задания", cls: "btn primary" }],
     stats: [
-      { key: "tests", value: "—", label: "доступных тестов" },
-      { key: "graded", value: "—", label: "пройдено" },
-      { key: "avg", value: "—", label: "средний результат" }
+      { key: "tests", value: "—", label: isWorkforce ? "программ подготовки" : "доступных тестов" },
+      { key: "graded", value: "—", label: isWorkforce ? "пройдено проверок" : "пройдено" },
+      { key: "avg", value: "—", label: isWorkforce ? "средний результат" : "средний результат" }
     ]
   });
 
-  const tAssignments = statTile("активных заданий", "Загружаем…");
-  const tGraded = statTile("проверенных попыток", "Загружаем…");
+  const tAssignments = statTile(isWorkforce ? "назначенных заданий" : "активных заданий", "Загружаем…");
+  const tGraded = statTile(isWorkforce ? "выполненных заданий" : "проверенных попыток", "Загружаем…");
   const tAvg = statTile("средний результат", "Загружаем…");
-  const tDeadlines = statTile("ближайших дедлайнов", "Загружаем…");
+  const tDeadlines = statTile(isWorkforce ? "срочных заданий" : "ближайших дедлайнов", "Загружаем…");
 
   const deadlinesPanel = listPanel({
-    title: "Ближайшие дедлайны",
+    title: isWorkforce ? "Срочные задания" : "Ближайшие дедлайны",
     items: skeletonRows(2),
-    emptyText: "Активных дедлайнов нет.",
-    emptyAction: { href: "#assignments", label: "Все задания" }
+    emptyText: isWorkforce ? "Назначенных заданий со сроком нет." : "Активных дедлайнов нет.",
+    emptyAction: { href: "#assignments", label: isWorkforce ? "Все программы" : "Все задания" }
   });
   const chartPanel = chartPanelPlaceholder();
   const recentPanel = listPanel({
-    title: "Недавние результаты",
+    title: isWorkforce ? "Результаты проверки знаний" : "Недавние результаты",
     items: skeletonRows(3),
-    emptyText: "Результатов пока нет. Первый пройденный тест появится здесь.",
+    emptyText: isWorkforce ? "Результатов пока нет." : "Результатов пока нет. Первый пройденный тест появится здесь.",
     emptyAction: { href: "#assignments", label: "К заданиям" }
   });
 
@@ -286,8 +300,8 @@ function renderStudentHome(page, profile) {
     h("div", { class: "split" },
       deadlinesPanel,
       quickActions([
-        { icon: icons.clipboard, label: "Задания", hint: "Назначенные тесты", href: "#assignments" },
-        { icon: icons.book, label: "Каталог", hint: "Доступные тесты", href: "#tests" },
+        { icon: icons.clipboard, label: "Задания", hint: isWorkforce ? "Программы обучения" : "Назначенные тесты", href: "#assignments" },
+        { icon: icons.book, label: isWorkforce ? "Материалы" : "Каталог", hint: isWorkforce ? "Техническая подготовка" : "Доступные тесты", href: "#tests" },
         { icon: icons.qr, label: "Войти по коду", hint: "Комната или тест", href: "#join" },
         { icon: icons.users, label: "Профиль", hint: "Данные и тема", href: "#profile" }
       ])

@@ -2,6 +2,13 @@
 .shell { min-height: 100vh; display: flex; flex-direction: column; }
 
 .topbar {
+  min-height: var(--topbar-h);
+  transition: min-height var(--dur);
+}
+
+[data-ui="workforce"] .topbar {
+  min-height: var(--topbar-h-workforce);
+}
   position: sticky; top: 0; z-index: 900;
   display: flex; align-items: center; gap: var(--space-3);
   min-height: var(--topbar-h);

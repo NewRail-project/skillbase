@@ -24,6 +24,7 @@
 
   --sidebar-w: 268px;
   --topbar-h: 60px;
+  --topbar-h-workforce: 64px;
   --content-max: 1180px;
 
   --font: "Inter", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -35,29 +36,29 @@
   --radius-pill: 999px;
 
   /* Значения по умолчанию (education, светлая), если тема не загрузилась. */
-  --bg: #F5F3EF;
+  --bg: #EDF2F5;
   --surface: #FFFFFF;
-  --elevated: #EDE9E2;
-  --border: #D8D2C7;
-  --text: #15212B;
+  --elevated: #DDE5EA;
+  --border: #BCCBD6;
+  --text: #111820;
   --text-2: #54626E;
-  --accent: #1B5A7A;
-  --on-accent: #FFFFFF;
-  --accent-2: #0E6B5C;
-  --signal: #F2B233;
-  --warn: #8A5A00;
+  --accent: #D9A441;
+  --on-accent: #111820;
+  --accent-2: #477FA6;
+  --signal: #D9A441;
+  --warn: #7A4E00;
   --on-warn: #FFFFFF;
-  --ok: #1E6B47;
-  --danger: #A32B2B;
-  --focus: #1B5A7A;
-  --ok-bg: #E4F3EA;
-  --ok-border: #A9D8BD;
-  --warn-bg: #FBF0DC;
-  --warn-border: #E7C67E;
-  --danger-bg: #FAE6E6;
-  --danger-border: #E7B4B4;
-  --shadow: 0 1px 2px rgba(21, 33, 43, .05), 0 10px 30px rgba(21, 33, 43, .07);
-  --shadow-lift: 0 2px 4px rgba(21, 33, 43, .06), 0 18px 44px rgba(21, 33, 43, .12);
+  --ok: #72B995;
+  --danger: #D97979;
+  --focus: #477FA6;
+  --ok-bg: #E8F5EE;
+  --ok-border: #B7DFC9;
+  --warn-bg: #FAF3E6;
+  --warn-border: #EBD4A8;
+  --danger-bg: #F9EBEB;
+  --danger-border: #EBBBBB;
+  --shadow: 0 1px 2px rgba(17, 24, 32, .08), 0 8px 20px rgba(17, 24, 32, .1);
+  --shadow-lift: 0 2px 4px rgba(17, 24, 32, .1), 0 16px 32px rgba(17, 24, 32, .15);
 
   /* Шапка с железной дорогой */
   --hero-sky-1: #D9E6F0;

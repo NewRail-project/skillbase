@@ -8,6 +8,7 @@
 // 404: ui/pages/404.js. Очистка страницы при уходе. Один вызов router() при старте.
 
 import { State, applyTheme, logout } from "../core/auth.js";
+import { initMode } from "../core/mode.js";
 import { profileSetupIncomplete } from "../core/registration.js";
 import { saveReturnTo, consumeReturnTo } from "./return-to.js";
 import { skeleton } from "../ui/components/skeleton.js";
@@ -365,6 +366,7 @@ export function initRouter() {
   if (initRouter._started) return;
   initRouter._started = true;
   window.addEventListener("hashchange", router);
+  initMode();
   if (State.profile?.ui) applyTheme(State.profile.ui);
   router();
 }
