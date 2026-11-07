@@ -1126,6 +1126,9 @@ function updateLeaderboard() {
     && (roleHere !== "player" || room.showLeaderboard === true)
     ? boardRows()
     : [];
+  if (isSelfPaced) {
+    rows = computeSelfScores(players, questions);
+  }
   if (!rows.length) {
     host.classList.add("room-leaderboard-empty");
     if (host.textContent) host.textContent = "";
