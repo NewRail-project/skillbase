@@ -78,9 +78,10 @@ export default async function MaterialPage() {
   const testId = decodeURIComponent(routeParts[0] || "");
   // #material/<id>/free — добровольное чтение: выйти к тесту можно в любой момент.
   const freeMode = routeParts[1] === "free";
+  const previewMode = routeParts[1] === "preview";
   // Код комнаты (чтение из лобби): «К тесту» возвращает в комнату.
   const roomCode = routeParts[2] ? decodeURIComponent(routeParts[2]).toUpperCase() : "";
-  const backHash = roomCode ? `#room/${roomCode}` : `#quiz/${testId}`;
+  const backHash = previewMode ? `#create-test/${testId}` : (roomCode ? `#room/${roomCode}` : `#quiz/${testId}`);
   const prefs = loadPrefs();
   page.dataset.rd = prefs.mode;
   page.style.setProperty("--rd-size", `${prefs.size}px`);
@@ -123,7 +124,7 @@ export default async function MaterialPage() {
   let exitRequested = false;
 
   // Хеш-страж: любые смены хеша, кроме разрешённого выхода, откатываются.
-  if (!freeMode) {
+  if (!freeMode && !previewMode) {
     setHashGuard(nextHash => {
       if (exitRequested || nextHash.startsWith(`#material/${testId}/`)) {
         return true;
@@ -197,27 +198,32 @@ export default async function MaterialPage() {
     // Кнопка выхода: в обязательном режиме только на последней странице,
     // в добровольном (#material/<id>/free) — всегда.
     exitRow.textContent = "";
-    if (freeMode && !isLast) {
+    const backLabel = previewMode ? "К редактору" : "К тесту";
+    if ((freeMode || previewMode) && !isLast) {
       exitRow.appendChild(h("button", {
         type: "button", class: "btn secondary",
         onclick: () => exitTo(backHash)
-      }, "К тесту"));
+      }, backLabel));
     } else if (isLast) {
       exitRow.appendChild(h("button", {
         type: "button", class: "btn primary",
         onclick: () => exitTo(backHash)
-      }, "К тесту"));
+      }, backLabel));
       exitRow.appendChild(h("span", { class: "reader-complete badge badge-success" }, "Прочитано"));
     } else {
       exitRow.appendChild(h("span", { class: "reader-hint muted" },
-        "Прочитайте до конца — после последней страницы появится кнопка «К тесту»."));
+        `Прочитайте до конца — после последней страницы появится кнопка «${backLabel}».`));
     }
 
     // Прогресс: последняя страница и флаг completed — materialProgress.
     const state = materialProgress(material.pages, index);
-    if (!freeMode || state.completed) saveMaterialProgress(State.user.uid, testId, state).catch(err => {
-      console.error("Не удалось сохранить прогресс:", err);
-    });
+    if ((!freeMode && !previewMode) || state.completed) {
+      if (!previewMode) {
+        saveMaterialProgress(State.user.uid, testId, state).catch(err => {
+          console.error("Не удалось сохранить прогресс:", err);
+        });
+      }
+    }
   }
 
   function turn(delta) {
@@ -295,7 +301,7 @@ function exitBtn(hash) {
       document.body.classList.remove("reading-mode");
       window.location.hash = hash;
     }
-  }, "К тесту");
+  }, hash.startsWith("#create-test") ? "К редактору" : "К тесту");
 }
 
 export function cleanup() {

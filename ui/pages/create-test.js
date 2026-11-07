@@ -1,5 +1,10 @@
 import { h } from "../../shared/dom.js";
 import {
+  CALLOUT_KINDS, pageTextLength, pageFillRatio, paginateText, validatePage
+} from "../../core/material-logic.js";
+import { formFromSettings, mergeSettings } from "../../core/settings.js";
+import { loadMaterial, saveMaterial } from "../../core/materials.js";
+import {
   parseQuizText, updateTest, saveTest, publishTest, loadTest,
   getCurrentTest, resetTest, validateTestDraft, validateTestForPublish
 } from "../../core/editor.js";
@@ -99,7 +104,10 @@ function buildMaterialEditor(editing) {
   const section = h("section", { class: "panel", id: "material-editor" });
   section.appendChild(h("div", { class: "panel-head" },
     h("h2", {}, "Материал-книга"),
-    h("button", { type: "button", class: "btn secondary", id: "material-save" }, "Сохранить материал"),
+    h("div", { style: "display:flex;gap:var(--space-2)" },
+      h("button", { type: "button", class: "btn secondary", id: "material-preview", onclick: () => { window.location.hash = `#material/${encodeURIComponent(editing.id)}/preview`; } }, "Предпросмотр книги"),
+      h("button", { type: "button", class: "btn secondary", id: "material-save" }, "Сохранить материал")
+    )
   ));
   const message = h("div", { class: "form-hint", role: "status" });
 
