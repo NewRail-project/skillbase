@@ -8,7 +8,13 @@ export function authErrorMessage(err) {
     case 'auth/email-already-in-use':
       return 'Этот email уже зарегистрирован.';
     case 'auth/invalid-credential':
-      return 'Неверные учетные данные.';
+      return 'Неверная почта или пароль. Если вы регистрировались через Google, войдите кнопкой Google или нажмите «Забыли пароль?», чтобы задать пароль.';
+    case 'auth/missing-email':
+      return 'Введите электронную почту.';
+    case 'auth/missing-password':
+      return 'Введите пароль.';
+    case 'auth/user-disabled':
+      return 'Этот аккаунт отключён администратором.';
     case 'auth/user-not-found':
       return 'Пользователь не найден.';
     case 'auth/wrong-password':
@@ -31,18 +37,8 @@ export function authErrorMessage(err) {
       return 'Домен этого сайта не разрешён в настройках Firebase (Authentication → Settings → Authorized domains).';
     case 'auth/operation-not-allowed':
       return 'Вход через Google выключен в настройках проекта (Firebase Console → Authentication → Sign-in method).';
-    // ---------- Данные Firestore (для страниц, где покажем «человеком») ----------
     case 'permission-denied':
       return 'Нет прав для выполнения операции.';
-    case 'unauthenticated':
-      return 'Сессия истекла. Войдите ещё раз.';
-    case 'unavailable':
-    case 'deadline-exceeded':
-      return 'Нет связи с сервером. Проверьте подключение и попробуйте ещё раз.';
-    case 'failed-precondition':
-      return 'Действие сейчас недоступно. Попробуйте позже.';
-    case 'aborted':
-      return 'Не удалось выполнить действие. Попробуйте ещё раз.';
     default:
       return 'Что-то пошло не так. Попробуйте ещё раз.';
   }

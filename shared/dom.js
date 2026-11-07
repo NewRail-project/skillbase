@@ -2,6 +2,8 @@
 // Контракт: h() создаёт элементы без innerHTML. Данные пользователя только через textContent.
 // esc() — для редких случаев, где нужен HTML-текст (например, атрибуты).
 
+import { liveText, liveAttr } from './live.js';
+
 const ALLOWED_HREF = /^#|^https:|^mailto:/;
 
 // Логические атрибуты нельзя выставлять через setAttribute(false):
@@ -20,7 +22,10 @@ const BOOLEAN_PROPS = {
 export function h(tag, attrs = {}, ...children) {
   const el = document.createElement(tag);
   for (const [key, value] of Object.entries(attrs)) {
-    if (key === 'class') {
+    if (typeof value === 'function' && !key.startsWith('on')) {
+      // Функция вместо значения — «живой» атрибут (зависит от режима Education/Workforce).
+      liveAttr(el, key === 'class' ? 'class' : key, value);
+    } else if (key === 'class') {
       el.className = value;
     } else if (key === 'dataset') {
       for (const [dk, dv] of Object.entries(value)) {
@@ -45,6 +50,9 @@ export function h(tag, attrs = {}, ...children) {
     if (child == null || child === false) continue;
     if (typeof child === 'string' || typeof child === 'number') {
       el.appendChild(document.createTextNode(String(child)));
+    } else if (typeof child === 'function') {
+      // Функция-потомок — «живой» текст: пересчитывается при смене режима.
+      el.appendChild(liveText(child));
     } else {
       el.appendChild(child);
     }

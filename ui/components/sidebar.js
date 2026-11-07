@@ -3,28 +3,31 @@ import { icons } from "../../shared/icons.js";
 import { State, logout } from "../../core/auth.js";
 import { getThemeMode, setThemeMode, getTheme } from "../../shared/theme.js";
 import { brandLockup } from "./brand.js";
+import { lt, roleLabel } from "../../core/i18n.js";
 
-// Пункты меню сгруппированы по назначению и фильтруются по роли:
-// студент не видит преподавательских и административных разделов.
+// Пункты меню сгруппированы по назначению и фильтруются по РЕАЛЬНОЙ роли
+// пользователя. Режим Education/Workforce меняет только подписи (lt = живой
+// текст, обновляется при переключении без перерисовки), но не набор разделов
+// и не права доступа.
 const GROUPS = [
   {
-    label: "Обучение",
+    label: lt("nav.section.learn"),
     items: [
-      { id: "home", label: "Главная", icon: icons.home, route: "#home" },
-      { id: "about", label: "О проекте", icon: icons.info, route: "#about", "aria-current": "page" },
-      { id: "assignments", label: "Задания", icon: icons.clipboard, route: "#assignments", auth: true },
-      { id: "tests", label: "Каталог тестов", icon: icons.book, route: "#tests", auth: true },
-      { id: "join", label: "Войти по коду", icon: icons.qr, route: "#join", auth: true },
-      { id: "create-test", label: "Создать тест", icon: icons.plus, route: "#create-test", auth: true, roles: ["teacher", "admin"] },
-      { id: "results", label: "Результаты", icon: icons.chart, route: "#results", auth: true, roles: ["teacher", "admin"] }
+      { id: "home", label: lt("nav.home"), icon: icons.home, route: "#/" },
+      { id: "about", label: "О проекте", icon: icons.home, route: "#about" },
+      { id: "assignments", label: lt("nav.assignments"), icon: icons.clipboard, route: "#assignments", auth: true },
+      { id: "tests", label: lt("nav.tests"), icon: icons.book, route: "#tests", auth: true },
+      { id: "join", label: lt("nav.join"), icon: icons.qr, route: "#join", auth: true },
+      { id: "create-test", label: lt("nav.create"), icon: icons.plus, route: "#create-test", auth: true, roles: ["teacher", "admin"] },
+      { id: "results", label: lt("nav.results"), icon: icons.chart, route: "#results", auth: true, roles: ["teacher", "admin"] }
     ]
   },
   {
-    label: "Аккаунт",
+    label: lt("nav.section.account"),
     items: [
-      { id: "profile", label: "Профиль", icon: icons.users, route: "#profile", auth: true },
+      { id: "profile", label: lt("nav.profile"), icon: icons.users, route: "#profile", auth: true },
       { id: "settings", label: "Настройки", icon: icons.settings, route: "#settings", auth: true },
-      { id: "users", label: "Пользователи", icon: icons.users, route: "#users", auth: true, roles: ["teacher", "admin"] },
+      { id: "users", label: lt("nav.users"), icon: icons.users, route: "#users", auth: true, roles: ["teacher", "admin"] },
       { id: "admins", label: "Администраторы", icon: icons.check, route: "#admins", auth: true, roles: ["admin"] },
       { id: "admin", label: "Админ-панель", icon: icons.settings, route: "#admin", auth: true, roles: ["admin"] }
     ]
@@ -92,14 +95,14 @@ export function renderSidebar(onChange) {
   if (State.user) {
     const email = State.user.email || "";
     const name = State.profile?.fullName || email.split("@")[0] || "Участник";
-    const roleLabel = { student: "студент", teacher: "преподаватель", admin: "администратор" }[State.profile?.role] || "студент";
+    const role = State.profile?.role;
 
     aside.appendChild(h("div", { class: "sidebar-profile" },
       h("div", { class: "user-header" },
         h("div", { class: "avatar avatar-sm", "aria-hidden": "true" }, name[0].toUpperCase()),
         h("div", { class: "profile-info" },
           h("div", { class: "profile-name" }, name),
-          h("span", { class: "badge badge-neutral" }, roleLabel)
+          h("span", { class: "badge badge-neutral" }, () => roleLabel(role, { lower: true }))
         )
       )
     ));
@@ -119,9 +122,8 @@ export function renderSidebar(onChange) {
         if (onChange) onChange();
       }
     });
-    // Статичный SVG из констант, пользовательских данных нет.
     const themeIconEl = h("span", { class: "icon", style: "display:inline-flex;width:18px;height:18px" });
-    themeIconEl.innerHTML = themeIcon;
+    themeIconEl.innerHTML = themeIcon; // статичная SVG-константа
     themeBtn.append(themeIconEl, h("span", {}, themeLabel));
 
     aside.appendChild(h("div", { class: "sidebar-footer" },

@@ -5,8 +5,8 @@ import { icons } from "../../shared/icons.js";
 import { toast } from "../../ui/components/toast.js";
 import { confirmAction } from "../../ui/components/confirm.js";
 import { db, collection, doc, getDocs, query, where, updateDoc, serverTimestamp } from "../../shared/firebase.js";
+import { t as tr, lt, roleLabel } from "../../core/i18n.js";
 
-const ROLE_LABEL = { student: "Студент", teacher: "Преподаватель", admin: "Администратор" };
 
 // Правило users позволяет администратору менять роль и подразделение
 // только сотрудникам своей организации.
@@ -17,10 +17,10 @@ export default async function UsersPage() {
   page.appendChild(h("div", { class: "page-head" },
     h("div", {},
       h("div", { class: "eyebrow" }, "Организация"),
-      h("h1", {}, "Пользователи"),
+      h("h1", {}, lt("usr.title")),
       h("p", { class: "page-sub" }, admin
-        ? "Роли и подразделения сотрудников вашей организации."
-        : "Список сотрудников организации. Изменять роли может администратор.")
+        ? lt("usr.sub")
+        : lt("usr.subStaff"))
     ),
     admin
       ? h("div", { class: "page-head-actions" },
@@ -31,8 +31,8 @@ export default async function UsersPage() {
   const search = h("input", { type: "search", placeholder: "Поиск по ФИО или почте", "aria-label": "Поиск сотрудников" });
   const roleFilter = h("select", { "aria-label": "Фильтр по роли" },
     h("option", { value: "all" }, "Все роли"),
-    h("option", { value: "student" }, "Студенты"),
-    h("option", { value: "teacher" }, "Преподаватели"),
+    h("option", { value: "student" }, lt("role.students")),
+    h("option", { value: "teacher" }, lt("role.teachers")),
     h("option", { value: "admin" }, "Администраторы")
   );
   page.appendChild(h("div", { class: "filter-bar" }, search, roleFilter));
@@ -59,7 +59,7 @@ export default async function UsersPage() {
     if (!visible.length) {
       body.appendChild(h("div", { class: "empty-state" },
         h("div", { class: "empty-state-icon", innerHTML: icons.users }),
-        h("h2", {}, users.length ? "Ничего не найдено" : "Сотрудников пока нет"),
+        h("h2", {}, users.length ? "Ничего не найдено" : lt("usr.emptyTitle")),
         h("p", { class: "muted" }, users.length
           ? "Измените запрос или фильтр по роли."
           : "Пользователи появятся после регистрации.")
@@ -70,10 +70,10 @@ export default async function UsersPage() {
     const wrap = h("div", { class: "table-wrap" });
     const table = h("table", { class: "table" },
       h("thead", {}, h("tr", {},
-        h("th", {}, "Сотрудник"),
+        h("th", {}, lt("usr.colUser")),
         h("th", {}, "Почта"),
         h("th", {}, "Подразделение"),
-        h("th", {}, "Группа"),
+        h("th", {}, lt("usr.colGroup")),
         h("th", {}, "Роль")
       ))
     );
@@ -121,15 +121,15 @@ export default async function UsersPage() {
             }
           }
         },
-          h("option", { value: "student" }, "Студент"),
-          h("option", { value: "teacher" }, "Преподаватель"),
+          h("option", { value: "student" }, lt("role.student")),
+          h("option", { value: "teacher" }, lt("role.teacher")),
           h("option", { value: "admin" }, "Администратор")
         );
         // Для <select> значение задаётся свойством, а не атрибутом.
         select.value = user.role || "student";
         roleCell.appendChild(select);
       } else {
-        roleCell.appendChild(h("span", { class: "badge badge-neutral" }, ROLE_LABEL[user.role] || "—"));
+        roleCell.appendChild(h("span", { class: "badge badge-neutral" }, () => (user.role ? roleLabel(user.role) : "—")));
       }
 
       if (admin && user.id !== State.user.uid) {
@@ -138,8 +138,8 @@ export default async function UsersPage() {
           type: "text",
           value: isTeacher ? (Array.isArray(user.teacherGroups) ? user.teacherGroups.join(", ") : (user.groupId || "")) : (user.groupId || ""),
           maxlength: "200",
-          placeholder: isTeacher ? "группы через запятую" : "не назначена",
-          "aria-label": isTeacher ? `Группы преподавателя: ${name}` : `Группа: ${name}`,
+          placeholder: isTeacher ? lt("group.csvPlaceholder") : lt("usr.groupPlaceholder"),
+          "aria-label": isTeacher ? `${tr("group.teacherGroups")}: ${name}` : `${tr("group")}: ${name}`,
           style: "max-width:180px"
         });
         groupInput.addEventListener("change", async () => {
@@ -153,7 +153,7 @@ export default async function UsersPage() {
                 updatedAt: serverTimestamp()
               });
               user.teacherGroups = groups.length ? groups : null;
-              toast("Группы преподавателя обновлены", "success");
+              toast(tr("usr.groupsUpdated"), "success");
             } else {
               const next = raw;
               await updateDoc(doc(db, "users", user.id), {
@@ -161,11 +161,11 @@ export default async function UsersPage() {
                 updatedAt: serverTimestamp()
               });
               user.groupId = next || null;
-              toast("Группа обновлена", "success");
+              toast(tr("usr.groupUpdated"), "success");
             }
           } catch (err) {
             console.error("Смена групп:", err);
-            toast("Не удалось изменить группу: нет прав или связи", "error");
+            toast(tr("usr.groupFail"), "error");
             groupInput.value = isTeacher
               ? (Array.isArray(user.teacherGroups) ? user.teacherGroups.join(", ") : (user.groupId || ""))
               : (user.groupId || "");
@@ -225,8 +225,8 @@ export default async function UsersPage() {
       h("div", { class: "empty-state-icon", innerHTML: icons.users }),
       h("h2", {}, "Список недоступен"),
       h("p", { class: "muted" }, err?.code === "permission-denied"
-        ? "Правила Firestore не разрешают чтение списка сотрудников организации."
-        : "Не удалось загрузить сотрудников. Проверьте подключение к сети."),
+        ? lt("usr.denied")
+        : lt("usr.loadFail")),
       h("button", { type: "button", class: "btn secondary", onclick: () => window.location.reload() }, "Повторить")
     ));
   }

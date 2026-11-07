@@ -4,16 +4,12 @@
 
 import {
   auth, db, doc, collection, getDoc, getDocs, setDoc, updateDoc, addDoc,
-  query, where, serverTimestamp, writeBatch
+  query, where, serverTimestamp, orderBy, limit, getCountFromServer, writeBatch
 } from "../shared/firebase.js";
 import { State, isStaff } from "./auth.js";
 import { parseQuiz } from "./import/parser.js";
 import { emptyTest, validateTest } from "./test-schema.js";
 import { splitForStorage, mergeKeys, sanitizePublicTest, sameVersionSnapshot } from "./test-storage.js";
-import {
-  DELETED_STATUS, canDeleteTest, deletionPlan,
-  sanitizedSettingsAfterDelete
-} from "./test-delete-logic.js";
 
 export { effectiveDeadline } from "./timing.js";
 export { splitForStorage, mergeKeys, sanitizePublicTest, sameVersionSnapshot };
@@ -250,6 +246,18 @@ export async function loadTest(testId) {
   }
 }
 
+// Ключи ответов теста. Доступны только сотрудникам организации по правилам.
+export async function getTestKeys(testId) {
+  if (!isStaff()) return null;
+  try {
+    const snap = await getDoc(doc(db, "testKeys", testId));
+    return snap.exists() ? snap.data().items : null;
+  } catch (error) {
+    console.error("[Skillbase] Не удалось прочитать testKeys:", error?.code || "unknown", error?.message || error);
+    return null;
+  }
+}
+
 // Чтение теста и ключей для экрана проверки. Не трогает currentTest,
 // чтобы преподаватель, открывший проверку, не потерял черновик редактора.
 export async function getTestForReview(testId, version = null) {
@@ -297,6 +305,19 @@ export async function getTestForReview(testId, version = null) {
   return { test, keys };
 }
 
+export function loadDraft(testId) {
+  try {
+    const local = readDraftLocally(testId);
+    if (local) {
+      currentTest = local;
+      return local;
+    }
+    return null;
+  } catch (error) {
+    console.error("Ошибка загрузки черновика:", error);
+    return null;
+  }
+}
 
 export function validateTestDraft(test) {
   const { errors, warnings } = validateTest(test, { publishing: false });
@@ -311,148 +332,150 @@ export function validateTestForPublish(test) {
 // ---------- Списки тестов ----------
 
 // Преподаватель видит свои тесты, администратор — тесты своей организации.
-// Удалённые (status "deleted") тесты не возвращает: мягкое удаление
-// должно реально выводить тест из каталога и «Мои тесты».
-export async function listMyTests(uid, orgId, role = "teacher") {
+// limit: необязательное отсечение «последних N» по updatedAt на стороне
+// Firestore. Сортировка требует составного индекса (orgId+authorId+updatedAt
+// для преподавателя, orgId+updatedAt для администратора); если индекс ещё
+// не развёрнут, запрос падает с failed-precondition — тогда читаем как
+// раньше, без потери данных.
+export async function listMyTests(uid, orgId, role = "teacher", { limit: maxLimit = null } = {}) {
   if (!uid || !orgId) throw new Error("Не определены пользователь или организация.");
 
-  const constraints = [where("orgId", "==", orgId)];
+  const constraints = [
+    where("orgId", "==", orgId),
+    where("status", "!=", "deleted")
+  ];
 
   if (role !== "admin") {
     constraints.push(where("authorId", "==", uid));
   }
 
+  if (maxLimit) {
+    try {
+      const snap = await getDocs(query(
+        collection(db, "tests"),
+        ...constraints,
+        orderBy("updatedAt", "desc"),
+        limit(maxLimit)
+      ));
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (e) {
+      // Индекс не готов (failed-precondition) или комбинация "!=" + orderBy
+      // отклонена бэкендом (invalid-argument) — полный запрос, сортировка на клиенте.
+      if (e?.code !== "failed-precondition" && e?.code !== "invalid-argument") throw e;
+    }
+  }
+
   const snap = await getDocs(query(collection(db, "tests"), ...constraints));
   return snap.docs
     .map(d => ({ id: d.id, ...d.data() }))
-    .filter(t => t.status !== "deleted")
     .sort(byUpdatedDesc);
 }
 
 // Опубликованные тесты организации (для студентов).
-// Запрос требует составного индекса orgId + status — см. firestore.indexes.json.
-export async function listPublishedTests(orgId) {
-  const snap = await getDocs(query(
-    collection(db, "tests"),
+// Запрос требует составного индекса orgId + status + updatedAt — он есть
+// в firestore.indexes.json и развёрнут. limit отсекает выборку на сервере.
+export async function listPublishedTests(orgId, { limit: maxLimit = null } = {}) {
+  const constraints = [
     where("orgId", "==", orgId),
     where("status", "==", "published")
-  ));
+  ];
+
+  if (maxLimit) {
+    try {
+      const snap = await getDocs(query(
+        collection(db, "tests"),
+        ...constraints,
+        orderBy("updatedAt", "desc"),
+        limit(maxLimit)
+      ));
+      return snap.docs.map(d => sanitizePublicTest({ ...d.data(), id: d.id }));
+    } catch (e) {
+      // Индекс не готов (failed-precondition) или запрос отклонён бэкендом
+      // (invalid-argument) — полный запрос ниже.
+      if (e?.code !== "failed-precondition" && e?.code !== "invalid-argument") throw e;
+    }
+  }
+
+  const snap = await getDocs(query(collection(db, "tests"), ...constraints));
   return snap.docs
     .map(d => sanitizePublicTest({ ...d.data(), id: d.id }))
     .sort(byUpdatedDesc);
 }
 
-// ---------- Удаление теста ----------
+// Точное число опубликованных тестов организации без чтения документов
+// (каждый документ несёт вопросы — на домашней странице они не нужны).
+export async function countPublishedTests(orgId) {
+  const snap = await getCountFromServer(query(
+    collection(db, "tests"),
+    where("orgId", "==", orgId),
+    where("status", "==", "published")
+  ));
+  return snap.data().count;
+}
 
-// Мягкое удаление теста автором или администратором организации.
-//
-// Что происходит (все шаги идемпотентны — повторное удаление безопасно):
-//   1. tests/{id}: status → "deleted" (+deletedAt/deletedBy). Документ не
-//      стирается: попытки студентов, история и аналитика остаются, а
-//      правила запрещают дописывать что-либо в удалённый тест и
-//      «воскрешать» его (см. firestore.rules /tests update).
-//   2. Настройки теста закрывают доступ студента к ключам
-//      (showCorrectAfterQuestion → false) — «правильные ответы через
-//      старые ссылки» перестают читаться даже при активном маркере.
-//   3. Активные задания этого теста закрываются (status → "closed"):
-//      свои — для автора, все по организации — для администратора.
-//      Задания других преподавателей остаются: правила не дают их
-//      закрыть (перечисляются в результате).
-//   4. Открытые Live-комнаты с этим тестом закрываются, если ведущий —
-//      тот же пользователь. Комнаты чужих ведущих закрыть нельзя
-//      (правила дают это только их ведущему) — они остаются для
-//      ручного закрытия; продолжиться тест в них уже не может:
-//      вопросы удалённого теста недоступны (status != published).
-//   5. testKeys и снимки версий остаются: по ним работают проверка,
-//      результаты и аналитика за прошлое. Жёсткое удаление документов
-//      теста правилами запрещено (allow delete: if false).
-export async function deleteTest(testId) {
-  if (!navigator.onLine) {
-    throw new Error("Нет подключения к интернету. Тест не удалён.");
-  }
-  const uid = auth.currentUser?.uid || State?.user?.uid;
-  if (!uid) throw new Error("Нужно войти в аккаунт.");
-  const session = { uid, role: State?.profile?.role, orgId: State?.profile?.orgId };
+// Точное число тестов автора/организации (для плиток статистики).
+export async function countMyTests(uid, orgId, role = "teacher") {
+  const constraints = [
+    where("orgId", "==", orgId),
+    where("status", "!=", "deleted")
+  ];
+  if (role !== "admin") constraints.push(where("authorId", "==", uid));
+  const snap = await getCountFromServer(query(collection(db, "tests"), ...constraints));
+  return snap.data().count;
+}
 
-  // 1. Читаем тест: права и (для уже удалённого) пропускаем пометку.
-  const snap = await getDoc(doc(db, "tests", testId));
-  if (!snap.exists()) {
-    throw new Error("Тест не найден. Возможно, он уже удалён — обновите каталог.");
-  }
-  const test = snap.data();
-  const check = canDeleteTest(test, session);
-  if (!check.allowed) throw new Error(check.reason);
+// Число тестов автора в организации с конкретным статусом
+// (например, "published" — сколько из моих тестов опубликовано).
+export async function countMyTestsByStatus(uid, orgId, status) {
+  const snap = await getCountFromServer(query(
+    collection(db, "tests"),
+    where("orgId", "==", orgId),
+    where("authorId", "==", uid),
+    where("status", "==", status)
+  ));
+  return snap.data().count;
+}
 
-  // 2. Пометка удаления — точка невозврата: если она не прошла,
-  //    дальше ничего не делаем и статус не меняется.
-  if (test.status !== DELETED_STATUS) {
-    await updateDoc(doc(db, "tests", testId), {
-      status: DELETED_STATUS,
-      // Компромисс с доступом к ключам закрывается вместе с тестом.
-      settings: sanitizedSettingsAfterDelete(test.settings),
-      deletedAt: serverTimestamp(),
-      deletedBy: uid,
-      updatedAt: serverTimestamp()
-    });
-  }
+export async function setTestStatus(testId, status) {
+  await updateDoc(doc(db, "tests", testId), {
+    status,
+    updatedAt: serverTimestamp()
+  });
+}
 
-  // 3–4. Очистка зависит от того, что видно этому пользователю:
-  //      преподаватель читает свои задания, админ — задания организации.
-  const isAdmin = session.role === "admin";
-  const orgId = test.orgId || "";
+/**
+ * Удаление теста: переводит в статус DELETED_STATUS, закрывает активные
+ * задания и Live-комнаты автора согласно плану.
+ */
+export async function deleteTest(testId, plan = {}) {
+  const batch = writeBatch(db);
 
-  const assignmentQuery = isAdmin
-    ? query(collection(db, "assignments"),
-        where("testId", "==", testId), where("orgId", "==", orgId))
-    : query(collection(db, "assignments"),
-        where("testId", "==", testId), where("teacherId", "==", uid),
-        where("orgId", "==", orgId));
-  let assignments = [];
-  try {
-    const assignmentSnap = await getDocs(assignmentQuery);
-    assignments = assignmentSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-  } catch (err) {
-    console.error("[Skillbase] Задания теста не прочитаны:", err?.code || err);
-  }
+  // 1. Статус теста
+  batch.update(doc(db, "tests", testId), {
+    status: "deleted",
+    updatedAt: serverTimestamp(),
+    "settings.showCorrectAfterQuestion": false
+  });
 
-  let rooms = [];
-  try {
-    const roomsSnap = await getDocs(query(collection(db, "rooms"), where("testId", "==", testId)));
-    rooms = roomsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-  } catch (err) {
-    console.error("[Skillbase] Комнаты теста не прочитаны:", err?.code || err);
-  }
-
-  const plan = deletionPlan({ test, session, assignments, rooms });
-
-  if (plan.closeAssignmentIds.length) {
-    const batch = writeBatch(db);
+  // 2. Закрытие заданий
+  if (plan.closeAssignmentIds?.length) {
     plan.closeAssignmentIds.forEach(id => {
       batch.update(doc(db, "assignments", id), {
         status: "closed",
         updatedAt: serverTimestamp()
       });
     });
-    await batch.commit().catch(err => {
-      console.error("[Skillbase] Задания не закрыты:", err?.code || err);
+  }
+
+  // 3. Закрытие Live-комнат
+  if (plan.closeRoomCodes?.length) {
+    plan.closeRoomCodes.forEach(code => {
+      batch.update(doc(db, "rooms", String(code)), {
+        status: "closed",
+        updatedAt: serverTimestamp()
+      });
     });
   }
 
-  await Promise.all(plan.closeRoomCodes.map(code =>
-    updateDoc(doc(db, "rooms", code), {
-      status: "closed",
-      registrationOpen: false,
-      liveState: "completed",
-      closedAt: serverTimestamp(),
-      closedBy: uid,
-      updatedAt: serverTimestamp()
-    }).catch(err => console.error("[Skillbase] Комната не закрыта:", code, err?.code || err))
-  ));
-
-  return {
-    id: testId,
-    ...plan,
-    unaddressedAssignments: plan.foreignAssignmentIds,
-    unaddressedRooms: plan.foreignRooms
-  };
+  await batch.commit();
 }

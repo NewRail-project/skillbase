@@ -1,22 +1,26 @@
 import { h } from "../../shared/dom.js";
 import { State, isStaff } from "../../core/auth.js";
-import { listMyAttempts, listOrgAttempts } from "../../core/attempts.js";
-import { listMyTests, listPublishedTests } from "../../core/editor.js";
-import { getStudentAssignments } from "../../core/assign.js";
+import { t, lt, roleLabel } from "../../core/i18n.js";
+import { listMyAttempts, listOrgAttempts, countMyAttemptsByStatus, countOrgAttempts, countOrgAttemptsByStatus } from "../../core/attempts.js";
+import { listMyTests, countPublishedTests, countMyTests, countMyTestsByStatus, deleteTest } from "../../core/editor.js";
+import { canDeleteTest, deletionPlan, explainDeleteError } from "../../core/test-delete-logic.js";
+import { getDocs, query, collection, db, where } from "../../shared/firebase.js";
+import { confirmAction } from "../../ui/components/confirm.js";
+import { toast } from "../../ui/components/toast.js";
+import { getStudentAssignments, listAssignments } from "../../core/assign.js";
 import { icons } from "../../shared/icons.js";
 import { railScene } from "../../ui/components/brand.js";
-import { calculateStreak, streakDescription } from "../../ui/core/streak.js";
-import { calculateAchievements, achievementsList } from "../../ui/core/achievements.js";
-import { streakBadge } from "../../ui/components/streak.js";
 
+// Тексты героя зависят от режима Education / Workforce: функции (lt) обновляются
+// на месте при переключении, страница не перерисовывается.
 const HERO = {
   guest: {
-    eyebrow: "Корпоративная платформа обучения",
-    title: "Знания, которые держат движение",
-    lead: "Skillbase — учебная среда для железнодорожных предприятий: курсы, проверка знаний и прозрачная аналитика результатов.",
+    eyebrow: lt("home.guest.eyebrow"),
+    title: lt("home.guest.title"),
+    lead: lt("home.guest.lead"),
     actions: [
-      { href: "#login", label: "Войти", cls: "btn primary" },
-      { href: "#register", label: "Создать аккаунт", cls: "btn secondary" }
+      { href: "#login", label: lt("home.signIn"), cls: "btn primary" },
+      { href: "#register", label: lt("home.signUp"), cls: "btn secondary" }
     ]
   }
 };
@@ -35,7 +39,7 @@ function daysLeft(value) {
   return Math.ceil((date.getTime() - Date.now()) / 86_400_000);
 }
 
-function hero({ eyebrow, title, lead, actions, stats, features }) {
+function hero({ eyebrow, title, lead, actions, stats }) {
   const section = h("section", { class: "hero" });
   section.innerHTML = railScene();
   const inner = h("div", { class: "hero-inner" },
@@ -48,68 +52,106 @@ function hero({ eyebrow, title, lead, actions, stats, features }) {
       actions.map(a => h("a", { class: a.cls, href: a.href }, a.label))
     ));
   }
-  if (features && features.length) {
-    inner.appendChild(h("div", { class: "hero-features" },
-      features.map(f => {
-        const item = h("span", { class: "hero-feature" });
-        if (f.icon) {
-          // Иконка — статичный SVG из shared/icons.js
-          item.innerHTML = f.icon;
-          item.appendChild(h("span", {}, f.label));
-        } else {
-          item.textContent = f.label;
-        }
-        return item;
-      })
-    ));
-  }
   section.appendChild(inner);
 
   if (stats && stats.length) {
     section.appendChild(h("div", { class: "hero-stats" },
       stats.map(s => {
-        const statEl = h("div", { class: "hero-stat" });
-        const valueEl = h("b", {}, "0");
-        const labelEl = h("span", {}, s.label);
-        statEl.append(valueEl, labelEl);
-
-        // Анимация чисел
-        const animateValue = (start, end, duration) => {
-          let startTimestamp = null;
-          const step = (timestamp) => {
-            if (!startTimestamp) startTimestamp = timestamp;
-            const progress = Math.min((timestamp - startTimestamp) / duration, 1);
-            const value = Math.floor(progress * (end - start) + start);
-            valueEl.textContent = String(value);
-            if (progress < 1) {
-              window.requestAnimationFrame(step);
-            }
-          };
-          window.requestAnimationFrame(step);
-        };
-
-        // Запускаем анимацию при первом рендере
-        if (typeof s.value === 'number') {
-          animateValue(0, s.value, 300);
-        } else {
-          valueEl.textContent = String(s.value);
-        }
-
-        return statEl;
+        const value = h("b", {}, String(s.value));
+        // data-stat позволяет обновить цифру, когда данные догрузятся.
+        if (s.key) value.dataset.stat = s.key;
+        return h("div", { class: "hero-stat" }, value, h("span", {}, s.label));
       })
     ));
   }
   return section;
 }
 
+// Плитка статистики, заполняемая по мере загрузки своего блока.
+// «—» означает «ещё считается», а не ноль: фиктивных цифр нет.
+function statTile(label, hint) {
+  const value = h("div", { class: "stat-value" }, "—");
+  const hintEl = h("div", { class: "stat-hint" }, hint || "");
+  const el = h("div", { class: "stat" },
+    value,
+    h("div", { class: "stat-label" }, label),
+    hintEl
+  );
+  return {
+    el,
+    set(v, nextHint) {
+      value.textContent = v === null ? "—" : String(v);
+      if (nextHint !== undefined) hintEl.textContent = nextHint;
+    }
+  };
+}
+
+// Строки-скелеты внутри панели, пока данные блока не пришли.
+function skeletonRows(n) {
+  return Array.from({ length: n }, () => h("div", { class: "list-row" },
+    h("div", { class: "list-row-main" },
+      h("div", { class: "skeleton", style: "height:14px;width:70%;margin-bottom:6px" }),
+      h("div", { class: "skeleton", style: "height:12px;width:40%" })
+    )
+  ));
+}
+
+// Заменяет скелет-строки панели на данные или empty-state.
+function fillPanel(panel, items, { emptyText, emptyAction }) {
+  panel.querySelector(".list")?.remove();
+  panel.querySelector(".empty-state")?.remove();
+  if (!items.length) {
+    panel.appendChild(h("div", { class: "empty-state" },
+      h("p", {}, emptyText),
+      emptyAction ? h("a", { class: "btn secondary", href: emptyAction.href }, emptyAction.label) : null
+    ));
+    return;
+  }
+  const list = h("div", { class: "list" });
+  items.forEach(item => list.appendChild(item));
+  panel.appendChild(list);
+}
+
+// Панель графика: скелет до данных, потом график или удаление панели.
+function chartPanelPlaceholder() {
+  return h("section", { class: "panel" },
+    h("div", { class: "section-title" }, h("h2", {}, lt("home.chartTitle"))),
+    h("div", { class: "skeleton", style: "height:64px;margin-top:12px" })
+  );
+}
+
+function fillChartPanel(placeholder, attempts) {
+  const chart = resultChart(attempts);
+  if (!chart) {
+    placeholder.remove();
+    return;
+  }
+  placeholder.replaceWith(chart);
+}
+
+// Единый индикатор ошибок независимых блоков: каждый блок честно сообщает
+// о своей неудаче, не мешая остальным.
+function errorNotice() {
+  const failed = new Set();
+  const el = h("div", { class: "notice", role: "status", style: "display:none" });
+  return {
+    el,
+    fail(label) {
+      failed.add(label);
+      el.style.display = "";
+      el.textContent = "Не удалось загрузить: " + [...failed].join(", ") + ". Проверьте подключение к сети.";
+    }
+  };
+}
+
 function quickActions(items) {
   return h("div", { class: "quick-actions" },
     items.map(item => {
       const a = h("a", { class: "quick-action", href: item.href });
-      // Статичный SVG из констант, пользовательских данных нет.
-      const iconEl = h("span", { class: "icon" });
-      iconEl.innerHTML = item.icon;
-      a.append(iconEl, h("b", {}, item.label), h("span", {}, item.hint));
+      // item.icon — статичная SVG-константа из shared/icons.js.
+      const ic = h("span", { class: "icon" });
+      ic.innerHTML = item.icon;
+      a.append(ic, h("b", {}, item.label), h("span", {}, item.hint));
       return a;
     })
   );
@@ -126,32 +168,40 @@ function resultChart(attempts) {
   const barWidth = 18;
   const gap = 8;
   const width = graded.length * (barWidth + gap) - gap;
-  const bars = graded.map((a, i) => {
+  // График собирается через DOM (createElementNS): числа попадают в атрибуты,
+  // а не в разметку строкой.
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("width", "100%");
+  svg.setAttribute("height", String(height));
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "Проценты последних попыток");
+  graded.forEach((a, i) => {
     const percent = Math.round((a.score / a.total) * 100);
     const barH = Math.max(4, Math.round((percent / 100) * (height - 8)));
-    const x = i * (barWidth + gap);
-    const y = height - barH;
-    const fill = percent >= 60 ? "var(--accent)" : "var(--signal)";
-    return `<rect x="${x}" y="${y}" width="${barWidth}" height="${barH}" rx="3" fill="${fill}">
-      <title>${percent}%</title>
-    </rect>`;
-  }).join("");
+    const rect = document.createElementNS(NS, "rect");
+    rect.setAttribute("x", String(i * (barWidth + gap)));
+    rect.setAttribute("y", String(height - barH));
+    rect.setAttribute("width", String(barWidth));
+    rect.setAttribute("height", String(barH));
+    rect.setAttribute("rx", "3");
+    rect.setAttribute("fill", percent >= 60 ? "var(--accent)" : "var(--signal)");
+    const title = document.createElementNS(NS, "title");
+    title.textContent = `${percent}%`;
+    rect.appendChild(title);
+    svg.appendChild(rect);
+  });
 
   const wrap = h("div", { class: "panel" },
     h("div", { class: "section-title" },
-      h("h2", {}, "Динамика результатов"),
+      h("h2", {}, lt("home.chartTitle")),
       h("span", { class: "muted" }, "последние " + graded.length)
     )
   );
   const chart = h("div", { style: "margin-top:12px" });
-  // В сборке только локальные числа (width/height) и разметка баров,
-  // построенная выше; пользовательских строк нет (R7).
-  const svg =
-    `<svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}"
-    preserveAspectRatio="none" role="img" aria-label="Проценты последних попыток">` +
-    bars +
-    "</svg>";
-  chart.innerHTML = svg;
+  chart.appendChild(svg);
   wrap.appendChild(chart);
   return wrap;
 }
@@ -186,153 +236,95 @@ function row({ dot, title, sub, end, href }) {
   return el;
 }
 
-async function loadStudentData(profile) {
-  const data = { assignments: [], tests: [], attempts: [], errors: [] };
+// ---------- Главная ученика: каркас сразу, данные — по мере готовности ----------
+//
+// Блоки грузятся независимо: попытки, задания и счётчик тестов не ждут
+// друг друга. Пока блок не готов, видны скелет и «—»; ошибки одного блока
+// не ломают остальные.
 
-  const tasks = [
-    (async () => {
-      if (!profile.groupId) return;
-      try { data.assignments = await getStudentAssignments(profile.groupId, profile.orgId); }
-      catch (e) { console.error("Задания:", e); data.errors.push("задания"); }
-    })(),
-    (async () => {
-      try { data.tests = await listPublishedTests(profile.orgId); }
-      catch (e) { console.error("Тесты:", e); data.errors.push("каталог тестов"); }
-    })(),
-    (async () => {
-      try { data.attempts = await listMyAttempts(profile.uid); }
-      catch (e) { console.error("Попытки:", e); data.errors.push("результаты"); }
-    })()
-  ];
-  await Promise.all(tasks);
-  return data;
-}
+function renderStudentHome(page, profile) {
+  const firstName = profile.fullName ? profile.fullName.split(" ")[0] : null;
+  const errors = errorNotice();
+  const setHeroStat = (key, value) => {
+    const el = page.querySelector(`[data-stat="${key}"]`);
+    if (el) el.textContent = String(value);
+  };
 
-async function loadStaffData(profile) {
-  const data = { tests: [], attempts: [], errors: [] };
-  await Promise.all([
-    (async () => {
-      try { data.tests = await listMyTests(profile.uid, profile.orgId, profile.role); }
-      catch (e) { console.error("Мои тесты:", e); data.errors.push("тесты"); }
-    })(),
-    (async () => {
-      try { data.attempts = await listOrgAttempts(profile.orgId); }
-      catch (e) { console.error("Попытки организации:", e); data.errors.push("результаты"); }
-    })()
-  ]);
-  return data;
-}
+  const heroEl = hero({
+    eyebrow: lt("home.learner.eyebrow"),
+    title: () => t("home.learner.hello", { name: firstName || t("role.colleagueName") }),
+    lead: lt("home.learner.lead"),
+    actions: [{ href: "#assignments", label: lt("home.learner.myAssignments"), cls: "btn primary" }],
+    stats: [
+      { key: "tests", value: "—", label: lt("home.learner.statTests") },
+      { key: "graded", value: "—", label: lt("home.learner.statDone") },
+      { key: "avg", value: "—", label: lt("home.learner.statAvg") }
+    ]
+  });
 
-function studentView(profile, data) {
-  const graded = data.attempts.filter(a => a.status === "graded" && a.total);
-  const avg = graded.length
-    ? Math.round(graded.reduce((sum, a) => sum + (a.score / a.total) * 100, 0) / graded.length)
-    : null;
+  const tAssignments = statTile(lt("home.learner.tileActive"), "Загружаем…");
+  const tGraded = statTile(lt("home.learner.tileGraded"), "Загружаем…");
+  const tAvg = statTile(lt("home.learner.statAvg"), "Загружаем…");
+  const tDeadlines = statTile(lt("home.learner.tileDeadlines"), "Загружаем…");
 
-  const deadlines = data.assignments
-    .filter(a => a.deadline)
-    .map(a => ({ ...a, left: daysLeft(a.deadline) }))
-    .filter(a => a.left !== null)
-    .sort((a, b) => a.left - b.left)
-    .slice(0, 4);
+  const deadlinesPanel = listPanel({
+    title: lt("home.learner.deadlinesTitle"),
+    items: skeletonRows(2),
+    emptyText: lt("home.learner.deadlinesEmpty"),
+    emptyAction: { href: "#assignments", label: lt("home.learner.allAssignments") }
+  });
+  const chartPanel = chartPanelPlaceholder();
+  const recentPanel = listPanel({
+    title: lt("home.learner.recentTitle"),
+    items: skeletonRows(3),
+    emptyText: lt("home.learner.recentEmpty"),
+    emptyAction: { href: "#assignments", label: lt("home.learner.toAssignments") }
+  });
 
-  // Расчёт серии занятий
-  const streak = calculateStreak(data.attempts);
-  // Расчёт достижений
-  const achievements = calculateAchievements(data.attempts, streak);
-
-  // Персональное приветствие
-  const hour = new Date().getHours();
-  let greeting;
-  if (hour >= 5 && hour < 12) {
-    greeting = "Доброе утро";
-  } else if (hour >= 12 && hour < 18) {
-    greeting = "Добрый день";
-  } else {
-    greeting = "Добрый вечер";
-  }
-  const name = profile.fullName ? profile.fullName.split(" ")[0] : "коллега";
-
-  return [
-    hero({
-      eyebrow: greeting,
-      title: `${greeting}, ${name}`,
-      lead: "Продолжайте обучение с того места, где остановились. Ниже — задания, дедлайны и последние результаты.",
-      actions: [{ href: "#assignments", label: "Мои задания", cls: "btn primary" }],
-      stats: [
-        { value: data.tests.length, label: "доступных тестов" },
-        { value: graded.length, label: "пройдено" },
-        { value: avg === null ? "—" : avg + "%", label: "средний результат" }
-      ]
-    }),
-
-    // Серия занятий
-    h("section", { class: "panel" },
-      h("div", { class: "section-title" }, "Серия занятий"),
-      h("div", { class: "streak-section" },
-        streakBadge(streak.current),
-        h("p", { class: "streak-description" }, streakDescription(streak)),
-        streak.max > streak.current ?
-          h("p", { class: "muted" }, `Максимальная серия: ${streak.max} дней`) : null
-      )
-    ),
-
-    // Достижения
-    achievementsList(achievements),
-
+  page.append(
+    heroEl,
     h("section", { class: "stat-grid" },
-      h("div", { class: "stat" },
-        h("div", { class: "stat-value" }, String(data.assignments.length)),
-        h("div", { class: "stat-label" }, "активных заданий"),
-        h("div", { class: "stat-hint" }, data.assignments.length ? "Проверьте сроки" : "Пока нет назначений")
-      ),
-      h("div", { class: "stat" },
-        h("div", { class: "stat-value" }, String(graded.length)),
-        h("div", { class: "stat-label" }, "проверенных попыток"),
-        h("div", { class: "stat-hint" }, data.attempts.length ? `всего попыток: ${data.attempts.length}` : "Начните с первого теста")
-      ),
-      h("div", { class: "stat" },
-        h("div", { class: "stat-value" }, avg === null ? "—" : avg + "%"),
-        h("div", { class: "stat-label" }, "средний результат"),
-        h("div", { class: "stat-hint" }, avg === null ? "Появится после проверки" : avg >= 60 ? "Выше проходного уровня" : "Есть над чем поработать")
-      ),
-      h("div", { class: "stat" },
-        h("div", { class: "stat-value" }, String(deadlines.length)),
-        h("div", { class: "stat-label" }, "ближайших дедлайнов"),
-        h("div", { class: "stat-hint" }, deadlines.length ? "Не откладывайте" : "Свободный график")
-      )
+      tAssignments.el, tGraded.el, tAvg.el, tDeadlines.el
     ),
-
     h("div", { class: "split" },
-      listPanel({
-        title: "Ближайшие дедлайны",
-        items: deadlines.map(a => row({
-          dot: a.left <= 2 ? "warn" : "ok",
-          title: a.title || a.testTitle || "Назначенный тест",
-          sub: `Срок: ${formatDate(a.deadline)} · ${a.left <= 0 ? "просрочено" : `осталось ${a.left} дн.`}`,
-          end: h("a", { class: "btn secondary", href: `#quiz/${encodeURIComponent(a.testId)}/${encodeURIComponent(a.id)}` }, "Начать")
-        })),
-        emptyText: "Активных дедлайнов нет.",
-        emptyAction: { href: "#assignments", label: "Все задания" }
-      }),
+      deadlinesPanel,
       quickActions([
-        { icon: icons.clipboard, label: "Задания", hint: "Назначенные тесты", href: "#assignments" },
-        { icon: icons.book, label: "Каталог", hint: "Доступные тесты", href: "#tests" },
-        { icon: icons.qr, label: "Войти по коду", hint: "Комната или тест", href: "#join" },
+        { icon: icons.clipboard, label: lt("nav.assignments"), hint: lt("home.quick.assignmentsHint"), href: "#assignments" },
+        { icon: icons.book, label: lt("home.quick.catalog"), hint: lt("home.quick.catalogHint"), href: "#tests" },
+        { icon: icons.qr, label: lt("nav.join"), hint: lt("home.quick.joinHint"), href: "#join" },
         { icon: icons.users, label: "Профиль", hint: "Данные и тема", href: "#profile" }
       ])
     ),
+    chartPanel,
+    recentPanel,
+    errors.el
+  );
 
-    resultChart(data.attempts),
+  // --- Попытки: точные счётчики + последние 12 для графика и списка ---
+  void (async () => {
+    try {
+      const [recent, gradedCount] = await Promise.all([
+        listMyAttempts(profile.uid, { limit: 12 }),
+        countMyAttemptsByStatus(profile.uid, "graded")
+      ]);
+      const graded = recent.filter(a => a.status === "graded" && a.total);
+      const avg = graded.length
+        ? Math.round(graded.reduce((sum, a) => sum + (a.score / a.total) * 100, 0) / graded.length)
+        : null;
 
-    listPanel({
-      title: "Недавние результаты",
-      items: data.attempts.slice(0, 5).map(a => {
+      setHeroStat("graded", gradedCount);
+      setHeroStat("avg", avg === null ? "—" : avg + "%");
+      tGraded.set(gradedCount, gradedCount ? "Продолжайте в том же ритме" : t("home.learner.startFirst"));
+      tAvg.set(avg === null ? "—" : avg + "%",
+        avg === null ? "Появится после проверки" : avg >= 60 ? "по последним проверенным" : "Есть над чем поработать");
+
+      fillChartPanel(chartPanel, recent);
+      fillPanel(recentPanel, recent.slice(0, 5).map(a => {
         const percent = a.status === "graded" && a.total ? Math.round((a.score / a.total) * 100) : null;
         const inProgress = a.status === "in_progress";
         return row({
           dot: percent === null ? (inProgress ? "muted" : "warn") : percent >= 60 ? "ok" : "warn",
-          title: a.testTitle || "Тест",
+          title: a.testTitle || lt("home.row.untitledTest"),
           sub: formatDate(a.submittedAt || a.startedAt),
           end: h("span", {
             class: "badge " + (percent === null
@@ -340,99 +332,161 @@ function studentView(profile, data) {
               : "badge-success")
           }, percent === null ? (inProgress ? "Не завершена" : "На проверке") : percent + "%")
         });
-      }),
-      emptyText: "Результатов пока нет. Первый пройденный тест появится здесь.",
-      emptyAction: { href: "#assignments", label: "К заданиям" }
-    }),
+      }), {
+        emptyText: lt("home.learner.recentEmpty"),
+        emptyAction: { href: "#assignments", label: lt("home.learner.toAssignments") }
+      });
+    } catch (e) {
+      console.error("Попытки:", e);
+      errors.fail("результаты");
+      tGraded.set("—", "нет данных");
+      tAvg.set("—", "нет данных");
+      chartPanel.remove();
+      fillPanel(recentPanel, [], {
+        emptyText: "Результаты не загрузились. Проверьте подключение к сети.",
+        emptyAction: { href: "#assignments", label: lt("home.learner.toAssignments") }
+      });
+    }
+  })();
 
-    data.errors.length
-      ? h("div", { class: "notice", role: "status" },
-          "Не удалось загрузить: " + data.errors.join(", ") + ". Проверьте подключение к сети.")
-      : null
-  ];
+  // --- Задания и дедлайны ---
+  void (async () => {
+    try {
+      const assignments = profile.groupId
+        ? await getStudentAssignments(profile.groupId, profile.orgId)
+        : [];
+      const deadlines = assignments
+        .filter(a => a.deadline)
+        .map(a => ({ ...a, left: daysLeft(a.deadline) }))
+        .filter(a => a.left !== null)
+        .sort((a, b) => a.left - b.left)
+        .slice(0, 4);
+
+      tAssignments.set(assignments.length, assignments.length ? "Проверьте сроки" : "Пока нет назначений");
+      tDeadlines.set(deadlines.length, deadlines.length ? "Не откладывайте" : "Свободный график");
+
+      fillPanel(deadlinesPanel, deadlines.map(a => row({
+        dot: a.left <= 2 ? "warn" : "ok",
+        title: a.title || a.testTitle || lt("asg.assignedTest"),
+        sub: `Срок: ${formatDate(a.deadline)} · ${a.left <= 0 ? "просрочено" : `осталось ${a.left} дн.`}`,
+        end: h("a", { class: "btn secondary", href: `#quiz/${encodeURIComponent(a.testId)}/${encodeURIComponent(a.id)}` }, "Начать")
+      })), {
+        emptyText: lt("home.learner.deadlinesEmpty"),
+        emptyAction: { href: "#assignments", label: lt("home.learner.allAssignments") }
+      });
+    } catch (e) {
+      console.error("Задания:", e);
+      errors.fail("задания");
+      tAssignments.set("—", "нет данных");
+      tDeadlines.set("—", "нет данных");
+      fillPanel(deadlinesPanel, [], {
+        emptyText: "Задания не загрузились. Проверьте подключение к сети.",
+        emptyAction: { href: "#assignments", label: lt("home.learner.allAssignments") }
+      });
+    }
+  })();
+
+  // --- Каталог тестов: на главной нужен только точный счётчик ---
+  void (async () => {
+    try {
+      const total = await countPublishedTests(profile.orgId);
+      setHeroStat("tests", total);
+    } catch (e) {
+      console.error("Тесты:", e);
+      errors.fail(t("home.learner.catalogError"));
+    }
+  })();
 }
 
-function staffView(profile, data) {
-  const published = data.tests.filter(t => t.status === "published").length;
-  const graded = data.attempts.filter(a => a.status === "graded" && a.total);
-  const avg = graded.length
-    ? Math.round(graded.reduce((sum, a) => sum + (a.score / a.total) * 100, 0) / graded.length)
-    : null;
-  const pending = data.attempts.filter(a => a.status === "submitted").length;
+// ---------- Главная преподавателя/администратора ----------
 
-  return [
-    hero({
-      eyebrow: profile.role === "admin" ? "Администрирование" : "Кабинет преподавателя",
-      title: "Управление обучением",
-      lead: "Тесты, проверка результатов и аналитика по вашей организации — в одном месте.",
-      actions: [
-        { href: "#create-test", label: "Создать тест", cls: "btn primary" },
-        { href: "#results", label: "Результаты", cls: "btn secondary" }
-      ],
-      stats: [
-        { value: data.tests.length, label: "ваших тестов" },
-        { value: published, label: "опубликовано" },
-        { value: data.attempts.length, label: "попыток в организации" }
-      ]
-    }),
+function renderStaffHome(page, profile) {
+  const errors = errorNotice();
+  const setHeroStat = (key, value) => {
+    const el = page.querySelector(`[data-stat="${key}"]`);
+    if (el) el.textContent = String(value);
+  };
 
+  const heroEl = hero({
+    eyebrow: profile.role === "admin" ? lt("home.staff.eyebrowAdmin") : lt("home.staff.eyebrowTeacher"),
+    title: lt("home.staff.title"),
+    lead: lt("home.staff.lead"),
+    actions: [
+      { href: "#create-test", label: lt("home.staff.heroCreate"), cls: "btn primary" },
+      { href: "#results", label: lt("home.staff.heroResults"), cls: "btn secondary" }
+    ],
+    stats: [
+      { key: "tests", value: "—", label: lt("home.staff.statTests") },
+      { key: "published", value: "—", label: lt("home.staff.statPublished") },
+      { key: "attempts", value: "—", label: lt("home.staff.statAttempts") }
+    ]
+  });
+
+  const tTests = statTile(lt("home.staff.tileTests"), "Загружаем…");
+  const tAttempts = statTile("попыток", "Загружаем…");
+  const tPending = statTile("ожидают проверки", "Загружаем…");
+  const tAvg = statTile("средний результат", "Загружаем…");
+
+  const testsPanel = listPanel({
+    title: lt("home.staff.myTests"),
+    action: { href: "#create-test", label: "Создать" },
+    items: skeletonRows(2),
+    emptyText: lt("home.staff.myTestsEmpty"),
+    emptyAction: { href: "#create-test", label: lt("home.staff.newBtn") }
+  });
+  const chartPanel = chartPanelPlaceholder();
+  const recentPanel = listPanel({
+    title: "Последние попытки",
+    action: { href: "#results", label: "Все результаты" },
+    items: skeletonRows(3),
+    emptyText: lt("home.staff.recentEmpty"),
+    emptyAction: { href: "#create-test", label: lt("home.staff.newBtn") }
+  });
+
+  page.append(
+    heroEl,
     h("section", { class: "stat-grid" },
-      h("div", { class: "stat" },
-        h("div", { class: "stat-value" }, String(data.tests.length)),
-        h("div", { class: "stat-label" }, "созданных тестов"),
-        h("div", { class: "stat-hint" }, `опубликовано: ${published}`)
-      ),
-      h("div", { class: "stat" },
-        h("div", { class: "stat-value" }, String(data.attempts.length)),
-        h("div", { class: "stat-label" }, "попыток"),
-        h("div", { class: "stat-hint" }, pending ? `ожидают проверки: ${pending}` : "все проверены")
-      ),
-      h("div", { class: "stat" },
-        h("div", { class: "stat-value" }, avg === null ? "—" : avg + "%"),
-        h("div", { class: "stat-label" }, "средний результат"),
-        h("div", { class: "stat-hint" }, graded.length ? `${graded.length} проверенных` : "нет данных")
-      ),
-      h("div", { class: "stat" },
-        h("div", { class: "stat-value" }, String(new Set(data.attempts.map(a => a.userId)).size)),
-        h("div", { class: "stat-label" }, "участников"),
-        h("div", { class: "stat-hint" }, "уникальных авторов попыток")
-      )
+      tTests.el, tAttempts.el, tPending.el, tAvg.el
     ),
-
     h("div", { class: "split" },
-      listPanel({
-        title: "Мои тесты",
-        action: { href: "#create-test", label: "Создать" },
-        items: data.tests.slice(0, 5).map(t => row({
-          dot: t.status === "published" ? "ok" : "muted",
-          title: t.title || "Без названия",
-          sub: `${(t.questions || []).length} вопросов · ${formatDate(t.updatedAt)}`,
-          end: h("span", { class: "badge " + (t.status === "published" ? "badge-success" : "badge-warning") },
-            t.status === "published" ? "Опубликован" : "Черновик"),
-          href: "#create-test/" + encodeURIComponent(t.id)
-        })),
-        emptyText: "Вы ещё не создали ни одного теста.",
-        emptyAction: { href: "#create-test", label: "Создать тест" }
-      }),
+      testsPanel,
       quickActions([
-        { icon: icons.plus, label: "Новый тест", hint: "Конструктор", href: "#create-test" },
-        { icon: icons.chart, label: "Результаты", hint: "Проверка и экспорт", href: "#results" },
-        { icon: icons.qr, label: "Войти по коду", hint: "Live-комната", href: "#join" },
-        { icon: icons.users, label: "Пользователи", hint: "Роли и группы", href: "#users" }
+        { icon: icons.plus, label: lt("home.staff.quickNew"), hint: "Конструктор", href: "#create-test" },
+        { icon: icons.chart, label: lt("nav.results"), hint: "Проверка и экспорт", href: "#results" },
+        { icon: icons.qr, label: lt("nav.join"), hint: "Live-комната", href: "#join" },
+        { icon: icons.users, label: lt("home.staff.quickUsers"), hint: lt("home.staff.quickUsersHint"), href: "#users" }
       ])
     ),
+    chartPanel,
+    recentPanel,
+    errors.el
+  );
 
-    resultChart(data.attempts),
+  // --- Попытки организации: точные счётчики + последние 12 ---
+  void (async () => {
+    try {
+      const [recent, total, pending] = await Promise.all([
+        listOrgAttempts(profile.orgId, { limit: 12 }),
+        countOrgAttempts(profile.orgId),
+        countOrgAttemptsByStatus(profile.orgId, "submitted")
+      ]);
+      const graded = recent.filter(a => a.status === "graded" && a.total);
+      const avg = graded.length
+        ? Math.round(graded.reduce((sum, a) => sum + (a.score / a.total) * 100, 0) / graded.length)
+        : null;
 
-    listPanel({
-      title: "Последние попытки",
-      action: { href: "#results", label: "Все результаты" },
-      items: data.attempts.slice(0, 5).map(a => {
+      setHeroStat("attempts", total);
+      tAttempts.set(total, pending ? `ожидают проверки: ${pending}` : "все проверены");
+      tPending.set(pending, pending ? "Проверьте в разделе «Результаты»" : "всё проверено");
+      tAvg.set(avg === null ? "—" : avg + "%", graded.length ? "по последним проверенным" : "нет данных");
+
+      fillChartPanel(chartPanel, recent);
+      fillPanel(recentPanel, recent.slice(0, 5).map(a => {
         const percent = a.status === "graded" && a.total ? Math.round((a.score / a.total) * 100) : null;
         const inProgress = a.status === "in_progress";
         return row({
           dot: percent === null ? (inProgress ? "muted" : "warn") : percent >= 60 ? "ok" : "warn",
-          title: a.testTitle || "Тест",
+          title: a.testTitle || lt("home.row.untitledTest"),
           sub: (a.userEmail || "участник") + " · " + formatDate(a.submittedAt || a.startedAt),
           end: h("span", {
             class: "badge " + (percent === null
@@ -441,47 +495,141 @@ function staffView(profile, data) {
           }, percent === null ? (inProgress ? "Не завершена" : "На проверке") : percent + "%"),
           href: inProgress ? null : "#review/" + encodeURIComponent(a.id)
         });
-      }),
-      emptyText: "Попыток пока нет. Опубликуйте тест и назначьте его группе.",
-      emptyAction: { href: "#create-test", label: "Создать тест" }
-    }),
+      }), {
+        emptyText: lt("home.staff.recentEmpty"),
+        emptyAction: { href: "#create-test", label: lt("home.staff.newBtn") }
+      });
+    } catch (e) {
+      console.error("Попытки организации:", e);
+      errors.fail("результаты");
+      tAttempts.set("—", "нет данных");
+      tPending.set("—", "нет данных");
+      tAvg.set("—", "нет данных");
+      chartPanel.remove();
+      fillPanel(recentPanel, [], {
+        emptyText: "Попытки не загрузились. Проверьте подключение к сети.",
+        emptyAction: { href: "#results", label: "Все результаты" }
+      });
+    }
+  })();
 
-    data.errors.length
-      ? h("div", { class: "notice", role: "status" },
-          "Не удалось загрузить: " + data.errors.join(", ") + ". Проверьте подключение к сети.")
-      : null
-  ];
+  // --- Мои тесты: точные счётчики + последние 6 для списка ---
+  void (async () => {
+    try {
+      const [tests, total, published] = await Promise.all([
+        listMyTests(profile.uid, profile.orgId, profile.role, { limit: 6 }),
+        countMyTests(profile.uid, profile.orgId, profile.role),
+        profile.role === "admin"
+          ? countPublishedTests(profile.orgId)
+          : countMyTestsByStatus(profile.uid, profile.orgId, "published")
+      ]);
+
+      setHeroStat("tests", total);
+      setHeroStat("published", published);
+      tTests.set(total, `опубликовано: ${published}`);
+
+      fillPanel(testsPanel, tests.map(test => {
+        const onDelete = async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const can = canDeleteTest(test, { uid: State.user.uid, role: State.profile.role, orgId: State.profile.orgId });
+          if (!can.allowed) { toast(can.reason, "error"); return; }
+
+          let assignments = [];
+          try { assignments = await listAssignments(profile.orgId); } catch (_) {}
+
+          let rooms = [];
+          try {
+            const rSnap = await getDocs(query(
+              collection(db, "rooms"),
+              where("testId", "==", test.id),
+              where("hostId", "==", State.user.uid)
+            ));
+            rooms = rSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+          } catch (_) {}
+
+          const plan = deletionPlan({ test, session: { uid: State.user.uid, role: State.profile.role }, assignments, rooms });
+          const details = [];
+          if (plan.closeAssignmentIds.length) details.push(h("p", { class: "warning-msg" }, `Будет закрыто активных заданий: ${plan.closeAssignmentIds.length}`));
+          if (plan.closeRoomCodes.length) details.push(h("p", { class: "warning-msg" }, `Будет закрыто активных Live-комнат: ${plan.closeRoomCodes.length}`));
+
+          const ok = await confirmAction({
+            title: t("tests.deleteConfirm", { title: test.title }),
+            text: t("tests.deleteHint"),
+            details,
+            confirmLabel: "Удалить",
+            tone: "danger"
+          });
+
+          if (ok) {
+            try {
+              await deleteTest(test.id, plan);
+              toast(t("tests.deleted"), "success");
+              window.location.reload();
+            } catch (err) {
+              toast(explainDeleteError(err), "error");
+            }
+          }
+        };
+
+        const delBtn = h("button", {
+          type: "button",
+          class: "btn-icon danger-text",
+          title: t("tests.deleteTitle"),
+          onclick: onDelete,
+          style: "margin-left:var(--space-2);padding:0;min-height:0;border:0;background:transparent"
+        }, h("span", { style: "font-size:1.2em" }, "×"));
+
+        return row({
+          dot: test.status === "published" ? "ok" : "muted",
+          title: test.title || "Без названия",
+          sub: `${(test.questions || []).length} вопросов · ${formatDate(test.updatedAt)}`,
+          end: h("div", { style: "display:flex;align-items:center" },
+            h("span", { class: "badge " + (test.status === "published" ? "badge-success" : "badge-warning") },
+              test.status === "published" ? "Опубликован" : "Черновик"),
+            delBtn
+          ),
+          href: "#create-test/" + encodeURIComponent(test.id)
+        });
+      }), {
+        emptyText: lt("home.staff.myTestsEmpty"),
+        emptyAction: { href: "#create-test", label: lt("home.staff.newBtn") }
+      });
+    } catch (e) {
+      console.error("Мои тесты:", e);
+      errors.fail(t("nav.testsStaff").toLowerCase());
+      tTests.set("—", "нет данных");
+      fillPanel(testsPanel, [], {
+        emptyText: e?.code === "failed-precondition"
+          ? "Запросу не хватает составного индекса Firestore (описан в firestore.indexes.json)."
+          : e?.code === "permission-denied"
+            ? "Нет доступа к списку тестов: правила Firestore запрещают чтение."
+            : "Тесты не загрузились. Проверьте подключение к сети.",
+        emptyAction: { href: "#create-test", label: lt("home.staff.newBtn") }
+      });
+    }
+  })();
 }
 
 function guestView() {
   const { eyebrow, title, lead, actions } = HERO.guest;
   return [
-    hero({
-      eyebrow,
-      title,
-      lead,
-      actions,
-      features: [
-        { icon: icons.users, label: "Live-комнаты" },
-        { icon: icons.qr, label: "QR-вход" },
-        { icon: icons.chart, label: "Аналитика" }
-      ]
-    }),
+    hero({ eyebrow, title, lead, actions }),
     h("section", { class: "grid grid-3" },
       h("div", { class: "panel" },
-        h("div", { class: "eyebrow" }, "01 · Курсы"),
-        h("h2", {}, "Обучение по стандартам отрасли"),
-        h("p", { class: "muted" }, "Материалы и проверочные тесты собраны в одном кабинете.")
+        h("div", { class: "eyebrow" }, lt("home.guest.p1.eyebrow")),
+        h("h2", {}, lt("home.guest.p1.title")),
+        h("p", { class: "muted" }, lt("home.guest.p1.text"))
       ),
       h("div", { class: "panel" },
-        h("div", { class: "eyebrow" }, "02 · Проверка"),
-        h("h2", {}, "Объективная оценка знаний"),
-        h("p", { class: "muted" }, "Автоматическая проверка, ручная оценка и прозрачные критерии.")
+        h("div", { class: "eyebrow" }, lt("home.guest.p2.eyebrow")),
+        h("h2", {}, lt("home.guest.p2.title")),
+        h("p", { class: "muted" }, lt("home.guest.p2.text"))
       ),
       h("div", { class: "panel" },
-        h("div", { class: "eyebrow" }, "03 · Аналитика"),
-        h("h2", {}, "Результаты по организации"),
-        h("p", { class: "muted" }, "Сводка по тестам, вопросам и участникам — без ручных таблиц.")
+        h("div", { class: "eyebrow" }, lt("home.guest.p3.eyebrow")),
+        h("h2", {}, lt("home.guest.p3.title")),
+        h("p", { class: "muted" }, lt("home.guest.p3.text"))
       )
     ),
     h("section", { class: "panel" },
@@ -490,7 +638,7 @@ function guestView() {
         h("a", { class: "quick-action", href: "#login" },
           h("b", {}, "Войти"), h("span", {}, "Если аккаунт уже выдан организацией")),
         h("a", { class: "quick-action", href: "#register" },
-          h("b", {}, "Зарегистрироваться"), h("span", {}, "Самостоятельное обучение"))
+          h("b", {}, "Зарегистрироваться"), h("span", {}, lt("home.guest.registerHint")))
       )
     )
   ].filter(Boolean);
@@ -529,11 +677,9 @@ export default async function HomePage() {
   }
 
   if (isStaff()) {
-    const data = await loadStaffData(profile);
-    page.append(...staffView(profile, data).filter(Boolean));
+    renderStaffHome(page, profile);
   } else {
-    const data = await loadStudentData(profile);
-    page.append(...studentView(profile, data).filter(Boolean));
+    renderStudentHome(page, profile);
   }
 
   return page;

@@ -84,140 +84,77 @@ export function leaderCard(row, ctx = {}) {
     ? h("span", { class: `lb-status lb-status-${row.status}` }, ctx.statusLabel?.[row.status] || row.status)
     : null;
 
-  // Полоса очков: ширина пропорциональна баллам. Рост — только transform
-  // (scaleX) с переходом, без перекладки: плавно и на слабом телефоне.
-  const max = Math.max(1, ctx.maxScore || 1);
-  const target = Math.min(1, (row.score ?? 0) / max);
-  const fill = h("span", { class: "lb-bar-fill" });
-  const startRatio = typeof prevScore === "number" && !reduced()
-    ? Math.min(1, prevScore / Math.max(1, ctx.prevMaxScore || max))
-    : target;
-  fill.style.transform = `scaleX(${startRatio})`;
-  if (startRatio !== target && typeof requestAnimationFrame === "function") {
-    requestAnimationFrame(() => requestAnimationFrame(() => { fill.style.transform = `scaleX(${target})`; }));
-  }
-  const bar = h("span", { class: "lb-bar", "aria-hidden": "true" }, fill);
-
   return h("li", {
-    class: ["lb-card", medal, isMe ? "is-me" : "", delta > 0 ? "lb-rose" : "", row.isAdminPlayer ? "is-admin-player" : ""].filter(Boolean).join(" "),
+    class: ["lb-card", medal, isMe ? "is-me" : "", delta > 0 ? "lb-rose" : ""].filter(Boolean).join(" "),
     "data-uid": row.uid,
     "aria-label": `${row.place} место, ${row.name}, ${row.score ?? 0} баллов${isMe ? ", это вы" : ""}`
   },
     h("span", { class: "lb-place" }, String(row.place ?? "")),
     ctx.avatar ? ctx.avatar(row) : null,
     h("div", { class: "lb-main" },
-      h("b", { class: "lb-name" }, row.name || "Участник", row.isAdminPlayer ? h("span", { class: "lb-admin-tag" }, " · тренировка") : null),
+      h("b", { class: "lb-name" }, row.name || "Участник"),
       h("div", { class: "lb-meta" },
         h("span", {}, `${row.percent ?? 0}% верных`),
         h("span", {}, `вопросов: ${row.answered ?? 0} из ${row.finished ?? 0}`),
         status)),
     h("div", { class: "lb-side" },
       h("span", { class: "lb-score" }, scoreEl, h("span", { class: "lb-unit" }, " б.")),
-      h("span", { class: "lb-badges" }, moveEl, streak)),
-    bar);
+      h("span", { class: "lb-badges" }, moveEl, streak)));
 }
 
 export function leaderList(rows, ctx = {}) {
-  return h("ol", { class: `lb-list${ctx.board ? " lb-board" : ""}` }, rows.map(row => leaderCard(row, ctx)));
+  const cards = rows.map(row => {
+    const card = leaderCard(row, ctx);
+    card.dataset.sig = rowSignature(row, ctx);
+    return card;
+  });
+  const ol = h("ol", { class: `lb-list${ctx.board ? " lb-board" : ""}` }, cards);
+  // Каскадное появление карточек — только при первой сборке списка:
+  // последующие обновления идут точечно и ничего не проигрывают заново.
+  if (ctx.enter && !reduced()) {
+    cards.forEach((card, i) => card.style.setProperty("--i", String(Math.min(i, 12))));
+    ol.classList.add("lb-enter");
+    setTimeout(() => ol.classList.remove("lb-enter"), 1600);
+  }
+  return ol;
 }
 
-export function updateLeaderCard(card, row, ctx = {}) {
-  const isMe = ctx.me && row.uid === ctx.me;
-  const medal = MEDAL_CLASS[row.place] || "";
+// Подпись карточки: пока она не изменилась, DOM-узел не трогаем
+// (аватар, анимации и фокус остаются на месте — нет мигания).
+function rowSignature(row, ctx) {
+  return [
+    row.uid, row.place, row.score ?? 0, row.correctCount ?? 0, row.streak ?? 0,
+    row.percent ?? 0, row.answered ?? 0, row.finished ?? 0, row.status || "",
+    row.name || "", ctx.moves?.get(row.uid) || 0, ctx.me && row.uid === ctx.me ? 1 : 0
+  ].join("|");
+}
 
-  card.className = ["lb-card", medal, isMe ? "is-me" : "", ctx.moves?.has(row.uid) ? "lb-rose" : "", row.isAdminPlayer ? "is-admin-player" : ""].filter(Boolean).join(" ");
-  card.setAttribute("aria-label", `${row.place} место, ${row.name}, ${row.score ?? 0} баллов${isMe ? ", это вы" : ""}`);
-
-  const placeEl = card.querySelector(".lb-place");
-  if (placeEl) placeEl.textContent = String(row.place ?? "");
-
-  const scoreEl = card.querySelector(".lb-score-num");
-  if (scoreEl) {
-    const prevScore = ctx.prevScores?.get(row.uid);
-    const currentScore = row.score ?? 0;
-    if (scoreEl.textContent !== String(currentScore)) {
-      if (typeof prevScore === "number" && prevScore !== currentScore) {
-        animateNumber(scoreEl, prevScore, currentScore);
-      } else {
-        scoreEl.textContent = String(currentScore);
+// Точечное обновление списка: меняются только изменившиеся карточки,
+// остальные переставляются без пересоздания. Возвращает true, если был
+// готовый список (его обновили), иначе false — тогда нужно собрать с нуля.
+export function reconcileLeaderList(ol, rows, ctx = {}) {
+  if (!ol || !ol.classList?.contains("lb-list")) return false;
+  ol.classList.toggle("lb-board", Boolean(ctx.board));
+  const existing = new Map();
+  ol.querySelectorAll(":scope > [data-uid]").forEach(el => existing.set(el.getAttribute("data-uid"), el));
+  rows.forEach((row, index) => {
+    const sig = rowSignature(row, ctx);
+    let el = existing.get(row.uid);
+    existing.delete(row.uid);
+    if (!el || el.dataset.sig !== sig) {
+      const fresh = leaderCard(row, ctx);
+      fresh.dataset.sig = sig;
+      // Короткая подсветка изменившейся карточки (новые очки, место).
+      if (el && !reduced()) {
+        fresh.classList.add("lb-bump");
+        setTimeout(() => fresh.classList.remove("lb-bump"), 1000);
       }
+      if (el && el.parentNode === ol) ol.replaceChild(fresh, el);
+      el = fresh;
     }
-  }
-
-  const metaEl = card.querySelector(".lb-meta");
-  if (metaEl) {
-    metaEl.textContent = "";
-    metaEl.appendChild(h("span", {}, `${row.percent ?? 0}% верных`));
-    metaEl.appendChild(h("span", {}, `вопросов: ${row.answered ?? 0} из ${row.finished ?? 0}`));
-    if (row.status) {
-      metaEl.appendChild(h("span", { class: `lb-status lb-status-${row.status}` }, ctx.statusLabel?.[row.status] || row.status));
-    }
-  }
-
-  const badgesEl = card.querySelector(".lb-badges");
-  if (badgesEl) {
-    badgesEl.textContent = "";
-    const delta = ctx.moves?.get(row.uid) || 0;
-    if (delta) {
-      const moveEl = h("span", { class: `lb-move ${delta > 0 ? "up" : "down"}`, "aria-label": delta > 0 ? `поднялся на ${delta}` : `опустился на ${-delta}` }, moveLabel(delta));
-      setTimeout(() => { if (moveEl.isConnected) moveEl.remove(); }, MOVE_VISIBLE_MS);
-      badgesEl.appendChild(moveEl);
-    }
-    const streak = streakBadge(row.streak ?? 0, ctx.prevStreaks?.get(row.uid) ?? null, { compact: true });
-    if (streak) badgesEl.appendChild(streak);
-  }
-
-  const fill = card.querySelector(".lb-bar-fill");
-  if (fill) {
-    const max = Math.max(1, ctx.maxScore || 1);
-    const target = Math.min(1, (row.score ?? 0) / max);
-    fill.style.transform = `scaleX(${target})`;
-  }
-}
-
-export function patchLeaderboard(container, rows, ctx = {}) {
-  let listEl = container.querySelector(".lb-list");
-  if (!listEl) {
-    container.textContent = "";
-    container.appendChild(h("h2", { class: "lb-title" }, "Рейтинг"));
-    listEl = leaderList(rows, ctx);
-    container.appendChild(listEl);
-    return;
-  }
-
-  if (!container.querySelector(".lb-title")) {
-    container.insertBefore(h("h2", { class: "lb-title" }, "Рейтинг"), listEl);
-  }
-
-  const oldTops = captureRects(container);
-
-  const existingMap = new Map();
-  listEl.querySelectorAll("[data-uid]").forEach(el => {
-    existingMap.set(el.getAttribute("data-uid"), el);
+    const at = ol.children[index] || null;
+    if (at !== el) ol.insertBefore(el, at);
   });
-
-  const newFragment = document.createDocumentFragment();
-  const newUids = new Set(rows.map(r => r.uid));
-
-  for (const [uid, el] of existingMap) {
-    if (!newUids.has(uid)) {
-      el.remove();
-    }
-  }
-
-  rows.forEach(row => {
-    let card = existingMap.get(row.uid);
-    if (card) {
-      updateLeaderCard(card, row, ctx);
-      newFragment.appendChild(card);
-    } else {
-      card = leaderCard(row, ctx);
-      newFragment.appendChild(card);
-    }
-  });
-
-  listEl.textContent = "";
-  listEl.appendChild(newFragment);
-
-  playFlip(container, oldTops);
+  existing.forEach(el => el.remove());
+  return true;
 }

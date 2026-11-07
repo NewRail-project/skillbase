@@ -1,22 +1,24 @@
 import { h } from "../../shared/dom.js";
 import {
+  CALLOUT_KINDS, pageTextLength, pageFillRatio, paginateText, validatePage
+} from "../../core/material-logic.js";
+import { formFromSettings, mergeSettings } from "../../core/settings.js";
+import { loadMaterial, saveMaterial } from "../../core/materials.js";
+import {
   parseQuizText, updateTest, saveTest, publishTest, loadTest,
   getCurrentTest, resetTest, validateTestDraft, validateTestForPublish
 } from "../../core/editor.js";
 import { State, isAdmin } from "../../core/auth.js";
 import { serializeTest } from "../../core/import/serializer.js";
 import { authErrorMessage } from "../../shared/errors.js";
-import { icons } from "../../shared/icons.js";
-import { toast } from "../components/toast.js";
-import { formFromSettings, mergeSettings } from "../../core/settings.js";
-import {
-  loadMaterial, saveMaterial
-} from "../../core/materials.js";
-import {
-  pageFillRatio, pageTextLength, IMAGE_MAX_BYTES, IMAGE_MAX_DIM, CALLOUT_KINDS,
-  paginateText, validatePage
-} from "../../core/material-logic.js";
+import { canDeleteTest, deletionPlan, explainDeleteError } from "../../core/test-delete-logic.js";
+import { deleteTest } from "../../core/editor.js";
+import { listAssignments } from "../../core/assign.js";
+import { getDocs, query, collection, db, where } from "../../shared/firebase.js";
 import { confirmAction } from "../components/confirm.js";
+import { toast } from "../components/toast.js";
+import { icons } from "../../shared/icons.js";
+import { t as tr, lt } from "../../core/i18n.js";
 
 const EXAMPLE = `1. Какой сигнал разрешает движение?
 A) Красный
@@ -103,14 +105,17 @@ function buildMaterialEditor(editing) {
   const section = h("section", { class: "panel", id: "material-editor" });
   section.appendChild(h("div", { class: "panel-head" },
     h("h2", {}, "Материал-книга"),
-    h("button", { type: "button", class: "btn secondary", id: "material-save" }, "Сохранить материал"),
+    h("div", { style: "display:flex;gap:var(--space-2)" },
+      h("button", { type: "button", class: "btn secondary", id: "material-preview", onclick: () => { window.location.hash = `#material/${encodeURIComponent(editing.id)}/preview`; } }, "Предпросмотр книги"),
+      h("button", { type: "button", class: "btn secondary", id: "material-save" }, "Сохранить материал")
+    )
   ));
   const message = h("div", { class: "form-hint", role: "status" });
 
   // ---- Вставка сплошного текста: автоматически режется на страницы ----
   const bulkInput = h("textarea", {
     rows: "8",
-    placeholder: "Вставьте сюда весь учебный материал одним текстом. "
+    placeholder: tr("ed.pasteMaterial")
       + "Пустая строка — новый абзац; короткая строка без точки или строка с «#» — заголовок; "
       + "строки с «-» — список."
   });
@@ -413,7 +418,7 @@ function buildMaterialEditor(editing) {
 
 export default async function CreateTestPage() {
   const editId = decodeURIComponent((State.routeParam || "").split("/")[0] || "");
-  const back = h("a", { class: "btn secondary", href: "#tests" }, "Мои тесты");
+  const back = h("a", { class: "btn secondary", href: "#tests" }, lt("ed.backToList"));
   let editing = null;
 
   if (editId) {
@@ -421,7 +426,7 @@ export default async function CreateTestPage() {
       editing = await loadTest(editId);
     } catch (err) {
       return errorPage(
-        "Не удалось открыть тест",
+        lt("ed.openFailed"),
         err?.code === "permission-denied"
           ? "Правила Firestore не разрешают чтение этого теста."
           : errorText(err),
@@ -430,21 +435,13 @@ export default async function CreateTestPage() {
     }
 
     if (!editing) {
-      return errorPage("Тест не найден", "Возможно, он был удалён или ссылка устарела.", back);
-    }
-
-    if (editing.status === "deleted") {
-      return errorPage(
-        "Тест удалён",
-        "Тест удалён из каталога и истории, редактирование недоступно. Результаты ранее пройденных попыток сохранены.",
-        back
-      );
+      return errorPage(lt("ed.notFound"), "Возможно, он был удалён или ссылка устарела.", back);
     }
 
     if (editing.authorId !== State.user?.uid && !isAdmin()) {
       return errorPage(
         "Нет прав на редактирование",
-        "Редактировать тест может только автор или администратор организации.",
+        lt("ed.onlyAuthor"),
         h("div", { class: "btn-row" },
           h("a", { class: "btn secondary", href: `#quiz/${encodeURIComponent(editId)}` }, "Открыть просмотр"),
           back
@@ -463,8 +460,8 @@ export default async function CreateTestPage() {
 
   page.appendChild(h("div", { class: "page-head" },
     h("div", {},
-      h("div", { class: "eyebrow" }, "Преподавателю"),
-      h("h1", {}, editId ? "Редактирование теста" : "Создание теста"),
+      h("div", { class: "eyebrow" }, lt("ed.eyebrowTeacher")),
+      h("h1", {}, editId ? lt("ed.titleEdit") : lt("ed.titleNew")),
       h("p", { class: "page-sub" }, editId
         ? "Изменения сохраняются в тот же тест: ID, автор и версия не меняются."
         : "Вставьте вопросы в текстовом формате или соберите их вручную. Проверьте предпросмотр перед публикацией.")
@@ -518,21 +515,21 @@ export default async function CreateTestPage() {
   const shuffleO = checkbox("s-shuffle-o", "Перемешивать варианты ответов", initialSettings.shuffleOptions);
   const perQuestion = numberField("s-per-question", "Время на вопрос, сек", initialSettings.timePerQuestionSec,
     "От 5 до 3600. Пусто — без ограничения. В live задаёт таймер вопроса у ведущего.", { min: "5", max: "3600", placeholder: "—" });
-  const totalTime = numberField("s-total", "Время на тест, мин", initialSettings.totalTimeMin,
+  const totalTime = numberField("s-total", lt("ed.timeTest"), initialSettings.totalTimeMin,
     "От 1 до 480. Пусто — без ограничения. Если указано, оно главнее времени на вопрос.", { min: "1", max: "480", placeholder: "—" });
   const passScore = numberField("s-pass", "Проходной балл, %", initialSettings.passScore,
     "От 1 до 100. Пусто — без проходного балла.", { min: "1", max: "100", placeholder: "—" });
-  const attempts = numberField("s-attempts", "Попыток на ученика", initialSettings.attemptsLimit,
+  const attempts = numberField("s-attempts", lt("ed.attemptsPerLearner"), initialSettings.attemptsLimit,
     "От 1 до 50. При выключенных повторных попытках принудительно 1.", { min: "1", max: "50" });
 
   const onQuestionTimeout = selectField("s-q-timeout", "Истекло время вопроса",
     initialSettings.onQuestionTimeout,
     [["lock", "Блокировать, идти дальше самому"], ["next", "Автопереход к следующему"]],
-    "Работает только при заданном времени на вопрос. «Блокировать»: вопрос нельзя заполнить после истечения, ученик переходит сам. «Автопереход»: вопрос без ответа, экран сам идёт далее. В live то же самое, но решает ведущий/сервер.");
+    "Работает только при заданном времени на вопрос. «Блокировать»: вопрос нельзя заполнить после истечения, участник переходит сам. «Автопереход»: вопрос без ответа, экран сам идёт далее. В live то же самое, но решает ведущий/сервер.");
   const onTotalTimeout = selectField("s-t-timeout", "Истекло общее время",
     initialSettings.onTotalTimeout,
     [["submit", "Автоотправка сохранённых ответов"], ["expire", "Попытка просрочена, не оценивается"]],
-    "«Автоотправка» в ученическом тесте отправит то, что успели; «Просрочена» пометит попытку как просроченную без оценки. В live не применяется: ведущий закрывает вопрос сам.");
+    "«Автоотправка» в обычном прохождении отправит то, что успели; «Просрочена» пометит попытку как просроченную без оценки. В live не применяется: ведущий закрывает вопрос сам.");
   const answerPolicyField = selectField("s-policy", "Политика ответов",
     initialSettings.answerPolicy,
     [["final", "Ответ фиксируется кнопкой"], ["changeable", "Можно менять и возвращаться"]],
@@ -560,11 +557,11 @@ export default async function CreateTestPage() {
       .map(([v, t]) => h("option", { value: v }, t)));
   colorSelect.value = String((editing || getCurrentTest()).color ?? "");
   const instructionsInput = h("textarea", { id: "t-instructions", rows: "3", maxlength: "2000",
-    placeholder: "Что ученик должен знать перед стартом" });
+    placeholder: lt("ed.preReq") });
   instructionsInput.value = (editing || getCurrentTest()).instructions || "";
 
   const settingsBox = h("fieldset", { class: "field", style: "border:1px solid var(--border);border-radius:var(--radius, 8px);padding:var(--space-3)" },
-    h("legend", {}, "Настройки теста"),
+    h("legend", {}, lt("ed.settings")),
     h("div", { class: "options" }, shuffleQ.row, shuffleO.row, allowRetakeField.row, showLeaderboardField.row),
     h("div", { style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:var(--space-3);margin-top:var(--space-3)" },
       perQuestion.field, totalTime.field, passScore.field, attempts.field),
@@ -577,7 +574,7 @@ export default async function CreateTestPage() {
   const catalogBox = h("fieldset", { class: "field", style: "border:1px solid var(--border);border-radius:var(--radius, 8px);padding:var(--space-3)" },
     h("legend", {}, "Каталог и старт"),
     h("div", { class: "field" }, h("label", { for: "t-category" }, "Категория"),
-      categoryInput, h("span", { class: "form-hint" }, "Фильтр в каталоге тестов.")),
+      categoryInput, h("span", { class: "form-hint" }, lt("ed.catalogFilter"))),
     h("div", { class: "field" }, h("label", { for: "t-color" }, "Цвет карточки"),
       colorSelect, h("span", { class: "form-hint" }, "Цвет обложки в каталоге (live — у бейджа комнаты).")),
     h("div", { class: "field" }, h("label", { for: "t-instructions" }, "Инструкция перед стартом"),
@@ -609,9 +606,59 @@ export default async function CreateTestPage() {
     };
   }
 
-  const actions = h("div", { class: "btn-row" },
+  const deleteBtn = h("button", { type: "button", class: "btn secondary danger-text", style: "margin-left:auto" }, lt("ed.deleteTest"));
+  deleteBtn.style.display = editId ? "" : "none";
+
+  deleteBtn.onclick = async () => {
+    const test = editing;
+    const can = canDeleteTest(test, { uid: State.user.uid, role: State.profile.role, orgId: State.profile.orgId });
+    if (!can.allowed) {
+      toast(can.reason, "error");
+      return;
+    }
+
+    let assignments = [];
+    try { assignments = await listAssignments(State.profile.orgId); } catch (_) {}
+
+    let rooms = [];
+    try {
+      const rSnap = await getDocs(query(
+        collection(db, "rooms"),
+        where("testId", "==", test.id),
+        where("hostId", "==", State.user.uid)
+      ));
+      rooms = rSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (_) {}
+
+    const plan = deletionPlan({ test, session: { uid: State.user.uid, role: State.profile.role }, assignments, rooms });
+
+    const details = [];
+    if (plan.closeAssignmentIds.length) details.push(h("p", { class: "warning-msg" }, `Будет закрыто активных заданий: ${plan.closeAssignmentIds.length}`));
+    if (plan.closeRoomCodes.length) details.push(h("p", { class: "warning-msg" }, `Будет закрыто активных Live-комнат: ${plan.closeRoomCodes.length}`));
+
+    const ok = await confirmAction({
+      title: tr("tests.deleteConfirm", { title: test.title }),
+      text: tr("tests.deleteHint"),
+      details,
+      confirmLabel: "Удалить",
+      tone: "danger"
+    });
+
+    if (ok) {
+      try {
+        await deleteTest(test.id, plan);
+        toast(tr("ed.deleted"), "success");
+        window.location.hash = "#tests";
+      } catch (err) {
+        toast(explainDeleteError(err), "error");
+      }
+    }
+  };
+
+  const actions = h("div", { class: "btn-row", hidden: "hidden" },
     h("button", { type: "button", class: "btn secondary", id: "save-btn" }, saveLabel),
-    h("button", { type: "button", class: "btn primary", id: "publish-btn" }, "Опубликовать")
+    h("button", { type: "button", class: "btn primary", id: "publish-btn" }, "Опубликовать"),
+    deleteBtn
   );
 
   const editor = h("form", { class: "panel", novalidate: "novalidate", onsubmit: (event) => event.preventDefault() },
@@ -660,7 +707,7 @@ export default async function CreateTestPage() {
     const note = h("div", { class: "panel" },
       h("div", { class: "empty-state" },
         h("h2", {}, "Материал-книга"),
-        h("p", { class: "muted" }, "Сначала сохраните тест — появятся страницы материала, которые студенты читают до вопроса."),
+        h("p", { class: "muted" }, lt("ed.saveFirst")),
       )
     );
     page.appendChild(note);
@@ -731,9 +778,11 @@ export default async function CreateTestPage() {
         .map(item => item.message);
       sayWarnings(warningsFound);
       const ok = parsed.questions.length && !(parsed.errors && parsed.errors.length);
-      if (!ok) say("Исправьте ошибки в вопросах — публикация и сохранение недоступны.", true);
+      actions.hidden = !ok;
+      if (!ok) say("Исправьте ошибки в вопросах — публикация недоступна.", true);
       else say(`Распознано вопросов: ${parsed.questions.length}.`, false);
     } catch (e) {
+      actions.hidden = true;
       say(e.message, true);
     }
   }
@@ -744,7 +793,7 @@ export default async function CreateTestPage() {
     say("");
     sayWarnings([]);
     const title = titleInput.value.trim();
-    if (!title) { say("Введите название теста.", true); titleInput.focus(); return; }
+    if (!title) { say(tr("ed.enterTitle"), true); titleInput.focus(); return; }
     if (!parsed || !parsed.questions.length) { say("Сначала разберите вопросы.", true); return; }
 
     const saveBtn = actions.querySelector("#save-btn");
@@ -785,7 +834,7 @@ export default async function CreateTestPage() {
 
       if (publish) await publishTest();
       else await saveTest();
-      say(publish ? "Тест опубликован." : (editId ? "Изменения сохранены." : "Черновик сохранён."), false);
+      say(publish ? tr("ed.published") : (editId ? "Изменения сохранены." : "Черновик сохранён."), false);
     } catch (e) {
       if (e?.code === "validation") {
         say((e.errors?.length ? e.errors : [e.message]).join("\n"), true);

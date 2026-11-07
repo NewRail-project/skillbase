@@ -3,20 +3,27 @@ import { h } from "../../shared/dom.js";
 import { docPage, scrollToDocSection } from "../components/doc-page.js";
 import { State } from "../../core/auth.js";
 import { generateQRSvg } from "../../shared/qr.js";
+import { themedQrOptions, qrPalette } from "../../shared/qr-theme.js";
+import { subscribeTheme, subscribeSkin } from "../../shared/theme.js";
 
 export default function AboutPageEn() {
   const siteUrl = "https://newrail-project.github.io/skillbase/";
 
-  const qrOptions = {
-    width: 280, height: 280, ecc: "H", rounded: true,
-    dark: "#172817", light: "#F5F7ED", finderDark: "#101810"
+  const qrWrapper = h("div", { class: "qr-wrapper qr-frame" });
+  const paintQr = () => {
+    qrWrapper.style.background = qrPalette().light;
+    qrWrapper.innerHTML = generateQRSvg(siteUrl, themedQrOptions({
+      width: 280, height: 280, ecc: "H", rounded: true
+    }));
   };
-
-  const qrWrapper = h("div", {
-    class: "qr-wrapper",
-    style: "display: inline-block; background: #F5F7ED; padding: 1.25rem; border-radius: 1.5rem; box-shadow: 0 8px 24px rgba(0,0,0,0.2); line-height: 0; border: 2px solid #C5E747;"
-  });
-  qrWrapper.innerHTML = generateQRSvg(siteUrl, qrOptions);
+  paintQr();
+  const offs = [];
+  const repaint = () => {
+    if (!qrWrapper.isConnected && qrWrapper.dataset.seen) { offs.forEach(f => f()); return; }
+    if (qrWrapper.isConnected) qrWrapper.dataset.seen = "1";
+    paintQr();
+  };
+  offs.push(subscribeTheme(repaint), subscribeSkin(repaint));
 
   const page = docPage({
     eyebrow: "Platform",
@@ -105,16 +112,13 @@ export default function AboutPageEn() {
             h("a", { class: "btn", href: siteUrl, target: "_blank", rel: "noopener" }, "Open Website")
           )
         ),
-        h("div", {
-          class: "brand-qr-card",
-          style: "text-align: center; margin-top: 1rem; padding: 2.5rem 1.5rem; background: linear-gradient(135deg, #101810 0%, #0a0f0a 100%); color: #fff; border-radius: 1.25rem; border: 1px solid #C5E747; box-shadow: var(--shadow-lg); position: relative; overflow: hidden;"
-        },
-          h("div", { style: "margin-bottom: 1.25rem;" },
-            h("div", { style: "font-family: var(--font-brand); font-weight: 800; font-size: 1.5rem; color: #C5E747;" }, "SKILLBASE"),
-            h("div", { style: "font-size: 0.8rem; opacity: 0.7; text-transform: uppercase;" }, "Corporate Platform")
+        h("div", { class: "brand-qr-card" },
+          h("div", { class: "brand-qr-head" },
+            h("div", { class: "brand-qr-title" }, "SKILLBASE"),
+            h("div", { class: "brand-qr-sub" }, "Corporate Platform")
           ),
           qrWrapper,
-          h("p", { style: "margin: 1.25rem 0; font-size: 0.95rem; opacity: 0.9;" }, "Scan to open the platform")
+          h("p", { class: "brand-qr-hint" }, "Scan to open the platform")
         )
       )
     )

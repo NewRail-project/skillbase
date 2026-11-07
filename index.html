@@ -1,59 +1,45 @@
 <!DOCTYPE html>
-<html data-ui="education" lang="ru">
+<html data-ui="education" data-mode="education" lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Skillbase</title>
-  <meta name="description" content="Skillbase — корпоративная платформа обучения и проверки знаний для железнодорожной отрасли.">
-  <meta name="theme-color" content="#F6F9FC">
-
-  <!-- Open Graph / Telegram / VK -->
-  <meta property="og:title" content="Skillbase — Образовательная платформа">
-  <meta property="og:description" content="Корпоративная учебная среда: курсы, тестирование, Live-комнаты и аналитика результатов.">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="https://newrail-project.github.io/skillbase/">
-  <meta property="og:image" content="https://newrail-project.github.io/skillbase/ui/brand/og-image.png">
-
-  <!-- Twitter Card -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Skillbase — Образовательная платформа">
-  <meta name="twitter:description" content="Корпоративная учебная среда: курсы, тестирование, Live-комнаты и аналитика результатов.">
-  <meta name="twitter:image" content="https://newrail-project.github.io/skillbase/ui/brand/og-image.png">
-  <link rel="manifest" href="/skillbase/ui/brand/manifest.webmanifest">
-  <link rel="apple-touch-icon" href="/skillbase/ui/brand/icon-192.png">
-  <link rel="icon" type="image/svg+xml" href="/skillbase/ui/brand/favicon.svg">
-  <!-- Раннее открытие соединений с Firebase: TLS-рукопожатие начинается
-       до загрузки модулей, а не после. -->
+  <meta name="description" content="Skillbase — платформа обучения и проверки знаний: Education для студентов колледжей и университетов, Workforce для профессионального обучения сотрудников предприятий.">
+  <meta name="theme-color" content="#F5F3EF">
+  <link rel="icon" type="image/svg+xml" href="ui/brand/favicon.svg">
+  <link rel="manifest" href="ui/brand/manifest.webmanifest">
+  <!-- Preconnect: руки Firebase поднимаем заранее, чтобы TLS-рукопожатия
+       не съедали время после разбора main.js. gstatic отдаёт SDK-модули,
+       googleapis — каналы Firestore и Authentication. -->
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
   <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>
-  <link rel="dns-prefetch" href="https://firebasestorage.googleapis.com">
-  <link rel="stylesheet" href="ui/css/fonts.css?v=17">
-  <link rel="stylesheet" href="ui/css/tokens.css?v=17">
-  <link rel="stylesheet" href="ui/css/themes/education.css?v=17">
-  <link rel="stylesheet" href="ui/css/themes/operations.css?v=17">
-  <link rel="stylesheet" href="ui/css/themes/depot.css?v=17">
-  <link rel="stylesheet" href="ui/css/base.css?v=17">
-  <link rel="stylesheet" href="ui/css/components.css?v=17">
-  <link rel="stylesheet" href="ui/css/result-styles.css?v=17">
-  <link rel="stylesheet" href="ui/css/brand.css?v=17">
-  <link rel="stylesheet" href="ui/css/live.css?v=17">
-  <link rel="stylesheet" href="ui/css/print.css?v=17" media="print">
-  <script type="module" src="shared/main.js?v=17"></script>
-  
-  <!-- Service Worker Registration -->
-  <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js')
-          .then(registration => {
-            console.log('ServiceWorker registration successful with scope: ', registration.scope);
-          })
-          .catch(error => {
-            console.log('ServiceWorker registration failed: ', error);
-          });
-      });
-    }
-  </script>
+  <link rel="preconnect" href="https://securetoken.googleapis.com" crossorigin>
+  <!-- Modulepreload: SDK Firebase стоит в конце цепочки
+       main.js → auth.js → firebase.js → CDN; без подсказок браузер
+       находит эти модули только после разбора двух внутренних файлов.
+       Внутренние модули — без ?v=, ровно как их резолвит импорт,
+       иначе получились бы дублирующие загрузки. -->
+  <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js">
+  <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js">
+  <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js">
+  <link rel="modulepreload" href="core/auth.js">
+  <link rel="modulepreload" href="shared/firebase.js">
+  <link rel="stylesheet" href="ui/css/tokens.css?v=1.0.0.20261107214324">
+  <link rel="stylesheet" href="ui/css/themes/education.css?v=1.0.0.20261107214324">
+  <link rel="stylesheet" href="ui/css/themes/operations.css?v=1.0.0.20261107214324">
+  <link rel="stylesheet" href="ui/css/themes/depot.css?v=1.0.0.20261107214324">
+  <link rel="stylesheet" href="ui/css/themes/workforce.css?v=1.0.0.20261107214324">
+  <link rel="stylesheet" href="ui/css/base.css?v=1.0.0.20261107214324">
+  <link rel="stylesheet" href="ui/css/components.css?v=1.0.0.20261107214324">
+  <link rel="stylesheet" href="ui/css/brand.css?v=1.0.0.20261107214324">
+  <!-- Inter подключён последним: font-display: swap не блокирует отрисовку,
+       а системный fallback уже отрисовал текст. -->
+  <link rel="stylesheet" href="ui/css/fonts.css?v=1.0.0.20261107214324">
+  <!-- live.css (21 КБ) нужен только Live-комнатам и запуску теста:
+       подключается точечно в room.js/launch.js, а не блокирует первую
+       отрисовку главной. -->
+  <script type="module" src="shared/main.js?v=1.0.0.20261107214324"></script>
   <script>
     // Тема применяется до первой отрисовки, чтобы не было вспышки светлого фона.
     (function () {
@@ -64,17 +50,19 @@
         theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
       }
       var root = document.documentElement;
-      // Палитра (скин) гостя и последний выбор на устройстве — до отрисовки.
+      var wf = false;
       try {
-        var palette = localStorage.getItem("sb-palette");
-        if (palette === "education" || palette === "operations" || palette === "depot") {
-          root.setAttribute("data-ui", palette);
-        }
+        // Режим платформы (Education / Workforce) — до первой отрисовки, без вспышки чужого оформления.
+        wf = localStorage.getItem("sb-mode") === "workforce";
+        var ui = localStorage.getItem("sb-ui");
+        if (ui === "education" || ui === "operations" || ui === "depot") root.setAttribute("data-ui", ui);
       } catch (_) {}
+      root.setAttribute("data-mode", wf ? "workforce" : "education");
+      if (wf) root.setAttribute("data-ui", "workforce");
       root.setAttribute("data-theme", theme);
       root.style.colorScheme = theme;
       var meta = document.querySelector('meta[name="theme-color"]');
-      if (meta) meta.setAttribute("content", theme === "dark" ? "#0D1218" : "#F6F9FC");
+      if (meta) meta.setAttribute("content", wf ? (theme === "dark" ? "#0B1220" : "#0F1A2E") : (theme === "dark" ? "#0D1218" : "#F5F3EF"));
     })();
   </script>
 </head>
@@ -99,7 +87,7 @@
         </svg>
         <span class="brand-text">
           <span class="brand-name">Skillbase</span>
-          <span class="brand-tagline">обучение на пути</span>
+          <span class="brand-tagline" id="brand-tagline">обучение на пути</span>
         </span>
       </a>
 
@@ -113,41 +101,11 @@
     </header>
     <main id="app" tabindex="-1"></main>
     <footer class="site-footer">
-      <div class="footer-main">
-        <div class="footer-brand">
-          <span class="footer-name">SKILLBASE</span>
-          <span class="footer-tagline">Образовательная платформа</span>
-          <p class="footer-signature">«Skillbase — знания, которые движут отрасль вперёд»</p>
-        </div>
-        <nav class="footer-col" aria-label="Платформа">
-          <h2 class="footer-title">Платформа</h2>
-          <a href="#about">О проекте</a>
-          <a href="#about/features">Возможности</a>
-          <a href="#about/live">Live-комнаты</a>
-        </nav>
-        <nav class="footer-col" aria-label="Документы">
-          <h2 class="footer-title">Документы</h2>
-          <a href="#privacy">Конфиденциальность</a>
-          <a href="#terms">Соглашение</a>
-          <a href="#rules">Правила</a>
-          <span class="footer-docs-meta" id="footer-docs-version">Редакция от 02.11.2026</span>
-        </nav>
-        <nav class="footer-col" aria-label="Связь">
-          <h2 class="footer-title">Связь</h2>
-          <a href="#contact">Контакты</a>
-          <a href="https://t.me/Frozencode_f" target="_blank" rel="noopener">Telegram</a>
-          <a href="mailto:bujlenkovdaniil@gmail.com">Email</a>
-          <a href="https://github.com/NewRail-project/skillbase" target="_blank" rel="noopener">GitHub</a>
-        </nav>
-      </div>
-      <div class="footer-base">
-        <div class="footer-copy">© 2026 Independent Developers / Skillbase. Версия 1.0.0</div>
-        <div class="footer-base-links">
-          <a href="#/">Главная</a>
-          <a href="#about">О проекте</a>
-          <a href="#contact">Связаться</a>
-        </div>
-      </div>
+      <span id="footer-text">Skillbase · платформа обучения и проверки знаний для колледжей и университетов</span>
+      <span class="site-footer-links">
+        <a href="#/">Главная</a>
+        <a href="#login">Вход</a>
+      </span>
     </footer>
   </div>
   <div id="loading-spinner" class="loading-spinner" style="display: none;">
@@ -156,114 +114,5 @@
       <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M4.22 19.78l1.41-1.42M18.36 4.22l-1.42 1.42M19.78 18.36l-1.42-1.42"/>
     </svg>
   </div>
-  <script>
-    // Клавиатура и прокрутка: страница не должна прыгать при вводе.
-    //
-    // Принципы:
-    //  - детекция клавиатуры по visualViewport (сжатие видимой области
-    //    относительно базовой высоты), а не по высоте документа;
-    //  - поле подтягивается в видимую зону ТОЛЬКО если оно реально
-    //    перекрыто (минимальный сдвиг, без скролла «на всякий случай»);
-    //  - при закрытии клавиатуры возвращается ровно тот сдвиг прокрутки,
-    //    который сделали мы сами — никаких scrollTo(0) и скачков;
-    //  - поля ловятся делегированием (focusin): в SPA они создаются
-    //    динамически, навешивать слушатели на каждый инпут нельзя.
-    (function () {
-      var vv = window.visualViewport;
-      if (!vv) return; // старый браузер: оставляем нативное поведение
-
-      var baseline = vv.height;   // высота видимой области без клавиатуры
-      var keyboardOpen = false;
-      var scrolledByUs = false;
-      var savedScrollY = 0;
-      var ensureTimer = 0;
-
-      function isEditable(el) {
-        return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")
-          && !["button", "submit", "checkbox", "radio", "file", "range", "color"].includes(el.type)
-          && !el.readOnly && !el.disabled;
-      }
-
-      function focusedField() {
-        var el = document.activeElement;
-        return isEditable(el) ? el : null;
-      }
-
-      // Ближайший прокручиваемый предок (модалки, панели со своим скроллом).
-      function scrollableAncestor(el) {
-        var node = el.parentElement;
-        while (node && node !== document.body) {
-          var oy = getComputedStyle(node).overflowY;
-          if ((oy === "auto" || oy === "scroll") && node.scrollHeight > node.clientHeight + 1) {
-            return node;
-          }
-          node = node.parentElement;
-        }
-        return null;
-      }
-
-      // Аккуратный минимальный сдвиг: только если поле скрыто клавиатурой.
-      function ensureVisible() {
-        var el = focusedField();
-        if (!el || !keyboardOpen) return;
-        var rect = el.getBoundingClientRect();
-        var visibleTop = vv.offsetTop + 8;
-        var visibleBottom = vv.offsetTop + vv.height - 8;
-        var delta = 0;
-        if (rect.bottom > visibleBottom) {
-          delta = rect.bottom - visibleBottom;
-        } else if (rect.top < visibleTop) {
-          delta = rect.top - visibleTop;
-        } else {
-          return; // поле и так видно — не трогаем прокрутку
-        }
-        var container = scrollableAncestor(el);
-        if (container) {
-          // Поле внутри внутреннего скролла (модальное окно и т.п.):
-          // двигаем контейнер, layout-прокрутку страницы не трогаем.
-          container.scrollBy({ top: Math.ceil(delta), behavior: "smooth" });
-        } else {
-          window.scrollBy({ top: Math.ceil(delta), behavior: "smooth" });
-          scrolledByUs = true;
-        }
-      }
-
-      vv.addEventListener("resize", function () {
-        var kb = baseline - vv.height;
-        if (kb > 80 && focusedField()) {
-          // Клавиатура открылась (или сменилось поле/поворот экрана).
-          if (!keyboardOpen) {
-            keyboardOpen = true;
-            savedScrollY = window.scrollY;
-            scrolledByUs = false;
-          }
-          clearTimeout(ensureTimer);
-          // Даём браузеру завершить его собственную прокрутку к полю,
-          // затем докидываем только недостающее.
-          ensureTimer = setTimeout(ensureVisible, 150);
-        } else if (kb < 8) {
-          baseline = vv.height; // калибровка: поворот, зум, обычный ресайз
-          if (keyboardOpen) {
-            keyboardOpen = false;
-            clearTimeout(ensureTimer);
-            if (scrolledByUs) {
-              // Возвращаем только собственный сдвиг — без прыжка к началу.
-              window.scrollTo({ top: savedScrollY, behavior: "auto" });
-              scrolledByUs = false;
-            }
-            // Если не скроллили — ничего не делаем: нативное поведение
-            // Android (resizes-visual) само возвращает вид без скачка.
-          }
-        }
-      });
-
-      // Переключение между полями при открытой клавиатуре.
-      document.addEventListener("focusin", function (e) {
-        if (!isEditable(e.target) || !keyboardOpen) return;
-        clearTimeout(ensureTimer);
-        ensureTimer = setTimeout(ensureVisible, 60);
-      });
-    })();
-  </script>
 </body>
 </html>

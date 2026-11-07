@@ -1,25 +1,51 @@
-import { appearanceTools } from "../components/theme-toggle.js";
+import { themeToggle } from "../components/theme-toggle.js";
+import { skinSwitch } from "../components/skin-switch.js";
 import { h } from "../../shared/dom.js";
-import { login, linkGoogleAfterPasswordLogin } from "../../core/auth.js";
+import { login, linkGoogleAfterPasswordLogin, resetPassword } from "../../core/auth.js";
 import { authErrorMessage } from "../../shared/errors.js";
 import { peekReturnTo, safeReturnTo, clearReturnTo } from "../../shared/return-to.js";
 import { createGoogleButton, handleIncomingGoogleRedirect, googleDivider } from "../components/google-button.js";
 import { railScene, brandLockup } from "../../ui/components/brand.js";
+import { t as tr, lt, roleLabel } from "../../core/i18n.js";
 
 export default function LoginPage() {
   const page = h("div", { class: "page auth-page" });
   // Тема хранится на устройстве (localStorage), поэтому доступна и гостю.
-  page.appendChild(h("div", { class: "auth-corner" }, appearanceTools({ withLabel: true })));
+  page.appendChild(h("div", { class: "auth-corner" }, skinSwitch(), themeToggle({ withLabel: true })));
 
   const errorBox = h("div", { class: "form-error", role: "alert" });
   const linkHint = h("div", { class: "form-hint", style: "display:none" });
   const email = h("input", {
     type: "email", id: "email", required: "required",
-    autocomplete: "email", placeholder: "name@company.ru"
+    autocomplete: "email", placeholder: "name@company.ru",
+    autocapitalize: "none", autocorrect: "off", spellcheck: "false", inputmode: "email"
   });
   const password = h("input", {
     type: "password", id: "password", required: "required",
-    autocomplete: "current-password", placeholder: "••••••••"
+    autocomplete: "current-password", placeholder: "••••••••",
+    autocapitalize: "none", autocorrect: "off", spellcheck: "false"
+  });
+  const forgot = h("button", { type: "button", class: "link-btn" }, "Забыли пароль?");
+  const resetInfo = h("div", { class: "form-hint", style: "display:none", role: "status" });
+  forgot.addEventListener("click", async () => {
+    errorBox.textContent = "";
+    resetInfo.style.display = "none";
+    if (!email.value.trim()) {
+      errorBox.textContent = "Введите электронную почту, затем нажмите «Забыли пароль?».";
+      email.focus();
+      return;
+    }
+    forgot.disabled = true;
+    try {
+      const to = await resetPassword(email.value);
+      resetInfo.textContent = `Если аккаунт ${to} существует, на него отправлено письмо со ссылкой для нового пароля. Проверьте и папку «Спам».`;
+      resetInfo.style.display = "";
+    } catch (err) {
+      console.error("Reset error:", err);
+      errorBox.textContent = authErrorMessage(err);
+    } finally {
+      forgot.disabled = false;
+    }
   });
   const submit = h("button", { type: "submit", class: "btn primary btn-block" }, "Войти");
   // Гостевой проход: тест по прямой ссылке без регистрации и аккаунта.
@@ -70,7 +96,7 @@ export default function LoginPage() {
     h("div", {},
       h("div", { class: "eyebrow" }, "Вход"),
       h("h1", { style: "margin:4px 0 8px" }, "С возвращением"),
-      h("p", { class: "muted", style: "margin:0" }, "Войдите, чтобы продолжить обучение.")
+      h("p", { class: "muted", style: "margin:0" }, lt("login.lead"))
     ),
     errorBox,
     createGoogleButton({ onSuccess: onGoogleEvent, onError: onGoogleEvent }),
@@ -81,13 +107,15 @@ export default function LoginPage() {
     ),
     h("div", { class: "field" },
       h("label", { for: "password" }, "Пароль"),
-      password
+      password,
+      forgot
     ),
+    resetInfo,
     linkHint,
     submit,
     guestBtn,
     h("p", { class: "muted", style: "margin:0;font-size:.8125rem" },
-      "Гость проходит тест по ссылке от преподавателя — регистрация не требуется."),
+      lt("login.guestNote")),
     h("p", { class: "muted", style: "margin:0;font-size:.875rem" },
       "Нет аккаунта? ", h("a", { href: "#register" }, "Зарегистрироваться"))
   );
@@ -96,8 +124,8 @@ export default function LoginPage() {
   scene.innerHTML = railScene();
   scene.appendChild(h("div", { class: "auth-aside-text" },
     h("div", { class: "eyebrow" }, "Skillbase"),
-    h("h2", {}, "Знания, которые держат движение"),
-    h("p", {}, "Курсы, проверка знаний и результаты — в одной среде для железнодорожных предприятий.")
+    h("h2", {}, lt("login.sideTitle")),
+    h("p", {}, lt("login.sideLead"))
   ));
 
   page.append(h("div", { class: "auth-split" }, form, scene));
@@ -106,14 +134,13 @@ export default function LoginPage() {
     e.preventDefault();
     errorBox.textContent = "";
     submit.disabled = true;
-    submit.setAttribute("aria-busy", "true");
     submit.textContent = "Проверяем…";
 
     try {
       // Ссылку запоминаем до входа: пока грузится профиль, роутер может
       // успеть перенаправить с #login и забрать сохранённое значение.
       const pending = peekReturnTo();
-      await login(email.value.trim(), password.value);
+      await login(email.value, password.value);
       // Связывание Google — после входа и best-effort: если связь не
       // удалась, пользователь всё равно проходит со своим профилем.
       if (pendingGoogle) {
@@ -134,7 +161,6 @@ export default function LoginPage() {
       password.focus();
     } finally {
       submit.disabled = false;
-      submit.removeAttribute("aria-busy");
       submit.textContent = "Войти";
     }
   });

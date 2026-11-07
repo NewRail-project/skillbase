@@ -3,15 +3,11 @@ import { initRouter, router } from './app.js';
 import { renderSidebar, initSidebar, setSidebarOpen } from '../ui/components/sidebar.js';
 import { initTheme, toggleTheme, getTheme, subscribeTheme } from './theme.js';
 import { icons } from './icons.js';
-import { DOC_VERSIONS } from '../core/consent-docs.js';
-import { initNetworkStatus } from '../ui/components/network-status.js';
-
-// Редакция документов в подвале: из того же источника, что показывают
-// страницы #privacy/#terms/#rules и записывают согласия (consents).
-function paintFooterDocsVersion() {
-  const el = document.getElementById("footer-docs-version");
-  if (el) el.textContent = `Редакция от ${DOC_VERSIONS.privacy}`;
-}
+import { skinSwitch } from '../ui/components/skin-switch.js';
+import { modeToggle } from '../ui/components/mode-toggle.js';
+import { initMode, subscribeMode } from '../core/mode.js';
+import { t } from '../core/i18n.js';
+import { liveText, liveAttr } from './live.js';
 
 function mountSidebar() {
   const box = document.getElementById("sidebar-container");
@@ -37,6 +33,18 @@ function paintThemeButton() {
 function initThemeToggle() {
   const btn = document.getElementById("theme-toggle");
   if (!btn) return;
+  // Слева от кнопки темы: переключатель режима Education / Workforce и
+  // (только в Education) переключатель скина. Доступны и гостю.
+  if (!document.getElementById("mode-toggle-top")) {
+    const mt = modeToggle({ className: "mode-toggle-top" });
+    mt.id = "mode-toggle-top";
+    btn.before(mt);
+  }
+  if (!document.getElementById("skin-switch-top")) {
+    const sw = skinSwitch({ className: "skin-switch-top" });
+    sw.id = "skin-switch-top";
+    btn.before(sw);
+  }
   btn.addEventListener("click", () => toggleTheme());
   paintThemeButton();
   subscribeTheme(() => {
@@ -46,28 +54,40 @@ function initThemeToggle() {
   });
 }
 
-// Перерисовываем страницу только при смене пользователя или данных профиля.
+// Перерисовываем страницу только при смене пользователя или статуса профиля.
+// Промежуточный "loading" схлопнут с "idle": скелет уже на экране, лишний
+// проход роутера между ними только мигает. Обычные поля профиля (ФИО,
+// должность, отдел) в ключе не участвуют: их сохранение не должно
+// перерисовывать всю страницу — имя и аватар в боковой панели обновляет
+// mountSidebar() при каждом notify, а форма профиля уже содержит введённое.
 // Смена темы и скина применяется к уже отрисованной странице через CSS.
 function renderKey() {
-  const p = State.profile || {};
-  return [State.user?.uid || "guest", State.profileStatus, p.fullName || "", p.position || "", p.department || ""].join("|");
+  const status = State.profileStatus === "loading" ? "idle" : State.profileStatus;
+  return [State.user?.uid || "guest", status].join("|");
 }
 
-document.addEventListener("DOMContentLoaded", async () => {
+// Подписи оболочки (слоган, подвал) зависят от режима и обновляются на месте.
+function bindShellTexts() {
+  const tagline = document.getElementById("brand-tagline");
+  if (tagline) tagline.replaceChildren(liveText(() => t("app.tagline")));
+  const footer = document.getElementById("footer-text");
+  if (footer) footer.replaceChildren(liveText(() => t("app.footer")));
+  const meta = document.querySelector('meta[name="description"]');
+  if (meta) liveAttr(meta, "content", () => t("app.description"));
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  initMode();
   initTheme();
+  bindShellTexts();
   initThemeToggle();
   initSidebar();
-  paintFooterDocsVersion();
-  
-  // Инициализируем индикатор сети
-  const cleanupNetworkStatus = initNetworkStatus();
-  
-  // Если Firestore не отвечает, не оставляем пустой экран: через 8 с
-  // запускаем роутер, а профиль дозагрузится сам.
-  await Promise.race([
-    initAuth(),
-    new Promise(resolve => setTimeout(resolve, 8000))
-  ]);
+
+  // Роутер стартует немедленно, не дожидаясь Firebase: пока сессия не
+  // восстановлена, он показывает скелет (idle-проверка в app.js), поэтому
+  // ни гостевой интерфейс, ни защищённые страницы не мелькают, а публичные
+  // страницы не ждут Firestore. Восстановление сессии идёт в фоне.
+  initAuth();
 
   let key = renderKey();
   initRouter(); // вешает обработчик hashchange и рисует первую страницу
@@ -86,8 +106,76 @@ document.addEventListener("DOMContentLoaded", async () => {
     mountSidebar();
   });
 
+  // Service Worker и согласованное обновление.
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").then((reg) => {
+        // Проверка наличия новой версии при загрузке.
+        if (reg.waiting) {
+          notifyUpdate(reg.waiting);
+        }
+
+        // Следим за появлением обновлений в процессе работы.
+        reg.addEventListener("updatefound", () => {
+          const worker = reg.installing;
+          worker.addEventListener("statechange", () => {
+            if (worker.state === "installed" && navigator.serviceWorker.controller) {
+              notifyUpdate(worker);
+            }
+          });
+        });
+      }).catch((err) => {
+        console.warn("Service Worker не зарегистрирован:", err);
+      });
+
+      // Перезагружаем страницу, когда новый SW берёт управление.
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (!refreshing) {
+          refreshing = true;
+          window.location.reload();
+        }
+      });
+    });
+  }
+
   document.body.classList.add("ready");
-  
-  // Сохраняем функцию очистки для использования при необходимости
-  window.cleanupNetworkStatus = cleanupNetworkStatus;
 });
+
+/**
+ * Уведомление об обновлении. Не показываем во время теста или Live-комнаты,
+ * чтобы не отвлекать и не прерывать процесс.
+ */
+function notifyUpdate(worker) {
+  const hash = window.location.hash;
+  const critical = hash.startsWith("#room/") || hash.startsWith("#quiz/") || hash.startsWith("#trial/");
+  if (critical) {
+    // Ждём смены хеша на безопасный и пробуем снова.
+    const once = () => {
+      const nextHash = window.location.hash;
+      const stillCritical = nextHash.startsWith("#room/") || nextHash.startsWith("#quiz/") || nextHash.startsWith("#trial/");
+      if (!stillCritical) {
+        window.removeEventListener("hashchange", once);
+        notifyUpdate(worker);
+      }
+    };
+    window.addEventListener("hashchange", once);
+    return;
+  }
+
+  // Используем confirmAction (модалка) или toast с кнопкой.
+  // Пользователь просил «Понятное уведомление» и «Кнопка Перезагрузить».
+  // Импортируем динамически, чтобы не раздувать main.js.
+  import("../ui/components/confirm.js").then(({ confirmAction }) => {
+    confirmAction({
+      title: "Доступно обновление",
+      text: "Skillbase обновился. Перезагрузить страницу, чтобы применить изменения?",
+      confirmLabel: "Перезагрузить",
+      cancelLabel: "Позже"
+    }).then((ok) => {
+      if (ok) {
+        worker.postMessage("SKIP_WAITING");
+      }
+    });
+  });
+}

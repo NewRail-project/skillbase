@@ -5,7 +5,7 @@ import {
   db, collection, doc, getDoc, getDocs, setDoc, deleteDoc, serverTimestamp, Timestamp
 } from "../shared/firebase.js";
 import { State } from "./auth.js";
-import { validateMaterial } from "./material-logic.js";
+import { validateMaterial, validatePage } from "./material-logic.js";
 
 function requireOnline(message) {
   if (!navigator.onLine) throw new Error(message || "Нет подключения к интернету.");
@@ -16,15 +16,11 @@ export function materialDocId(uid, testId) {
 }
 
 // Все страницы материала (упорядоченно). Отсутствие книги — null.
-// Мета и страницы не зависят друг от друга — читаем параллельно:
-// на мобильном интернете это минус один раунд-трип на открытие книги.
 export async function loadMaterial(testId) {
-  const [snap, pagesSnap] = await Promise.all([
-    getDoc(doc(db, "materials", testId)),
-    getDocs(collection(db, "materials", testId, "pages"))
-  ]);
+  const snap = await getDoc(doc(db, "materials", testId));
   if (!snap.exists()) return null;
   const meta = { id: snap.id, ...snap.data() };
+  const pagesSnap = await getDocs(collection(db, "materials", testId, "pages"));
   const pages = pagesSnap.docs
     .map(item => ({ n: Number(item.id), blocks: item.data()?.blocks ?? [] }))
     .sort((a, b) => a.n - b.n)
@@ -77,6 +73,29 @@ export async function saveMaterial(testId, { title, orgId, authorId, pages }) {
   });
   await Promise.all(batchStatus);
   return testId;
+}
+
+// Сохранить одну страницу; пустую страницу сохранить нельзя.
+export async function savePage(testId, n, blocks) {
+  requireOnline("Нет подключения к интернету. Страница не сохранена.");
+  const errors = validatePage(blocks);
+  if (errors.length) {
+    const err = new Error(`Страница ${n + 1}: ${errors.join(" ")}`);
+    err.fields = errors;
+    throw err;
+  }
+  await setDoc(doc(db, "materials", testId, "pages", String(n)), { blocks });
+}
+
+export async function deletePage(testId, n) {
+  requireOnline("Нет подключения к интернету. Страница не удалена.");
+  await deleteDoc(doc(db, "materials", testId, "pages", String(n)));
+}
+
+// Заголовочная запись материала для страницы quiz/каталога.
+export async function loadMaterialMeta(testId) {
+  const snap = await getDoc(doc(db, "materials", testId));
+  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
 }
 
 // ---------- Прогресс чтения ----------

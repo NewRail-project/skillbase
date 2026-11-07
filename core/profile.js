@@ -23,6 +23,31 @@ export function initialsAvatar(name, uid) {
   return { initials, hue };
 }
 
+export async function processAvatarFile(file) {
+  if (!file.type.startsWith("image/")) throw new Error("Неверный формат файла");
+  if (file.size > 3 * 1024 * 1024) throw new Error("Файл слишком большой (макс 3 МБ)");
+  
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 128;
+        canvas.height = 128;
+        const ctx = canvas.getContext("2d");
+        const size = Math.min(img.width, img.height);
+        ctx.drawImage(img, (img.width - size) / 2, (img.height - size) / 2, size, size, 0, 0, 128, 128);
+        resolve(canvas.toDataURL("image/jpeg", 0.8));
+      };
+      img.onerror = () => reject(new Error("Ошибка обработки изображения"));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error("Ошибка чтения файла"));
+    reader.readAsDataURL(file);
+  });
+}
+
 // Сохраняет личные поля профиля. Набор полей совпадает с правилом update
 // в firestore.rules; роль и организацию здесь изменить нельзя.
 export async function saveProfile(uid, patch, publicPatch) {
@@ -91,6 +116,15 @@ export async function loadPublicProfiles(uids, orgId) {
   }
 
   return results;
+}
+
+export async function resolveNames(uids, { viewerIsStaff, orgId } = {}) {
+  const profiles = await loadPublicProfiles(uids, orgId);
+  const nameMap = new Map();
+  // Документ publicProfiles хранит uid в id, а не в поле data().uid.
+  profiles.forEach(p => nameMap.set(p.id, displayName(p, { viewerIsStaff })));
+
+  return uids.map(uid => nameMap.get(uid) || "Участник").join(", ");
 }
 
 export function computeProfileStats(attempts, passPercent = 60) {

@@ -50,7 +50,8 @@ function parseBlocks(filePath) {
 const themes = [
   { name: 'education', path: 'ui/css/themes/education.css' },
   { name: 'operations', path: 'ui/css/themes/operations.css' },
-  { name: 'depot', path: 'ui/css/themes/depot.css' }
+  { name: 'depot', path: 'ui/css/themes/depot.css' },
+  { name: 'workforce', path: 'ui/css/themes/workforce.css' }
 ];
 
 const pairsToCheck = [

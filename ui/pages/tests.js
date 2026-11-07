@@ -1,10 +1,13 @@
 import { h } from "../../shared/dom.js";
 import { State, isStaff } from "../../core/auth.js";
 import { listMyTests, listPublishedTests, deleteTest } from "../../core/editor.js";
-import { canDeleteTest, explainDeleteError } from "../../core/test-delete-logic.js";
+import { canDeleteTest, deletionPlan, explainDeleteError } from "../../core/test-delete-logic.js";
+import { listAssignments } from "../../core/assign.js";
+import { getDocs, query, collection, db, where } from "../../shared/firebase.js";
+import { confirmAction } from "../../ui/components/confirm.js";
+import { toast } from "../../ui/components/toast.js";
 import { icons } from "../../shared/icons.js";
-import { confirmAction } from "../components/confirm.js";
-import { toast } from "../components/toast.js";
+import { t as tr, lt } from "../../core/i18n.js";
 
 function formatDate(value) {
   if (!value) return "—";
@@ -16,18 +19,20 @@ function formatDate(value) {
 function explainError(err) {
   const code = err && err.code;
   if (code === "permission-denied") {
-    return "Нет доступа к каталогу: правила Firestore не разрешают чтение этих тестов.";
+    return tr("tests.catalogDenied");
   }
   if (code === "failed-precondition") {
-    return "Для каталога нужен составной индекс Firestore (orgId + status). Индекс описан в firestore.indexes.json.";
+    // failed-precondition означает и «индекса нет», и «индекс ещё строится» —
+    // различить их на клиенте нельзя, поэтому сообщение честно описывает оба случая.
+    return "Запросу каталога не хватает составного индекса Firestore (индексы описаны в firestore.indexes.json). Если индекс только что добавлен, его построение может занять несколько минут — попробуйте позже.";
   }
   if (code === "unavailable") {
     return "Нет связи с Firestore. Проверьте подключение к интернету.";
   }
-  return "Не удалось загрузить каталог тестов. Попробуйте ещё раз.";
+  return tr("tests.catalogError");
 }
 
-function testCard(test, staff, { onDelete } = {}) {
+function testCard(test, staff) {
   // Цвет карточки из настроек теста: 1..4 — палитры cover-1..cover-4.
   const colorIndex = Number(test.color);
   const tone = colorIndex >= 1 && colorIndex <= 4
@@ -63,25 +68,65 @@ function testCard(test, staff, { onDelete } = {}) {
   }, test.status === "published" ? "Опубликован" : "Черновик");
 
   if (staff) {
-    const session = {
-      uid: State.user?.uid || "",
-      role: State.profile?.role || "",
-      orgId: State.profile?.orgId || ""
+    const onDelete = async () => {
+      const can = canDeleteTest(test, { uid: State.user.uid, role: State.profile.role, orgId: State.profile.orgId });
+      if (!can.allowed) {
+        toast(can.reason, "error");
+        return;
+      }
+
+      // План удаления: нужно найти активные задания и комнаты теста.
+      // Читаем задания организации; комнаты — только свои (правила не дадут читать чужие).
+      let assignments = [];
+      try {
+        assignments = await listAssignments(State.profile.orgId);
+      } catch (_) {}
+
+      // Комнаты: ищем активные комнаты этого теста, где я ведущий.
+      let rooms = [];
+      try {
+        const rSnap = await getDocs(query(
+          collection(db, "rooms"),
+          where("testId", "==", test.id),
+          where("hostId", "==", State.user.uid)
+        ));
+        rooms = rSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      } catch (_) {}
+
+      const plan = deletionPlan({ test, session: { uid: State.user.uid, role: State.profile.role }, assignments, rooms });
+
+      let warnText = tr("tests.deleteHint");
+      const details = [];
+      if (plan.closeAssignmentIds.length) {
+        details.push(h("p", { class: "warning-msg" }, `Будет закрыто активных заданий: ${plan.closeAssignmentIds.length}`));
+      }
+      if (plan.closeRoomCodes.length) {
+        details.push(h("p", { class: "warning-msg" }, `Будет закрыто активных Live-комнат: ${plan.closeRoomCodes.length}`));
+      }
+      if (plan.foreignAssignmentIds.length || plan.foreignRooms.length) {
+        details.push(h("p", { class: "muted", style: "font-size:0.9em" }, tr("tests.deleteForeign")));
+      }
+
+      const ok = await confirmAction({
+        title: tr("tests.deleteConfirm", { title: test.title }),
+        text: warnText,
+        details,
+        confirmLabel: "Удалить",
+        tone: "danger"
+      });
+
+      if (ok) {
+        try {
+          await deleteTest(test.id, plan);
+          toast(tr("tests.deleted"), "success");
+          // Перерисовываем страницу через роутер или находим и удаляем карточку.
+          // Проще всего вызвать роутер, так как страница тестов асинхронная.
+          window.location.reload();
+        } catch (err) {
+          toast(explainDeleteError(err), "error");
+        }
+      }
     };
-    const mayDelete = canDeleteTest(test, session).allowed;
-    const deleteBtn = mayDelete ? h("button", {
-      type: "button",
-      class: "btn secondary",
-      title: "Удалить тест",
-      dataset: { testId: test.id },
-      onclick: () => onDelete?.(test, deleteBtn)
-    },
-      h("span", {
-        "aria-hidden": "true", innerHTML: icons.trash,
-        style: "display:inline-flex;width:15px;height:15px;vertical-align:-3px;margin-right:6px"
-      }),
-      "Удалить"
-    ) : null;
 
     foot.append(
       status,
@@ -90,9 +135,7 @@ function testCard(test, staff, { onDelete } = {}) {
         ? h("a", { class: "btn primary", href: `#launch/${encodeURIComponent(test.id)}` }, "Запустить")
         : null,
       h("a", { class: "btn secondary", href: `#quiz/${encodeURIComponent(test.id)}` }, "Открыть"),
-      // Удаление не мешает остальным действиям: кнопка последняя и
-      // переносится на новую строку при нехватке места (flex-wrap).
-      deleteBtn
+      h("button", { type: "button", class: "btn secondary danger-text", onclick: onDelete, title: lt("tests.deleteTitle") }, "Удалить")
     );
   } else {
     foot.append(status, h("a", {
@@ -109,26 +152,14 @@ export default async function TestsPage() {
   const staff = isStaff();
   const page = h("div", { class: "page" });
 
-  // session собирается один раз: карточки нужны только для проверки прав
-  // на кнопку удаления (полную проверку делают и клиент, и правила).
-  const session = staff
-    ? {
-        uid: State.user?.uid || "",
-        role: State.profile?.role || "",
-        orgId: State.profile?.orgId || ""
-      }
-    : null;
-
   const head = h("div", { class: "page-head" },
     h("div", {},
-      h("div", { class: "eyebrow" }, "Обучение"),
-      h("h1", {}, staff ? "Мои тесты" : "Каталог тестов"),
-      h("p", { class: "page-sub" }, staff
-        ? "Тесты, которые вы создали. Черновики видны только вам."
-        : "Опубликованные тесты вашей организации. Выберите тест, чтобы начать.")
+      h("div", { class: "eyebrow" }, lt("tests.eyebrow")),
+      h("h1", {}, staff ? lt("tests.titleMine") : lt("tests.titleCatalog")),
+      h("p", { class: "page-sub" }, staff ? lt("tests.subMine") : lt("tests.subCatalog"))
     ),
     staff ? h("div", { class: "page-head-actions" },
-      h("a", { class: "btn primary", href: "#create-test" }, "Создать тест")
+      h("a", { class: "btn primary", href: "#create-test" }, lt("tests.create"))
     ) : null
   );
   page.appendChild(head);
@@ -177,83 +208,18 @@ export default async function TestsPage() {
       grid.appendChild(h("div", { class: "panel", style: "grid-column:1/-1" },
         h("div", { class: "empty-state" },
           h("div", { class: "empty-state-icon", innerHTML: icons.book }),
-          h("h2", {}, tests.length ? "Ничего не найдено" : (staff ? "Тестов пока нет" : "Опубликованных тестов нет")),
+          h("h2", {}, tests.length ? "Ничего не найдено" : (staff ? lt("tests.emptyMine") : lt("tests.emptyCatalog"))),
           h("p", { class: "muted" }, tests.length
             ? "Измените запрос или фильтр."
             : staff
-              ? "Создайте первый тест — он появится в этом списке."
-              : "Как только преподаватель опубликует тест, он появится здесь."),
-          staff && !tests.length ? h("a", { class: "btn primary", href: "#create-test" }, "Создать тест") : null
+              ? lt("tests.emptyMineHint")
+              : lt("tests.emptyCatalogHint")),
+          staff && !tests.length ? h("a", { class: "btn primary", href: "#create-test" }, lt("tests.create")) : null
         )
       ));
       return;
     }
-    visible.forEach(t => grid.appendChild(testCard(t, staff, { onDelete: handleDelete })));
-  }
-
-  // ---------- Удаление теста ----------
-  // Диалог → deleteTest → карточка убирается из каталога без
-  // перезагрузки страницы. Любая ошибка показывает понятную причину.
-  async function handleDelete(test, button) {
-    const check = canDeleteTest(test, session);
-    if (!check.allowed) {
-      toast(check.reason, "error");
-      return;
-    }
-
-    const confirmed = await confirmAction({
-      title: "Удалить тест?",
-      text: "Тест будет удалён из каталога и истории. Это действие нельзя отменить. Ранее полученные результаты и статистика обучения не должны быть потеряны.",
-      details: [
-        h("p", { style: "margin:0;font-weight:650" },
-          test.title || "Без названия")
-      ],
-      confirmLabel: "Удалить тест",
-      cancelLabel: "Отмена",
-      tone: "danger"
-    });
-    if (!confirmed) return;
-
-    // Индикатор выполнения + блокировка повторных нажатий.
-    const previousHtml = button.innerHTML;
-    const previousDisabled = button.disabled;
-    button.disabled = true;
-    button.innerHTML = "";
-    button.append(h("span", {
-      class: "spinner", "aria-hidden": "true",
-      style: "width:14px;height:14px;border-width:2px;margin-right:6px"
-    }), "Удаляем…");
-
-    try {
-      const summary = await deleteTest(test.id);
-
-      // Карточка исчезает из каталога и фильтров без перезагрузки.
-      tests = tests.filter(t => t.id !== test.id);
-      refreshCategoryFilter();
-      draw();
-
-      if (summary.unaddressedRooms.length) {
-        const list = summary.unaddressedRooms
-          .map(r => r.code + (r.hostName ? ` (${r.hostName})` : ""))
-          .join(", ");
-        toast(
-          `Тест удалён. Активные Live-комнаты других ведущих не закрыты — закройте их вручную: ${list}`,
-          "error");
-      } else {
-        toast("Тест удалён", "success");
-      }
-    } catch (err) {
-      console.error("Удаление теста:", err);
-      toast(explainDeleteError(err), "error");
-    } finally {
-      // Кнопка могла остаться от старой отрисовки — восстанавливаем только
-      // если она всё ещё в документе.
-      if (button.isConnected) {
-        button.disabled = previousDisabled;
-        button.innerHTML = "";
-        button.innerHTML = previousHtml;
-      }
-    }
+    visible.forEach(t => grid.appendChild(testCard(t, staff)));
   }
 
   search.addEventListener("input", draw);
@@ -270,31 +236,40 @@ export default async function TestsPage() {
     categorySelect.hidden = categories.length === 0;
   }
 
-  grid.appendChild(h("div", { class: "panel", style: "grid-column:1/-1" },
-    h("div", { class: "spinner" })));
-
-  try {
-    tests = staff
-      ? await listMyTests(State.user.uid, State.profile.orgId, State.profile.role)
-      : await listPublishedTests(State.profile.orgId);
-    refreshCategoryFilter();
-    draw();
-  } catch (err) {
-    console.error("Каталог тестов:", err);
+  // Загрузка каталога вынесена в отдельную функцию: кнопка «Повторить»
+  // повторяет именно запрос, а не перезагружает всё приложение.
+  async function loadCatalog() {
     grid.textContent = "";
     grid.appendChild(h("div", { class: "panel", style: "grid-column:1/-1" },
-      h("div", { class: "empty-state" },
-        h("div", { class: "empty-state-icon", innerHTML: icons.book }),
-        h("h2", {}, "Каталог недоступен"),
-        h("p", { class: "muted" }, explainError(err)),
-        h("button", {
-          type: "button",
-          class: "btn secondary",
-          onclick: () => window.location.reload()
-        }, "Повторить")
-      )
-    ));
+      h("div", { class: "spinner" })));
+
+    try {
+      tests = staff
+        ? await listMyTests(State.user.uid, State.profile.orgId, State.profile.role)
+        : await listPublishedTests(State.profile.orgId);
+      refreshCategoryFilter();
+      draw();
+    } catch (err) {
+      // Исходная ошибка всегда в консоли: код (failed-precondition /
+      // permission-denied / unavailable) виден разработчику полностью.
+      console.error("Каталог тестов:", err);
+      grid.textContent = "";
+      grid.appendChild(h("div", { class: "panel", style: "grid-column:1/-1" },
+        h("div", { class: "empty-state" },
+          h("div", { class: "empty-state-icon", innerHTML: icons.book }),
+          h("h2", {}, "Каталог недоступен"),
+          h("p", { class: "muted" }, () => explainError(err)),
+          h("button", {
+            type: "button",
+            class: "btn secondary",
+            onclick: loadCatalog
+          }, "Повторить")
+        )
+      ));
+    }
   }
+
+  loadCatalog();
 
   return page;
 }

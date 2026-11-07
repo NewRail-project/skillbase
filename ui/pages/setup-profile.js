@@ -19,8 +19,6 @@ import { State, createOwnProfile, applyTheme, DEFAULT_UI } from "../../core/auth
 import {
   SETUP_STYLES, profileSetupIncomplete, validateFullName
 } from "../../core/registration.js";
-import { saveConsent } from "../../core/consents.js";
-import { consentCheckbox } from "../../ui/components/consent.js";
 import { consumeReturnTo } from "../../shared/return-to.js";
 import { toast } from "../components/toast.js";
 
@@ -161,19 +159,6 @@ export default function SetupProfilePage() {
   paintStyles();
 
   const submit = h("button", { type: "button", class: "btn primary btn-block" }, "Завершить настройку");
-  submit.disabled = true;
-
-  // Согласие с документами — обязательный шаг создания профиля Google-
-  // пользователя: без отметки кнопка остаётся неактивной (запись consents).
-  const consent = consentCheckbox({ idPrefix: "setup" });
-  const setupHint = h("p", { class: "form-hint", role: "status" },
-    "Чтобы завершить настройку, отметьте согласие с документами.");
-  setupHint.hidden = true;
-  consent.input.addEventListener("change", () => {
-    submit.disabled = !consent.checked();
-    setupHint.hidden = consent.checked();
-  });
-
   submit.addEventListener("click", async () => {
     errorBox.textContent = "";
     const check = validateFullName(nameInput.value);
@@ -182,13 +167,7 @@ export default function SetupProfilePage() {
       nameInput.focus();
       return;
     }
-    if (!consent.checked()) {
-      consent.setError("Чтобы завершить настройку, подтвердите согласие с Политикой конфиденциальности и Пользовательским соглашением.");
-      consent.input.focus();
-      return;
-    }
     submit.disabled = true;
-    submit.setAttribute("aria-busy", "true");
     submit.textContent = "Сохраняем…";
     try {
       await createOwnProfile({
@@ -197,14 +176,6 @@ export default function SetupProfilePage() {
         position: positionInput.value.trim(),
         department: departmentInput.value.trim()
       });
-      // Факт согласия — в Firestore (consents): редакции документов и
-      // серверное время; сбой записи не отменяет созданный профиль.
-      try {
-        await saveConsent({ uid: State.user.uid, type: "signup" });
-      } catch (consentErr) {
-        console.error("Согласие не сохранено:", consentErr);
-        toast("Не удалось сохранить согласие с документами. Сообщите администратору.", "error");
-      }
       clearDraft();
       toast("Профиль готов", "success");
       window.location.hash = consumeReturnTo("#/");
@@ -214,7 +185,6 @@ export default function SetupProfilePage() {
         ? "Правила Firestore не разрешили сохранить профиль. Попробуйте ещё раз."
         : (err?.message || "Не удалось сохранить профиль. Проверьте соединение.");
       submit.disabled = false;
-      submit.removeAttribute("aria-busy");
       submit.textContent = "Завершить настройку";
     }
   });
@@ -245,8 +215,6 @@ export default function SetupProfilePage() {
         departmentInput,
         h("div", { class: "form-hint" }, "Необязательно")
       ),
-      consent.el,
-      setupHint,
       submit
     )
   ));

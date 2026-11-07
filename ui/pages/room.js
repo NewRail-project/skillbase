@@ -5,17 +5,17 @@
 // перерисовки: так техника FLIP сравнивает позиции строк между кадрами.
 import { h } from "../../shared/dom.js";
 import { State, isStaff } from "../../core/auth.js";
+import { loadCss } from "../../shared/load-css.js";
 import {
   subscribeRoom, subscribeOwnState, openQuestion, closeQuestion, saveAnswer,
   closeRoom, questionDurationSec, sendReaction, subscribeReactions,
   getMyRoomRole, startAutoTest, finishAutoTest, setRegistrationOpen,
-  revealAutoQuestion, writeScoreBoard, syncServerClock,
-  markQuestionShown, writeVerdicts, revealQuestions
+  revealAutoQuestion, writeScoreBoard, syncServerClock
 } from "../../core/rooms.js";
 import {
   questionTimeMs, answeredCount, myAnswerVerdict, buildJoinUrl, computeScores,
   streakFromReveals, verdictsFromTrail, streakTier, streakEvent, scoreBreakdown,
-  speedRatio, formatBreakdown, normalizePlayerTimes, verdictFromDoc
+  speedRatio, formatBreakdown, normalizePlayerTimes
 } from "../../core/rooms-logic.js";
 import {
   CONN, ROLE_OBSERVER, ROLE_PLAYER, RATING_STATUS_LABEL,
@@ -23,8 +23,7 @@ import {
   deriveConnectionState, roleOfPlayer, questionIndexAt, keysByPosition,
   finalizablePositions, finishedPositions, ratingRows, changedScores,
   summarizeRating, questionAccuracy, isRegistrationOpen, serverNow,
-  formatClockMs, isSelfPaced, selfPlan, selfProgress, SELF_HOLD_MS,
-  computeSelfScores, liveVerdicts, verdictMapFromResults, changedVerdicts
+  formatClockMs
 } from "../../core/live-auto.js";
 import { router, leaveWithHash } from "../../shared/app.js";
 import {
@@ -35,18 +34,21 @@ import { avatarChip as avatarChipEl } from "../components/avatar.js";
 import { play, soundEnabled, setSoundEnabled, vibrate } from "../../shared/sound.js";
 import { REACTIONS, REACTION_COOLDOWN_MS, canSendReaction } from "../../shared/reactions.js";
 import { reactionGlyph, reactionLabel } from "../components/reaction-icons.js";
-import { leaderList, captureRects, playFlip, animateNumber, MOVE_VISIBLE_MS, patchLeaderboard } from "../components/leaderboard.js";
+import { leaderList, reconcileLeaderList, captureRects, playFlip, MOVE_VISIBLE_MS } from "../components/leaderboard.js";
 import { streakMeter } from "../components/streak.js";
 import { ringTimer, updateRings, pulseRings, gapCountdown, updateGap } from "../components/ring-timer.js";
 import { buildPodium, playPodium, showPodiumNow, podiumOrder, STEP_MS } from "../components/podium.js";
 import { runConfetti, stopConfetti } from "../components/confetti.js";
 import { buildDuel } from "../components/duel.js";
 import { buildExpress, expressStations, EXPRESS_STOP_MS } from "../components/express.js";
-import { appearanceTools } from "../components/theme-toggle.js";
+import { themeToggle } from "../components/theme-toggle.js";
 import { icons } from "../../shared/icons.js";
 import { toast } from "../components/toast.js";
-import { confirmAction } from "../components/confirm.js";
 import { generateQRSvg } from "../../shared/qr.js";
+import { hasMaterial } from "../../core/materials.js";
+import { themedQrOptions, qrPalette } from "../../shared/qr-theme.js";
+import { subscribeTheme, subscribeSkin } from "../../shared/theme.js";
+import { t as tr, lt } from "../../core/i18n.js";
 
 let unsubs = [];
 let autoTimer = null;   // автозакрытие у ведущего (ручной режим)
@@ -84,12 +86,6 @@ let profilesLoaded = false;
 let dutyBusy = false;
 let lastScoreSig = "";
 let dutyErrorShown = false;
-let dutyTimer = null;      // отложенный запуск обязанностей ведущего (300–500 мс)
-let hostVerdictCache = {}; // uid → последний записанный вердикт
-let verdictFxSeen = new Set(); // "qid" вердиктов, на которые уже сыграли эффект
-let showTryAt = 0;         // когда в последний раз просили показать вопрос
-let tickCount = 0;
-let lastLeaderUid = null;  // для конфетти при смене лидера
 function reset() {
   unsubs.forEach(fn => { try { fn(); } catch (e) { /* уже отписаны */ } });
   unsubs = [];
@@ -122,18 +118,13 @@ function reset() {
   dutyBusy = false;
   lastScoreSig = "";
   dutyErrorShown = false;
-  if (dutyTimer) { clearTimeout(dutyTimer); dutyTimer = null; }
-  hostVerdictCache = {};
-  verdictFxSeen = new Set();
-  showTryAt = 0;
-  tickCount = 0;
-  lastLeaderUid = null;
   pageRef = null;
   leaderRef = null;
   statusRef = null;
   local = {
     room: null, players: [], scores: [], reveals: {}, reactions: [],
     profiles: new Map(), test: null, keys: null, keysReady: false,
+    hasMaterial: false,    // у теста есть учебный материал (кнопка «Прочитать»)
     receivedMs: 0, code: "", playersLoaded: false,
     // Независимые источники состояния подключения:
     ownPlayer: null,       // собственный документ players/{uid}
@@ -144,13 +135,7 @@ function reset() {
     timedOut: false,
     errors: {},            // room / own / players — ошибки подписок
     offsetMs: 0,           // смещение часов устройства до сервера
-    clockReady: false,
-    // «В своём темпе»: личная лента и вердикты от ведущего.
-    myShown: {},           // qid → мс показа вопроса мне
-    shownReady: false,
-    verdicts: null,        // мой документ verdicts/{uid}
-    verdictsReady: false,
-    selfHold: null         // { pos, until, max } — пауза с вердиктом
+    clockReady: false
   };
 }
 reset();
@@ -221,7 +206,7 @@ function role() {
 function myPlayer() {
   const uid = State.user?.uid;
   if (local.ownPlayer) {
-    return { ...local.ownPlayer, uid, answers: local.myAnswers, times: local.myTimes, shown: local.myShown };
+    return { ...local.ownPlayer, uid, answers: local.myAnswers, times: local.myTimes };
   }
   const listed = local.players.find(p => p.uid === uid);
   return listed ? { ...listed, answers: { ...(listed.answers || {}), ...local.myAnswers } } : null;
@@ -242,7 +227,6 @@ function liveInfo() {
   if (!room) return empty;
   const nowMs = serverNowMs();
   const lifecycle = roomLifecycle(room, nowMs);
-  if (isSelfPaced(room)) return selfLiveInfo(room, lifecycle, nowMs);
   if (!isAutoRoom(room)) {
     const left = (() => {
       if (room.phase !== "opened") return null;
@@ -273,52 +257,6 @@ function liveInfo() {
   };
 }
 
-// «В своём темпе»: позиция берётся из личной ленты игрока (shown/answers), а
-// не из общего расписания. Ведущий и наблюдатель общей позиции не имеют.
-function selfLiveInfo(room, lifecycle, nowMs) {
-  const plan = selfPlan(room);
-  const base = { auto: true, self: true, lifecycle, plan, phase: "idle", legacyPhase: "idle",
-    position: -1, qid: "", msLeft: null, ownDone: false };
-  if (lifecycle === "completed" || lifecycle === "closed") {
-    return { ...base, phase: "done", legacyPhase: "done", position: Math.max(-1, plan.count - 1), ownDone: true };
-  }
-  if (lifecycle === "waiting") return base;
-  if (role() !== "player") return { ...base, phase: "question", legacyPhase: "opened" };
-
-  const me = myPlayer();
-  const hold = local.selfHold;
-  if (hold) {
-    const now = Date.now();
-    const haveVerdict = verdictFromDoc(local.verdicts, hold.pos).verdict !== null;
-    if (now < hold.until || (!haveVerdict && room.instantVerdict !== false && now < hold.max)) {
-      return { ...base, phase: "verdict", legacyPhase: "verdict", position: hold.pos, qid: String(hold.pos) };
-    }
-    local.selfHold = null;
-  }
-  const prog = selfProgress({ plan, shown: local.myShown, answers: me?.answers || {}, nowMs });
-  if (prog.done) {
-    return { ...base, phase: "done", legacyPhase: "done", position: plan.count - 1, ownDone: true };
-  }
-  return { ...base, phase: "question", legacyPhase: "opened", position: prog.position,
-    qid: String(prog.position), msLeft: prog.msLeft, needsShow: prog.needsShow };
-}
-
-// Игроку пора показать следующий вопрос — создаём shown/{позиция}. Серверная
-// метка запускает личный таймер; повтор не чаще раза в 700 мс (правило может
-// отклонить слишком раннюю попытку из-за расхождения часов — тогда повторим).
-function ensureSelfShown() {
-  const room = local.room;
-  if (!isSelfPaced(room) || role() !== "player" || !local.clockReady || !local.shownReady) return;
-  const li = liveInfo();
-  if (li.lifecycle !== "in_progress" || li.phase !== "question" || !li.needsShow) return;
-  const now = Date.now();
-  if (now - showTryAt < 700) return;
-  showTryAt = now;
-  markQuestionShown(local.code, li.position).catch(err => {
-    if (err?.code !== "permission-denied") console.warn("Показ вопроса:", err?.code || err);
-  });
-}
-
 // Вопрос теста для позиции (в автономном режиме порядок может быть
 // случайным: order[позиция] → индекс вопроса).
 function questionFor(position) {
@@ -346,7 +284,21 @@ function signature() {
   const revealId = li.legacyPhase === "closed" && li.qid !== ""
     ? (local.reveals?.[li.qid] ? "on" : "off")
     : "-";
+  const answers = (local.players || [])
+    .filter(p => roleOfPlayer(p) !== ROLE_OBSERVER)
+    .map(p => `${String(p.uid).slice(0, 6)}:${Object.keys(p.answers || {}).length}`)
+    .sort()
+    .join(",");
+  const ids = (local.players || []).map(p => String(p.uid).slice(0, 6)).sort().join(",");
   const me = role();
+  // Игрок, который отвечает на вопрос: не перерисовываем из-за чужих
+  // данных — поле ввода не должно терять текст и фокус.
+  const typing = me === "player" && li.phase === "question" && myAnswer == null;
+  const crowd = typing ? "-" : [
+    String(local.players.length), `ids=${ids}`, `answers=${answers}`,
+    `scores=${(local.scores || []).map(s => `${String(s.uid).slice(0, 6)}:${s.score}:${s.finished ?? 0}`).sort().join(",")}`,
+    `reveals=${Object.keys(local.reveals || {}).length}`
+  ].join("~");
   return [
     room ? room.status : "no-room",
     connState(),
@@ -356,13 +308,14 @@ function signature() {
     String(room?.qStartedMs ?? ""),
     `reg=${room?.registrationOpen === false ? 0 : 1}`,
     `clock=${local.clockReady ? 1 : 0}`,
+    `crowd=${crowd}`,
     `reveal=${revealId}`,
     `me=${myAnswer != null ? 1 : 0}`,
-    `vd=${Object.keys(local.verdicts?.v || {}).length}:${local.shownReady ? 1 : 0}:${li.needsShow ? 1 : 0}`,
     `role=${me}`,
     `removed=${local.removed ? 1 : 0}`,
     `test=${local.test ? 1 : 0}`,
-    `keys=${local.keysReady ? 1 : 0}`
+    `keys=${local.keysReady ? 1 : 0}`,
+    `mat=${local.hasMaterial ? 1 : 0}`
   ].join("|");
 }
 
@@ -466,6 +419,12 @@ function decorateRoom(room) {
 }
 
 export default async function RoomPage() {
+  // Стили Live-комнаты и реакций подключаются точечно: они не нужны
+  // остальным страницам и не должны блокировать первую отрисовку.
+  await Promise.all([
+    loadCss("ui/css/live.css"),
+    loadCss("ui/css/reactions.css")
+  ]);
   shownErrors.clear();
   const rawRoute = decodeURIComponent((State.routeParam || ""));
   const parts = rawRoute.split("/");
@@ -475,23 +434,50 @@ export default async function RoomPage() {
     class: "page room-page" + (isScreen ? " room-screen-page" : "")
   });
 
-  // ---------- 1. Комната и тест (разовое чтение) ----------
-  let code = "";
+  // ---------- 1. Комната и тест (разовые чтения) ----------
+  // Всегда читаем комнату из Firestore (ведущий только что создал её, документ
+  // уже записан). Состояние кладём в local ДО подписок: wake() и role()
+  // работают только когда local.code и local.room заполнены.
+  reset();
+  const code = String(codeRaw || "").toUpperCase();
+  let probeResult = null;
   try {
-    const probe = await probeRoom(codeRaw);
-    if (!probe) {
-      page.appendChild(notFoundPanel());
-      return page;
-    }
-    code = probe.id;
-    local.code = code;
-    local.room = decorateRoom({ ...probe, id: probe.id });
-    local.roomLoaded = true;
-    local.test = await loadTestPublic(probe.testId);
-    if (probe.hostId === State.user?.uid && isStaff()) {
-      local.keys = await loadKeys(probe.testId);
-      local.keysReady = Boolean(local.keys && Object.keys(local.keys).length);
-    }
+    probeResult = await probeRoom(code);
+  } catch (err) {
+    console.error("Комната:", err);
+    local.timedOut = false;
+    page.appendChild(connectionErrorPanel(err));
+    return page;
+  }
+  if (!probeResult) {
+    page.appendChild(notFoundPanel());
+    return page;
+  }
+  local.code = code;
+  local.room = decorateRoom(probeResult);
+  local.roomLoaded = true;
+  local.receivedMs = Date.now();
+
+  const isHost = isStaff() && probeResult.hostId === State.user?.uid;
+
+  // Тест и ключи грузятся параллельно; недоступное (ключи у студента)
+  // не ломает отрисовку.
+  try {
+    const [testDoc, keys, materialExists] = await Promise.all([
+      loadTestPublic(probeResult.testId).catch(err => {
+        console.error("Тест комнаты:", err);
+        return null;
+      }),
+      isHost ? loadKeys(probeResult.testId) : Promise.resolve(null),
+      // Материал читает участник с профилем; гостю правила его не отдают.
+      isHost || State.user?.isAnonymous
+        ? Promise.resolve(false)
+        : hasMaterial(probeResult.testId)
+    ]);
+    local.hasMaterial = Boolean(materialExists);
+    local.test = testDoc;
+    local.keys = keys;
+    local.keysReady = true;
   } catch (err) {
     console.error("Комната:", err);
     page.appendChild(connectionErrorPanel(err));
@@ -499,7 +485,7 @@ export default async function RoomPage() {
   }
 
   // Экран проектора: только ведущий.
-  if (isScreen && role() !== "host") {
+  if (isScreen && !isHost) {
     page.appendChild(h("div", { class: "panel" },
       h("div", { class: "empty-state" },
         h("h2", {}, "Экран доступен только ведущему"),
@@ -509,13 +495,10 @@ export default async function RoomPage() {
     return page;
   }
 
-  // ---------- 2. Членство: собственный документ, без списка ----------
-  // Чтение своего players/{uid} разрешено правилами напрямую. Подтверждённое
-  // членство сразу даёт роль и состояние «waiting» — полный список
-  // участников грузится отдельно и ни от чего здесь не зависит.
-  const isHost = role() === "host";
+  // ---------- 2. Членство ----------
   if (isHost) {
     local.memberConfirmed = true;
+    local.roomLoaded = true;
   } else {
     let myRole = null;
     try {
@@ -526,12 +509,10 @@ export default async function RoomPage() {
       return page;
     }
     if (!myRole) {
-      if (local.room?.status !== "active") {
+      if (probeResult.status !== "active") {
         page.appendChild(closedRoomPanel());
         return page;
       }
-      // Роль выбирается на экране входа: тихого автоподключения нет
-      // (наблюдатель не должен превращаться в участника и наоборот).
       page.appendChild(redirectToJoinPanel(code));
       leaveWithHash(`#join/${code}`);
       return page;
@@ -543,12 +524,24 @@ export default async function RoomPage() {
   }
 
   // ---------- 3. Независимые подписки ----------
-  const wake = () => {
+  // Пачки снапшотов (очки, раскрытия и реакции часто приходят вместе,
+  // особенно у ведущего и на проекторе) дают один проход состояния на кадр:
+  // requestAnimationFrame схлопывает подряд идущие wake() в один проход.
+  // Данные к этому моменту уже лежат в local, промежуточные состояния
+  // пропускаются безопасно — события (звуки, вспышки) срабатывают по
+  // итоговой разнице с prev.
+  let passQueued = false;
+  const runPass = () => {
+    passQueued = false;
     if (!local || local.code !== code) return;
     onStateUpdate(page, isScreen);
     scheduleRender(page);
-    queueHostDuties();
-    ensureSelfShown();
+  };
+  const wake = () => {
+    if (!local || local.code !== code) return;
+    if (passQueued) return;
+    passQueued = true;
+    requestAnimationFrame(runPass);
   };
 
   // 15 секунд — только защита от бесконечного ожидания: таймаут не
@@ -561,7 +554,6 @@ export default async function RoomPage() {
   // Комната.
   unsubs.push(subscribeRoom(code, {
     answerScope: isHost ? "all" : "none",
-    watchShown: isHost && isSelfPaced(local.room),
     onRoom: room => {
       if (room) {
         local.room = decorateRoom(room);
@@ -609,19 +601,6 @@ export default async function RoomPage() {
         local.myTimes = times;
         wake();
       },
-      onShown: isSelfPaced(local.room) ? shown => {
-        local.myShown = shown;
-        local.shownReady = true;
-        wake();
-      } : null,
-      // Вердикты ведущего: верно/неверно сразу после ответа, без ключа.
-      onVerdicts: local.room?.instantVerdict === true ? verdicts => {
-        // Первый снапшот (после перезагрузки) только запоминаем, без эффектов.
-        if (!local.verdictsReady) Object.keys(verdicts?.v || {}).forEach(q => verdictFxSeen.add(q));
-        local.verdicts = verdicts;
-        local.verdictsReady = true;
-        wake();
-      } : null,
       onError: error => { setError("own", error); wake(); }
     }));
   }
@@ -683,13 +662,9 @@ export default async function RoomPage() {
   // Тикер: расписание автономного режима, таймеры, обязанности ведущего.
   ticker = setInterval(() => {
     if (!local || local.code !== code) return;
-    tickCount += 1;
     onStateUpdate(page, isScreen);
-    // Тикер нужен только для вещей, зависящих от времени; рейтинг и вердикты
-    // приходят событиями снапшотов (wake), тикер лишь страхует раз в 2 с.
-    scheduleRender(page, { tick: true });
+    scheduleRender(page);
     updateLiveTexts();
-    ensureSelfShown();
     hostAutoDuties();
   }, 500);
 
@@ -727,96 +702,13 @@ function scoreSignature(plan, nowMs) {
   return `${finished}|${answers}|${local.scores.length}`;
 }
 
-// Ответ участника пришёл снапшотом: пересчёт запускаем через ~350 мс, чтобы
-// пачка одновременных ответов ушла в Firestore одним пакетом (лимиты записи),
-// но вердикт и рейтинг обновились почти сразу, а не по тикеру.
-const DUTY_DEBOUNCE_MS = 350;
-function queueHostDuties() {
-  if (dutyTimer || role() !== "host" || !isAutoRoom(local.room)) return;
-  dutyTimer = setTimeout(() => {
-    dutyTimer = null;
-    hostAutoDuties();
-  }, DUTY_DEBOUNCE_MS);
-}
-
-// «В своём темпе»: у каждого свои позиции, поэтому очки, вердикты и итог
-// считаются по личной ленте игрока (computeSelfScores), а не по расписанию.
-// Ключи правильных ответов остаются у ведущего: игрокам уходит только вердикт.
-async function hostSelfDuties() {
-  const room = local.room;
-  if (dutyBusy || !room || role() !== "host" || !local.keysReady || !navigator.onLine) return;
-  const nowMs = serverNowMs();
-  const lifecycle = roomLifecycle(room, nowMs);
-  if (lifecycle === "waiting") return;
-  const plan = selfPlan(room);
-  const finalize = lifecycle === "completed" || lifecycle === "closed";
-  const keysByPos = keysByPosition(local.keys, room);
-  const board = computeSelfScores({
-    players: local.players, keysByPos, plan, nowMs, finalize, speedBonus: room.speedBonus !== false
-  });
-  const verdicts = {};
-  for (const row of board) verdicts[row.uid] = verdictMapFromResults(row.results);
-  const changedV = changedVerdicts(hostVerdictCache, verdicts);
-  const changedS = changedScores(local.scores, board);
-  const missingReveals = finalize
-    ? Array.from({ length: plan.count }, (_, i) => i).filter(i => !local.reveals?.[String(i)])
-    : [];
-  const everyoneDone = lifecycle === "in_progress" && board.length > 0 && board.every(r => r.done)
-    && room.registrationOpen === false;
-  if (!Object.keys(changedV).length && !changedS.length && !missingReveals.length && !everyoneDone) return;
-
-  dutyBusy = true;
-  try {
-    // Сначала вердикты — игрок ждёт их на экране.
-    if (Object.keys(changedV).length) {
-      await writeVerdicts({ code: local.code, verdicts: changedV });
-      Object.assign(hostVerdictCache, changedV);
-    }
-    if (changedS.length) await writeScoreBoard({ code: local.code, board: changedS });
-    if (missingReveals.length) {
-      await revealQuestions({ code: local.code, positions: missingReveals, keysByPos });
-    }
-    if (everyoneDone) await finishAutoTest(local.code);
-    dutyErrorShown = false;
-  } catch (err) {
-    console.error("Режим «в своём темпе» (ведущий):", err);
-    if (!dutyErrorShown) {
-      dutyErrorShown = true;
-      toast("Не удалось обновить вердикты или рейтинг — повторю автоматически.", "error");
-    }
-  } finally {
-    dutyBusy = false;
-  }
-}
-
-// Синхронный автономный режим с мгновенным вердиктом: вердикт пишем сразу
-// после ответа, не дожидаясь закрытия вопроса. Ключ при этом не раскрывается.
-async function hostInstantVerdicts(room, plan) {
-  const keysByPos = keysByPosition(local.keys, room);
-  const speed = room.speedBonus === false ? null : { qDurationSec: plan.questionSec, qStarts: autoQStarts(plan) };
-  const next = liveVerdicts({ players: local.players, keysByPos, speed });
-  const changed = changedVerdicts(hostVerdictCache, next);
-  if (!Object.keys(changed).length) return;
-  await writeVerdicts({ code: local.code, verdicts: changed });
-  Object.assign(hostVerdictCache, changed);
-}
-
 async function hostAutoDuties() {
   const room = local.room;
   if (dutyBusy || !room || role() !== "host" || !isAutoRoom(room)) return;
-  // Отдельная ветка: две логики (общее расписание и личные ленты) не смешиваются.
-  if (isSelfPaced(room)) return hostSelfDuties();
   if (room.status !== "active" || !room.autoStartedAt || !local.keysReady) return;
   if (!navigator.onLine) return;
   const nowMs = serverNowMs();
   const plan = autoPlan(room);
-  if (room.instantVerdict === true && room.liveState === "in_progress") {
-    dutyBusy = true;
-    try { await hostInstantVerdicts(room, plan); }
-    catch (err) { console.error("Вердикты (ведущий):", err); }
-    finally { dutyBusy = false; }
-    if (dutyBusy) return;
-  }
   const todo = finalizablePositions({ plan, nowMs, reveals: local.reveals || {} });
   const lifecycle = roomLifecycle(room, nowMs);
   const needComplete = lifecycle === "completed" && room.liveState !== "completed";
@@ -851,7 +743,7 @@ async function hostAutoDuties() {
   }
 }
 
-// Обновление таймеров и счетчиков «на месте», без перерисовки.
+// Обновление таймеров «на месте», без перерисовки (поле ответа не теряет фокус).
 function updateLiveTexts() {
   const page = pageRef;
   if (!page) return;
@@ -866,30 +758,9 @@ function updateLiveTexts() {
   page.querySelectorAll("[data-live-bar]").forEach(el => {
     const plan = li.plan;
     if (!plan || li.msLeft == null) { el.style.width = "0%"; return; }
-    const total = li.phase === "question" ? plan.questionMs : (plan.gapMs || 1);
+    const total = li.phase === "question" ? plan.questionMs : plan.gapMs;
     el.style.width = `${Math.max(0, Math.min(100, (1 - li.msLeft / total) * 100))}%`;
   });
-
-  // Счетчики участников и ответов
-  const players = local.players.filter(p => roleOfPlayer(p) !== ROLE_OBSERVER);
-  const pCount = players.length;
-  const oCount = local.players.length - pCount;
-  const answered = li.qid !== "" ? answeredCount(players, li.qid) : 0;
-  const doneCount = (local.scores || []).filter(r => r.done === true && !r.isAdminPlayer).length;
-
-  page.querySelectorAll("[data-live-players-count]").forEach(el => { el.textContent = String(pCount); });
-  page.querySelectorAll("[data-live-observers-count]").forEach(el => { el.textContent = String(oCount); });
-  page.querySelectorAll("[data-live-answered-count]").forEach(el => { el.textContent = `${answered} из ${pCount}`; });
-  page.querySelectorAll("[data-live-done-count]").forEach(el => { el.textContent = String(doneCount); });
-
-  if (li.self) {
-    const total = local.room?.questionCount || 0;
-    page.querySelectorAll("[data-live-done-summary]").forEach(el => { el.textContent = `Закончили ${doneCount} из ${pCount}`; });
-  } else {
-    const total = local.room?.questionCount || 0;
-    const progress = Math.max(0, li.lifecycle === "waiting" ? 0 : li.position + (li.phase === "gap" || li.phase === "done" ? 1 : 0));
-    page.querySelectorAll("[data-live-questions-progress]").forEach(el => { el.textContent = `${progress}/${total}`; });
-  }
 }
 
 // ---------- Каркас ----------
@@ -901,15 +772,9 @@ function statusText() {
   let text;
   if (!room) text = "Ждём комнату…";
   else if (li.lifecycle === "closed") text = "Комната закрыта";
-  else if (li.self) {
-    text = li.lifecycle === "waiting" ? "Ожидание начала теста"
-      : li.lifecycle === "completed" ? "Тест завершён"
-      : role() === "player"
-        ? (li.ownDone ? "Вы ответили на все вопросы" : `Вопрос ${li.position + 1} из ${total}`)
-        : "Тест идёт · каждый в своём темпе";
-  } else if (li.auto) {
-    text = li.lifecycle === "waiting" ? "Ожидание начала теста"
-      : li.lifecycle === "completed" ? "Тест завершён"
+  else if (li.auto) {
+    text = li.lifecycle === "waiting" ? tr("room.waitStart")
+      : li.lifecycle === "completed" ? tr("room.finished")
       : li.phase === "question" ? `Вопрос ${li.position + 1} из ${total}`
       : `Пауза · вопрос ${li.position + 1} из ${total}`;
   } else {
@@ -931,7 +796,7 @@ function fillStatusBar() {
   statusRef.append(statusText(), soundToggle());
 }
 
-function scheduleRender(page, { tick = false } = {}) {
+function scheduleRender(page) {
   if (page) pageRef = page;
   const target = page || pageRef;
   const sig = signature();
@@ -941,12 +806,8 @@ function scheduleRender(page, { tick = false } = {}) {
     manageAutoClose();
   }
   fillStatusBarIfChanged();
-  // Рейтинг и списки обновляются «на месте» по событию; тикер — страховка.
-  if (!tick || tickCount % 4 === 0) {
-    updateLeaderboard();
-    updateLobbyPeople();
-    updateStreakMeter();
-  }
+  updateLeaderboard();
+  updateStreakMeter();
   updateReactionBar();
   showFloats();
   ensureTickTimer();
@@ -965,8 +826,18 @@ function renderPage(page) {
   syncBoardFrame();
   const oldTops = captureRects(existing);
   const next = buildView();
-  if (existing) existing.replaceWith(next);
-  else page.insertBefore(next, page.querySelector(".room-leaderboard-host"));
+  if (existing) {
+    // Фиксируем высоту и прокрутку на время подмены: страница не
+    // «проваливается» и не прыгает, когда вид собирается заново.
+    const scrollY = window.scrollY;
+    const lockH = page.offsetHeight;
+    page.style.minHeight = `${lockH}px`;
+    existing.replaceWith(next);
+    if (window.scrollY !== scrollY) window.scrollTo(0, scrollY);
+    requestAnimationFrame(() => requestAnimationFrame(() => { page.style.minHeight = ""; }));
+  } else {
+    page.insertBefore(next, page.querySelector(".room-leaderboard-host"));
+  }
   playFlip(next, oldTops);
   updateLeaderboard();
   updateLiveTexts();
@@ -999,12 +870,10 @@ function onStateUpdate(page, isScreen) {
       play("start");
     }
     // Верность моего ответа: только когда вопрос закрылся и есть reveal.
-    // Если комната отдаёт мгновенный вердикт, реакция уже сыграла (verdictFx).
-    if (reveal && !prev.reveal && local.room?.instantVerdict !== true) {
+    if (reveal && !prev.reveal) {
       const verdict = myAnswerVerdict(reveal, mine);
       if (verdict === true) {
         play("correct"); vibrate("correct"); flash(page, "room-flash-correct");
-        miniConfetti(page);
       } else if (verdict === false) {
         play("wrong"); vibrate("wrong"); flash(page, "room-flash-wrong", true);
       }
@@ -1031,33 +900,7 @@ function onStateUpdate(page, isScreen) {
       if (!boardData().length) play("final");
     }
   }
-  verdictFx(page);
   prev = { ...now, ids, reveal: Boolean(reveal), rank: myRank, streak: myStreak, status: room?.status || "" };
-}
-
-// Маленькое конфетти у верного ответа (только у участника).
-function miniConfetti(page, power = 0.3) {
-  if (!page || reducedMotion() || isScreenRoute()) return;
-  runConfetti(page, { duration: 1500, power });
-}
-
-// Реакция на мгновенный вердикт ведущего: звук, вибрация, вспышка. Верно —
-// зелёная вспышка и конфетти, неверно — дрожание карточки. Каждый вердикт
-// отыгрывается один раз; то, что пришло при загрузке страницы (после
-// перезагрузки), только запоминается, без эффектов.
-function verdictFx(page) {
-  const map = local.verdicts?.v;
-  if (!local.verdictsReady || !map) return;
-  const fresh = Object.keys(map).filter(qid => !verdictFxSeen.has(qid));
-  if (!fresh.length) return;
-  fresh.forEach(qid => verdictFxSeen.add(qid));
-  const last = fresh.sort((a, b) => Number(a) - Number(b)).pop();
-  if (role() !== "player") return;
-  if (map[last].c === true) {
-    play("correct"); vibrate("correct"); flash(page, "room-flash-correct"); miniConfetti(page);
-  } else {
-    play("wrong"); vibrate("wrong"); flash(page, "room-flash-wrong", true);
-  }
 }
 
 // rankOf: место моего uid в таблице (по очкам).
@@ -1177,15 +1020,13 @@ function boardData() {
   const room = local.room;
   const li = liveInfo();
   const revealIds = Object.keys(local.reveals || {}).sort((a, b) => Number(a) - Number(b));
-  const finished = li.plan && !li.self ? finishedPositions(li.plan, serverNowMs()).length : revealIds.length;
+  const finished = li.plan ? finishedPositions(li.plan, serverNowMs()).length : revealIds.length;
   const rows = ratingRows({
     scores: local.scores,
     players: local.players,
     questionCount: room?.questionCount || 0,
     finished,
-    lifecycle: li.lifecycle,
-    // Участник-администратор виден в рейтинге только самому себе.
-    viewerUid: State.user?.uid || null
+    lifecycle: li.lifecycle
   });
   const mine = role() === "player" ? myPlayer() : null;
   for (const row of rows) {
@@ -1226,13 +1067,6 @@ function syncBoardFrame() {
   });
   const prevCur = frame.cur;
   frame = { sig, at: now, prev: prevCur, cur: mk() };
-  // Лидер сменился — короткое конфетти и звук (не при первом кадре).
-  const leader = rows[0] && (rows[0].score ?? 0) > 0 ? rows[0].uid : null;
-  if (leader && lastLeaderUid && leader !== lastLeaderUid && pageRef) {
-    miniConfetti(pageRef, isScreenRoute() ? 0.6 : 0.35);
-    play("up");
-  }
-  if (leader) lastLeaderUid = leader;
   if (prevCur) {
     for (const row of rows) {
       const old = prevCur.places.get(row.uid);
@@ -1244,7 +1078,7 @@ function syncBoardFrame() {
   return rows;
 }
 
-function leaderCtx({ board = false } = {}) {
+function leaderCtx({ board = false, enter = false } = {}) {
   const now = Date.now();
   const moves = new Map();
   for (const [uid, m] of moveState) {
@@ -1259,10 +1093,7 @@ function leaderCtx({ board = false } = {}) {
     prevStreaks: fresh ? new Map(frame.prev.streaks) : new Map(),
     statusLabel: RATING_STATUS_LABEL,
     board,
-    // Полоса очков: ширина пропорциональна баллам (от лидера); прошлый кадр
-    // нужен, чтобы полоса «выросла» из прежней длины.
-    maxScore: Math.max(1, ...(frame.cur ? [...frame.cur.scores.values()] : [0])),
-    prevMaxScore: fresh && frame.prev ? Math.max(1, ...frame.prev.scores.values()) : null
+    enter
   };
 }
 
@@ -1275,142 +1106,53 @@ function leaderSignature(rows) {
     `${row.uid}:${row.place}:${row.score ?? 0}:${row.correctCount ?? 0}:${row.streak ?? 0}:${row.percent}:${row.answered}`).join(",");
 }
 
-function updateLobbyPeople() {
-  const page = pageRef;
-  if (!page) return;
-  const participants = local.players.filter(p => roleOfPlayer(p) !== ROLE_OBSERVER);
-
-  // 1. Заголовки "Участники (N)"
-  page.querySelectorAll("[data-live-players-title]").forEach(el => {
-    el.textContent = `Участники (${participants.length})`;
-  });
-
-  // 2. Чипсы участников в лобби
-  page.querySelectorAll(".live-people[data-live-people]").forEach(container => {
-    patchPeopleChips(container, participants);
-  });
-
-  // 3. Сетка участников в lobbyPanel
-  page.querySelectorAll(".lobby-players-grid[data-live-players-grid]").forEach(container => {
-    patchPeopleChips(container, participants, { grid: true });
-  });
-}
-
-function patchPeopleChips(container, list, { grid = false } = {}) {
-  const existingMap = new Map();
-  container.querySelectorAll("[data-uid]").forEach(el => {
-    existingMap.set(el.getAttribute("data-uid"), el);
-  });
-
-  if (!list.length) {
-    if (container.textContent !== "") container.textContent = "";
+function updateLeaderboard() {
+  const host = leaderRef;
+  if (!host) return;
+  // На проекторе рейтинг построен в screenView — здесь не дублируем.
+  if (isScreenRoute()) return;
+  // Автономный режим: общий рейтинг — часть самого вида (ratingPanel).
+  if (isAutoRoom(local.room)) {
+    if (host.textContent) host.textContent = "";
+    host.classList.add("room-leaderboard-empty");
+    lastBoardSig = null;
     return;
   }
-
-  const fragment = document.createDocumentFragment();
-  list.forEach(p => {
-    const existing = existingMap.get(p.uid);
-    if (existing) {
-      fragment.appendChild(existing);
-    } else {
-      const chip = grid
-        ? h("div", {
-            class: "chip",
-            "data-uid": p.uid,
-            style: "display:flex;align-items:center;gap:6px;padding:4px 10px;background:var(--surface-2);border-radius:16px"
-          }, avatarChip(p), h("span", {}, p.name || "Участник"))
-        : h("span", { class: "chip live-chip", "data-uid": p.uid }, avatarChip(p), p.name || "Участник");
-      fragment.appendChild(chip);
-    }
-  });
-
-  container.textContent = "";
-  container.appendChild(fragment);
-}
-
-function updateScreenBoard(container, rows) {
-  const top = rows[0];
-  const hero = container.querySelector(".leader-hero[data-live-hero]");
-  if (hero && top) {
-    if (hero.getAttribute("data-uid") !== top.uid) {
-       // Лидер сменился — проще перерисовать героя
-       const nextHero = leaderHero(top);
-       nextHero.setAttribute("data-live-hero", "1");
-       hero.replaceWith(nextHero);
-    } else {
-       // Тот же лидер — обновим в месте
-       const scoreEl = hero.querySelector(".hero-score-num");
-       const prevScore = frame.prev?.scores?.get(top.uid);
-       const currentScore = top.score ?? 0;
-       if (scoreEl && scoreEl.textContent !== String(currentScore)) {
-         if (typeof prevScore === "number" && prevScore !== currentScore) {
-           animateNumber(scoreEl, prevScore, currentScore);
-         } else {
-           scoreEl.textContent = String(currentScore);
-         }
-       }
-       const nameEl = hero.querySelector(".hero-name");
-       if (nameEl && nameEl.textContent !== (top.name || "Участник")) {
-         nameEl.textContent = top.name || "Участник";
-       }
-    }
-  }
-
-  const listRows = (top && top.score > 0) ? rows.slice(1, 8) : rows.slice(0, 8);
-  patchLeaderboard(container, listRows, leaderCtx({ board: true }));
-}
-
-function updateLeaderboard() {
-  const page = pageRef;
-  if (!page) return;
   const room = local.room;
-  if (!room) return;
-
   const roleHere = role();
-  const isScreen = isScreenRoute();
+
+  // Участнику рейтинг — только по настройке теста showLeaderboard.
   syncBoardFrame();
-
-  const showBoard = isScreen || roleHere !== "player" || room.showLeaderboard === true;
-  const rows = showBoard ? boardRows() : [];
-
-  const sig = leaderSignature(rows);
-  const sigChanged = sig !== lastBoardSig;
-
-  // 1. Основной рейтинг (manual mode)
-  if (leaderRef && !isAutoRoom(room) && !isScreen) {
-    if (!rows.length) {
-      leaderRef.classList.add("room-leaderboard-empty");
-      leaderRef.textContent = "";
-    } else {
-      leaderRef.classList.remove("room-leaderboard-empty");
-      if (sigChanged || !leaderRef.querySelector(".lb-list")) {
-        patchLeaderboard(leaderRef, rows, leaderCtx());
-      }
-    }
+  const rows = Boolean(room)
+    && (roleHere !== "player" || room.showLeaderboard === true)
+    ? boardRows()
+    : [];
+  if (isSelfPaced) {
+    rows = computeSelfScores(players, questions);
   }
+  if (!rows.length) {
+    host.classList.add("room-leaderboard-empty");
+    if (host.textContent) host.textContent = "";
+    lastBoardSig = null;
+    return;
+  }
+  host.classList.remove("room-leaderboard-empty");
+  const sig = leaderSignature(rows);
+  if (host.querySelector(".lb-list") && sig === lastBoardSig) return;
 
-  // 2. Рейтинг в панели (auto mode / self-paced)
-  page.querySelectorAll(".live-rating[data-live-rating]").forEach(container => {
-    if (!rows.length) {
-      container.hidden = true;
-    } else {
-      container.hidden = false;
-      if (sigChanged || !container.querySelector(".lb-list")) {
-        const limitAttr = container.getAttribute("data-limit");
-        const limit = limitAttr ? Number(limitAttr) : null;
-        patchLeaderboard(container, limit ? rows.slice(0, limit) : rows, leaderCtx());
-      }
-    }
-  });
-
-  // 3. Рейтинг на проекторе
-  page.querySelectorAll(".screen-board-wrap[data-live-screen-board]").forEach(container => {
-    if (sigChanged || !container.querySelector(".lb-list")) {
-      updateScreenBoard(container, rows);
-    }
-  });
-
-  if (sigChanged) lastBoardSig = sig;
+  // FLIP: запомнить позиции ДО обновления, доехать ПОСЛЕ.
+  const oldTops = captureRects(host);
+  // Список уже на экране — обновляем только изменившиеся карточки,
+  // без пересоздания всего блока (иначе страница мигает).
+  const list = host.querySelector(".lb-list");
+  if (!(list && host.querySelector(".lb-title") && reconcileLeaderList(list, rows, leaderCtx()))) {
+    host.replaceChildren(
+      h("h2", { class: "lb-title" }, "Рейтинг"),
+      leaderListFor(rows, { enter: true })
+    );
+  }
+  lastBoardSig = sig;
+  playFlip(host, oldTops);
 }
 
 // Полоса серии над карточкой участника: огонь с 3, молния с 5.
@@ -1449,14 +1191,12 @@ function joinUrl(code) {
 }
 
 // Настройки QR-кода для Live-комнат (фирменные цвета Skillbase)
+// Цвета модулей берутся из текущей темы/скина (shared/qr-theme.js).
 const roomQROptions = {
   width: 280,
   height: 280,
   ecc: "H",
-  rounded: true,
-  dark: "#172817",        // тёмно-зелёные модули
-  light: "#F5F7ED",       // светлый фон QR
-  finderDark: "#101810"   // ещё более тёмные маркеры
+  rounded: true
 }
 
 // Рисует SVG QR-кода внутрь элемента. size — сторона в px: один механизм
@@ -1464,11 +1204,14 @@ const roomQROptions = {
 function paintQR(box, code, size = 280) {
   if (!box || !code) return;
   try {
-    box.innerHTML = generateQRSvg(joinUrl(code), {
+    box.style.background = qrPalette().light;
+    box.dataset.qrCode = code;
+    box.dataset.qrSize = String(size);
+    box.innerHTML = generateQRSvg(joinUrl(code), themedQrOptions({
       ...roomQROptions,
       width: size,
       height: size
-    });
+    }));
   } catch (err) {
     console.error("QR generation failed:", err);
   }
@@ -1487,6 +1230,17 @@ async function initRoomQR(room, root) {
   // Размер задаёт карточка ведущего (компактный 160 / крупный 280);
   // ссылка и генерация общие с режимом проектора.
   paintQR(qrWrapper, room.code, Number(qrWrapper.dataset.qrSize || 280));
+  // Смена темы или скина перекрашивает QR; после ухода со страницы — отписка.
+  const repaintQR = () => {
+    if (!qrWrapper.isConnected) {
+      if (qrWrapper.dataset.seen) { offTheme(); offSkin(); }
+      return;
+    }
+    qrWrapper.dataset.seen = "1";
+    paintQR(qrWrapper, qrWrapper.dataset.qrCode || room.code, Number(qrWrapper.dataset.qrSize || 280));
+  };
+  const offTheme = subscribeTheme(repaintQR);
+  const offSkin = subscribeSkin(repaintQR);
 
   // Копирование ссылки.
   copyBtn.addEventListener('click', async () => {
@@ -1518,7 +1272,7 @@ async function initRoomQR(room, root) {
       const exportSize = 1024;
       canvas.width = exportSize;
       canvas.height = exportSize;
-      ctx.fillStyle = "#F5F7ED";
+      ctx.fillStyle = qrPalette().light;
       ctx.fillRect(0, 0, exportSize, exportSize);
       ctx.drawImage(img, 0, 0, exportSize, exportSize);
 
@@ -1542,24 +1296,10 @@ async function initRoomQR(room, root) {
 
 // ---------- Аватары ----------
 
-// Цвет кольца аватара — по группе участника (стабильный оттенок из groupId).
-// Без группы (гость) кольцо нейтральное.
-function groupColor(groupId) {
-  if (!groupId) return null;
-  let acc = 0;
-  for (const ch of String(groupId)) acc = (acc * 31 + ch.charCodeAt(0)) >>> 0;
-  return `hsl(${acc % 360} 70% 48%)`;
-}
-
 function avatarChip(entry) {
   // Гость не имеет publicProfiles — аватар берём из его players-документа.
   const profile = local.profiles.get(entry.uid);
-  const groupId = entry.groupId || local.players.find(p => p.uid === entry.uid)?.groupId || null;
-  const chip = avatarChipEl(profile?.avatar || entry.avatar, entry.name, "avatar-ring");
-  const color = groupColor(groupId);
-  if (color) chip.style.setProperty("--ring", color);
-  else chip.classList.add("avatar-ring-none");
-  return chip;
+  return avatarChipEl(profile?.avatar || entry.avatar, entry.name);
 }
 
 // ---------- Подиум и конфетти ----------
@@ -1567,7 +1307,7 @@ function avatarChip(entry) {
 function livePodium() {
   const room = local.room;
   if (!room || room.status !== "active") return null;
-
+  
   // Показываем топ-3 в реальном времени для наблюдателей
   // или если в настройках включена таблица лидеров
   const roleHere = role();
@@ -1736,10 +1476,9 @@ function playersListWidget(players) {
   if (!activePlayers.length) {
     return h("div", { class: "form-hint", style: "text-align:center;margin-top:0.75rem" }, "Участники пока не подключились");
   }
-  return h("div", { class: "lobby-players-grid", "data-live-players-grid": "1", style: "display:flex;flex-wrap:wrap;gap:var(--space-2);justify-content:center;margin-top:1rem" },
+  return h("div", { class: "lobby-players-grid", style: "display:flex;flex-wrap:wrap;gap:var(--space-2);justify-content:center;margin-top:1rem" },
     activePlayers.map(p => h("div", {
       class: "chip",
-      "data-uid": p.uid,
       style: "display:flex;align-items:center;gap:6px;padding:4px 10px;background:var(--surface-2);border-radius:16px"
     }, avatarChip(p), h("span", {}, p.name || "Участник")))
   );
@@ -1755,7 +1494,7 @@ function hostHeader(wrap, room) {
       h("p", { class: "page-sub" }, `Код комнаты: `),
     ),
     h("div", { class: "room-head-tools" },
-      appearanceTools(),
+      themeToggle(),
       h("a", { class: "btn secondary", href: `#room/${room.code || room.id}/screen` },
         "Экран проектора"))
   ));
@@ -1764,22 +1503,16 @@ function hostHeader(wrap, room) {
   // QR-код комнаты в фирменном стиле Skillbase: компактный по умолчанию,
   // кнопка «Показать крупнее» переключает на увеличенный для камер
   // издалека. Ссылка и генерация — те же, что в режиме проектора.
-  wrap.appendChild(h("div", {
-    class: "room-qr-card brand-qr-card",
-    style: "text-align: center; margin-top: 1rem; padding: 2.5rem 1.5rem; background: linear-gradient(135deg, #101810 0%, #0a0f0a 100%); color: #fff; border-radius: 2rem; border: 1px solid #C5E747; box-shadow: var(--shadow-lg); position: relative; overflow: hidden;"
-  },
-    h("div", {
-      style: "position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, transparent, #C5E747, transparent);"
-    }),
-    h("div", { style: "margin-bottom: 1.5rem; position: relative;" },
-      h("div", { style: "font-family: var(--font-brand); font-weight: 800; font-size: 1.5rem; letter-spacing: 0.1em; color: #C5E747; text-shadow: 0 0 10px rgba(197, 231, 71, 0.3);" }, "SKILLBASE"),
-      h("div", { style: "font-size: 0.8rem; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.25rem;" }, "Официальная платформа")
+  wrap.appendChild(h("div", { class: "room-qr-card brand-qr-card" },
+    h("div", { class: "brand-qr-head" },
+      h("div", { class: "brand-qr-title" }, "SKILLBASE"),
+      h("div", { class: "brand-qr-sub" }, "Live-комната")
     ),
-    h("div", { class: "qr-wrapper", style: "display: inline-block; background: #F5F7ED; padding: 1.25rem; border-radius: 1.5rem; box-shadow: 0 8px 24px rgba(0,0,0,0.2); line-height: 0; border: 2px solid #C5E747;" }),
-    h("p", { style: "margin: 1.5rem 0; font-size: 0.95rem; opacity: 0.9; position: relative;" }, "Отсканируйте, чтобы войти в комнату"),
-    h("div", { class: "btn-row", style: "justify-content: center; gap: 0.75rem; position: relative;" },
-      h("button", { type: "button", class: "btn secondary", id: "copy-link", style: "background: #C5E747; color: #101810; border: none; font-weight: 600; padding: 0.75rem 1.5rem;" }, "Ссылка"),
-      h("button", { type: "button", class: "btn", id: "download-qr", style: "background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); backdrop-filter: blur(10px); padding: 0.75rem 1.5rem;" }, "PNG")
+    h("div", { class: "qr-wrapper qr-frame" }),
+    h("p", { class: "brand-qr-hint" }, "Отсканируйте, чтобы войти в комнату"),
+    h("div", { class: "btn-row brand-qr-actions" },
+      h("button", { type: "button", class: "btn primary", id: "copy-link" }, "Ссылка"),
+      h("button", { type: "button", class: "btn secondary", id: "download-qr" }, "PNG")
     )
   ));
   // Компактный размер: initRoomQR читает data-qr-size, toggle перерисует
@@ -1791,9 +1524,8 @@ function hostHeader(wrap, room) {
     let larger = false;
     const toggle = h("button", {
       type: "button",
-      class: "btn",
-      "aria-expanded": "false",
-      style: "margin-top: 0.75rem; background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); padding: 0.5rem 1.25rem; position: relative;"
+      class: "btn secondary brand-qr-toggle",
+      "aria-expanded": "false"
     }, "Показать крупнее");
     toggle.addEventListener("click", () => {
       larger = !larger;
@@ -1809,11 +1541,11 @@ function hostHeader(wrap, room) {
   const observersCount = local.players.length - playersCount;
   wrap.appendChild(h("div", { class: "quick-actions" },
     h("div", { class: "quick-action" },
-      h("b", { "data-live-players-count": "1" }, String(playersCount)),
+      h("b", {}, String(playersCount)),
       h("span", {}, "участников")
     ),
     h("div", { class: "quick-action" },
-      h("b", { "data-live-observers-count": "1" }, String(observersCount)),
+      h("b", {}, String(observersCount)),
       h("span", {}, "наблюдателей")
     )
   ));
@@ -1839,7 +1571,7 @@ function hostView() {
     wrap.appendChild(h("div", { class: "panel" },
       h("div", { class: "empty-state" },
         h("div", { class: "empty-state-icon", innerHTML: icons.clock }),
-        h("h2", {}, "Ожидание начала теста"),
+        h("h2", {}, lt("room.waitStart")),
         h("p", { class: "muted" }, `Ведущий: ${room.hostName || "Преподаватель"} · Участников в лобби: ${playersCount} · Всего вопросов: ${room.questionCount || questions.length}.`),
         playersListWidget(local.players),
         h("div", { class: "btn-row", style: "margin-top: 1.5rem; justify-content: center;" },
@@ -1865,7 +1597,7 @@ function hostView() {
       const controls = h("div", { class: "panel" },
         h("div", { class: "panel-head" },
           h("h2", {}, "Ответили"),
-          h("span", { class: "badge badge-neutral", "data-live-answered-count": "1" }, `${counter} из ${playersCount}`)
+          h("span", { class: "badge badge-neutral" }, `${counter} из ${playersCount}`)
         ),
         h("div", { class: "panel-body" },
           h("div", { class: "btn-row" },
@@ -1981,7 +1713,7 @@ function playerView() {
       h("h1", {}, room.testTitle || "Комната"),
       h("p", { class: "page-sub" }, `Код комнаты: ${room.code || room.id}`)
     ),
-    h("div", { class: "room-head-tools" }, appearanceTools())
+    h("div", { class: "room-head-tools" }, themeToggle())
   ));
 
   const currentId = room.phase === "opened" || room.phase === "closed"
@@ -2005,7 +1737,7 @@ function playerView() {
     const inviteBox = h("div", { class: "panel" },
       h("div", { class: "empty-state" },
         h("div", { class: "empty-state-icon", innerHTML: icons.clock }),
-        h("h2", {}, "Ожидание начала теста"),
+        h("h2", {}, lt("room.waitStart")),
         h("p", { class: "muted" }, `Ведущий: ${room.hostName || "Преподаватель"} · Участников в лобби: ${playersCount}. Скоро запустится первый вопрос.`),
         playersListWidget(local.players),
         h("div", { class: "btn-row", style: "margin-top: 1.25rem; justify-content: center;" },
@@ -2055,12 +1787,16 @@ function playerView() {
 function materialButton() {
   const room = local.room;
   if (!room || room.phase === "opened") return null;
-  // Гость не может читать материалы (правила требуют профиль) —
-  // не показываем кнопку, ведущую на закрытый для гостя раздел.
-  if (State.user?.isAnonymous) return null;
-  return h("div", { class: "btn-row", style: "margin-top:var(--space-2)" },
-    h("a", { class: "btn secondary", href: `#material/${encodeURIComponent(room.testId || "")}` },
-      "Открыть материал"));
+  // Нет книги у теста или читать нельзя (гость): кнопку не показываем.
+  if (!local.hasMaterial || State.user?.isAnonymous) return null;
+  // Добровольное чтение (#material/<id>/free/<код>): выйти можно в любой
+  // момент, «К тесту» возвращает обратно в эту комнату.
+  const href = `#material/${encodeURIComponent(room.testId || "")}/free/${encodeURIComponent(room.code || local.code || "")}`;
+  return h("div", { class: "panel room-material-cta" },
+    h("div", { class: "room-material-cta-text" },
+      h("b", {}, lt("room.waitRead")),
+      h("span", { class: "muted" }, "Откроется читалка, из неё можно вернуться в комнату.")),
+    h("a", { class: "btn primary", href }, lt("room.readMaterial")));
 }
 
 function waitPanel(text) {
@@ -2158,14 +1894,7 @@ async function submitAnswer(room, questionId, value, message, submitBtn, focusEl
       lastSignature = null;
     }
     submitBtn.textContent = "Ответ отправлен";
-    if (isSelfPaced(local.room)) {
-      // Пауза с вердиктом, затем следующий вопрос: личный таймер следующего
-      // вопроса стартует только когда он покажется (shown/{позиция}).
-      const now = Date.now();
-      local.selfHold = { pos: Number(questionId), until: now + SELF_HOLD_MS, max: now + SELF_HOLD_MS + 2500 };
-    } else {
-      toast("Ответ записан", "success");
-    }
+    toast("Ответ записан", "success");
     scheduleRender(null);
   } catch (err) {
     console.error("Не удалось отправить ответ:", err);
@@ -2216,7 +1945,7 @@ function observerView() {
     const observerLobby = h("div", { class: "panel" },
       h("div", { class: "empty-state" },
         h("div", { class: "empty-state-icon", innerHTML: icons.clock }),
-        h("h2", {}, "Ожидание начала теста"),
+        h("h2", {}, lt("room.waitStart")),
         h("p", { class: "muted" }, `Ведущий: ${room.hostName || "Преподаватель"} · Участников в лобби: ${playersCount}. Вы в режиме наблюдателя.`),
         playersListWidget(local.players)
       )
@@ -2235,7 +1964,7 @@ function observerView() {
     wrap.appendChild(h("div", { class: "panel" },
       h("div", { class: "panel-head" },
         h("h2", {}, "Ответили"),
-        h("span", { class: "badge badge-neutral", "data-live-answered-count": "1" },
+        h("span", { class: "badge badge-neutral" },
           `${answeredCount(local.players.filter(p => !p.observer), currentId)} из ${playersCount}`)
       )
     ));
@@ -2300,14 +2029,6 @@ function screenView() {
   if (finishedRoom) {
     const podium = finalSequence({ projector: true });
     if (podium) wrap.appendChild(podium);
-  } else if (li.self && li.lifecycle === "in_progress") {
-    // «В своём темпе»: общего вопроса нет — на проекторе ход теста и лидеры.
-    const done = (local.scores || []).filter(r => r.done === true && !r.isAdminPlayer).length;
-    const people = local.players.filter(p => roleOfPlayer(p) !== ROLE_OBSERVER && !isAdminPlayerFlag(p)).length;
-    wrap.appendChild(h("div", { class: "panel screen-wait-panel" },
-      h("div", { class: "empty-state" },
-        h("h2", {}, "Тест идёт — каждый в своём темпе"),
-        h("p", { class: "page-sub", "data-live-done-summary": "1" }, `Закончили ${done} из ${people}`))));
   } else if (!question) {
     // Ожидание первого вопроса — момент входа участников: крупный QR,
     // чтобы каждый мог отсканировать его камерой телефона.
@@ -2343,11 +2064,8 @@ function screenView() {
   const boardRowsList = boardRows();
   if (boardRowsList.length && !finishedRoom) {
     syncBoardFrame();
-    // Лидер — крупно сверху, с подсветкой; остальные — строками табло.
-    const [top, ...others] = boardRowsList;
-    wrap.appendChild(h("div", { class: "screen-board-wrap", "data-live-screen-board": "1" },
-      (top.score ?? 0) > 0 ? leaderHero(top) : null,
-      leaderListFor((top.score ?? 0) > 0 ? others.slice(0, 7) : boardRowsList.slice(0, 8), { board: true })));
+    wrap.appendChild(h("div", { class: "screen-board-wrap" },
+      leaderListFor(boardRowsList.slice(0, 8), { board: true })));
   }
 
   // Комната активна, вопрос уже открыт: маленький QR под таблицей —
@@ -2364,20 +2082,6 @@ function screenView() {
   return wrap;
 }
 
-// Крупный лидер на проекторе: аватар с кольцом, имя, очки и серия.
-function leaderHero(row) {
-  const scoreEl = h("span", { class: "hero-score-num" }, String(row.score ?? 0));
-  const prevScore = frame.prev?.scores?.get(row.uid);
-  if (typeof prevScore === "number" && prevScore !== (row.score ?? 0)) animateNumber(scoreEl, prevScore, row.score ?? 0);
-  return h("div", { class: "leader-hero", "data-uid": row.uid, "data-live-hero": "1", "aria-label": `Лидер: ${row.name}, ${row.score} баллов` },
-    h("div", { class: "hero-crown", "aria-hidden": "true" }, "🥇"),
-    avatarChip(row),
-    h("div", { class: "hero-main" },
-      h("div", { class: "hero-label" }, "Лидирует"),
-      h("div", { class: "hero-name" }, row.name || "Участник")),
-    h("div", { class: "hero-score" }, scoreEl, h("span", { class: "hero-unit" }, " б.")));
-}
-
 // ---------- Автономный режим: рейтинг и виды ----------
 
 // Общий рейтинг карточками: место, аватар, ФИО, баллы, % верных, число
@@ -2385,7 +2089,7 @@ function leaderHero(row) {
 function ratingPanel({ title = "Общий рейтинг", limit = null, rows = null } = {}) {
   const all = rows || ratingSource();
   const list = limit ? all.slice(0, limit) : all;
-  const panel = h("section", { class: "panel live-rating", "aria-label": title, "data-live-rating": "1", ...(limit ? { "data-limit": String(limit) } : {}) },
+  const panel = h("section", { class: "panel live-rating", "aria-label": title },
     h("div", { class: "panel-head" },
       h("h2", {}, title),
       h("span", { class: "badge badge-neutral" }, `${all.length} уч.`)));
@@ -2398,36 +2102,14 @@ function ratingPanel({ title = "Общий рейтинг", limit = null, rows =
   return panel;
 }
 
-// «В своём темпе»: прогресс игрока или общая сводка для ведущего/наблюдателя.
-function selfProgressPanel(li, room) {
-  const total = room.questionCount || 0;
-  const mineRunning = role() === "player" && li.lifecycle === "in_progress" && !li.ownDone;
-  const label = li.lifecycle === "waiting" ? "Тест ещё не начался"
-    : li.lifecycle !== "in_progress" ? "Тест завершён"
-    : role() !== "player" ? "Тест идёт — каждый в своём темпе"
-    : li.ownDone ? "Вы ответили на все вопросы"
-    : li.phase === "verdict" ? `Вопрос ${li.position + 1} из ${total} · ответ принят`
-    : `Вопрос ${li.position + 1} из ${total}`;
-  return h("section", { class: "panel live-progress" },
-    h("div", { class: "panel-head" },
-      h("h2", {}, label),
-      mineRunning && li.phase === "question" && li.msLeft != null
-        ? h("span", { class: "timer badge badge-neutral", "data-live-clock": "1" }, formatClockMs(li.msLeft))
-        : null),
-    mineRunning
-      ? h("div", { class: "live-bar", "aria-hidden": "true" }, h("div", { class: "live-bar-fill", "data-live-bar": "1" }))
-      : null);
-}
-
 function progressPanel(li, room) {
-  if (li.self) return selfProgressPanel(li, room);
   const total = room.questionCount || 0;
-  const label = li.lifecycle === "waiting" ? "Тест ещё не начался"
+  const label = li.lifecycle === "waiting" ? lt("room.notStarted")
     : li.lifecycle === "in_progress"
       ? (li.phase === "question" ? `Вопрос ${li.position + 1} из ${total}`
         : li.position + 1 >= total ? "Последний вопрос завершён"
         : `Пауза перед вопросом ${li.position + 2} из ${total}`)
-      : "Тест завершён";
+      : lt("room.finished");
   return h("section", { class: "panel live-progress" },
     h("div", { class: "panel-head" },
       h("h2", {}, label),
@@ -2442,15 +2124,11 @@ function progressPanel(li, room) {
 
 function peopleChips(list, emptyText) {
   if (!list.length) return h("p", { class: "form-hint", style: "text-align:center" }, emptyText);
-  return h("div", { class: "live-people", "data-live-people": "1" },
-    list.map(p => h("span", { class: "chip live-chip", "data-uid": p.uid }, avatarChip(p), p.name || "Участник")));
+  return h("div", { class: "live-people" },
+    list.map(p => h("span", { class: "chip live-chip" }, avatarChip(p), p.name || "Участник")));
 }
 
 function settingsSummary(room) {
-  if (isSelfPaced(room)) {
-    const minutes = Math.round(((room.questionCount || 0) * (room.questionSec || 0)) / 60);
-    return `Вопросов: ${room.questionCount || 0} · каждый в своём темпе: ${room.questionSec} с на вопрос, следующий — сразу после ответа · верно/неверно видно сразу · бонус за скорость: ${room.speedBonus === false ? "нет" : "да"} · до ≈ ${minutes} мин на участника`;
-  }
   const order = room.shuffleQuestions ? "случайный" : "последовательный";
   const totalMin = Math.round(((room.questionCount || 0) * ((room.questionSec || 0) + (room.gapSec || 0))) / 60);
   return `Вопросов: ${room.questionCount || 0} · ${room.questionSec} с на вопрос + пауза ${room.gapSec} с · порядок: ${order} · бонус за скорость: ${room.speedBonus === false ? "нет" : "да"} · ≈ ${totalMin} мин`;
@@ -2476,7 +2154,7 @@ function autoHostView() {
   if (li.lifecycle === "waiting" && active) {
     // Лобби: список вошедших, регистрация, ОДИН запуск.
     const startBtn = h("button", { type: "button", class: "btn primary btn-block", id: "start-test" },
-      "Начать тест");
+      lt("room.start"));
     let confirmEmpty = false;
     startBtn.addEventListener("click", async () => {
       if (!playersCount && !confirmEmpty) {
@@ -2488,12 +2166,12 @@ function autoHostView() {
       startBtn.textContent = "Запускаем…";
       try {
         await startAutoTest(local.code);
-        toast("Тест запущен: вопросы пойдут автоматически", "success");
+        toast(tr("room.startedAuto"), "success");
       } catch (err) {
         console.error("Запуск теста:", err);
-        toast(err?.message || "Не удалось запустить тест", "error");
+        toast(err?.message || tr("room.startFailed"), "error");
         startBtn.disabled = false;
-        startBtn.textContent = "Начать тест";
+        startBtn.textContent = tr("room.start");
         confirmEmpty = false;
       }
     });
@@ -2519,27 +2197,18 @@ function autoHostView() {
         startBtn,
         h("p", { class: "form-hint" },
           "Кнопка нажимается один раз: дальше вопросы выдаются автоматически."))));
-  } else if (li.lifecycle === "in_progress" && li.self) {
-    wrap.appendChild(selfHostPanel(li, room, participants, playersCount, regOpen));
-    wrap.appendChild(ratingPanel());
   } else if (li.lifecycle === "in_progress") {
     const question = questionFor(li.position);
     const answered = answeredCount(participants, li.qid);
     const finishBtn = h("button", { type: "button", class: "btn secondary" }, "Завершить досрочно");
     finishBtn.addEventListener("click", async () => {
-      const confirmed = await confirmAction({
-        title: "Завершить тест досрочно?",
-        text: "Неотвеченные вопросы засчитаются пропущенными.",
-        confirmLabel: "Завершить",
-        tone: "secondary"
-      });
-      if (!confirmed) return;
+      if (!window.confirm("Завершить тест для всех сейчас? Ответы на текущий вопрос перестанут приниматься.")) return;
       finishBtn.disabled = true;
       try {
         await finishAutoTest(local.code, { early: true });
-        toast("Тест завершён досрочно", "success");
+        toast(tr("room.finishedEarly"), "success");
       } catch (err) {
-        toast(err?.message || "Не удалось завершить тест", "error");
+        toast(err?.message || tr("room.finishFailed"), "error");
         finishBtn.disabled = false;
       }
     });
@@ -2553,7 +2222,7 @@ function autoHostView() {
     wrap.appendChild(h("section", { class: "panel" },
       h("div", { class: "panel-head" },
         h("h2", {}, question?.text || "Вопрос"),
-        h("span", { class: "badge badge-neutral", "data-live-answered-count": "1" }, `ответили ${answered} из ${playersCount}`)),
+        h("span", { class: "badge badge-neutral" }, `ответили ${answered} из ${playersCount}`)),
       h("div", { class: "panel-body" },
         h("div", { class: "btn-row" }, finishBtn, regBtn),
         h("p", { class: "form-hint" },
@@ -2564,9 +2233,7 @@ function autoHostView() {
     const rows = ratingSource();
     const sum = summarizeRating(rows);
     const plan = li.plan;
-    const positions = li.self
-      ? Array.from({ length: room.questionCount || 0 }, (_, i) => i)
-      : plan ? finishedPositions(plan, serverNowMs()) : [];
+    const positions = plan ? finishedPositions(plan, serverNowMs()) : [];
     const acc = questionAccuracy({
       players: local.players,
       keysByPos: local.keysReady ? keysByPosition(local.keys, room) : [],
@@ -2592,13 +2259,7 @@ function autoHostView() {
   if (active) {
     const closeBtn = h("button", { type: "button", class: "btn secondary" }, "Закрыть комнату");
     closeBtn.addEventListener("click", async () => {
-      const confirmed = await confirmAction({
-        title: "Закрыть комнату?",
-        text: "Новые подключения будут запрещены.",
-        confirmLabel: "Закрыть",
-        tone: "secondary"
-      });
-      if (!confirmed) return;
+      if (!window.confirm("Закрыть комнату? Новые подключения будут запрещены.")) return;
       closeBtn.disabled = true;
       try { await closeRoom(local.code); toast("Комната закрыта", "success"); }
       catch (err) { toast("Не удалось закрыть комнату", "error"); closeBtn.disabled = false; }
@@ -2610,67 +2271,20 @@ function autoHostView() {
   return wrap;
 }
 
-// Ведущий в режиме «в своём темпе»: таймеры вопросов он не закрывает, а видит,
-// сколько участников ответило на каждый вопрос и кто уже закончил.
-function selfHostPanel(li, room, participants, playersCount, regOpen) {
-  const total = room.questionCount || 0;
-  const rows = participants.filter(p => !isAdminPlayerFlag(p));
-  const doneCount = (local.scores || []).filter(r => r.done === true && !r.isAdminPlayer).length;
-  const finishBtn = h("button", { type: "button", class: "btn secondary" }, "Завершить тест");
-  finishBtn.addEventListener("click", async () => {
-    const confirmed = await confirmAction({
-      title: "Завершить тест?",
-      text: "Неотвеченные вопросы засчитаются пропущенными.",
-      confirmLabel: "Завершить",
-      tone: "secondary"
-    });
-    if (!confirmed) return;
-    finishBtn.disabled = true;
-    try {
-      await finishAutoTest(local.code, { early: true });
-      toast("Тест завершён", "success");
-    } catch (err) {
-      toast(err?.message || "Не удалось завершить тест", "error");
-      finishBtn.disabled = false;
-    }
-  });
-  const regBtn = h("button", { type: "button", class: "btn secondary" },
-    regOpen ? "Закрыть регистрацию" : "Открыть регистрацию");
-  regBtn.addEventListener("click", () => {
-    regBtn.disabled = true;
-    setRegistrationOpen(local.code, !regOpen).catch(err => toast(err?.message || "Ошибка", "error"));
-  });
-  const perQuestion = Array.from({ length: total }, (_, position) => {
-    const answered = answeredCount(participants, String(position));
-    return h("li", {}, `Вопрос ${position + 1}: ответили ${answered} из ${playersCount}`);
-  });
-  return h("section", { class: "panel" },
-    h("div", { class: "panel-head" },
-      h("h2", {}, "Тест идёт — каждый в своём темпе"),
-      h("span", { class: "badge badge-neutral" }, `закончили ${doneCount} из ${rows.length}`)),
-    h("div", { class: "panel-body" },
-      h("div", { class: "btn-row" }, finishBtn, regBtn),
-      h("p", { class: "form-hint" },
-        "Вопросы по таймеру закрывать не нужно: у каждого участника свой таймер. Страницу лучше держать открытой — она проверяет ответы и обновляет рейтинг. Когда все закончат и регистрация закрыта, тест завершится сам."),
-      h("ol", { class: "live-accuracy" }, perQuestion)));
-}
-
-function isAdminPlayerFlag(p) { return p?.isAdminPlayer === true; }
-
 function playerHead(room, label) {
   return h("div", { class: "page-head" },
     h("div", {},
       h("div", { class: "eyebrow" }, `Live-комната · ${label}`),
       h("h1", {}, room.testTitle || "Комната"),
       h("p", { class: "page-sub" }, `Код комнаты: ${room.code || room.id}`)),
-    h("div", { class: "room-head-tools" }, appearanceTools()));
+    h("div", { class: "room-head-tools" }, themeToggle()));
 }
 
 function lobbyPanel(room, who) {
   const participants = local.players.filter(p => roleOfPlayer(p) !== ROLE_OBSERVER);
   const text = who === "observer"
     ? "Вы подключены как наблюдатель. Рейтинг и ход теста появятся после старта."
-    : "Вы подключены. Тест начнётся, когда ведущий нажмёт «Начать тест» — вопросы пойдут сами.";
+    : "Вы подключены. Тест начнётся, когда ведущий нажмёт «" + tr("room.start") + "» — вопросы пойдут сами.";
   return h("div", { class: "panel" },
     h("div", { class: "empty-state" },
       h("div", { class: "empty-state-icon", innerHTML: icons.clock }),
@@ -2704,9 +2318,6 @@ function autoPlayerView() {
     wrap.appendChild(waitPanel("Синхронизируем время с сервером…"));
     return wrap;
   }
-  if (li.lifecycle === "in_progress" && li.self) {
-    return selfPlayerBody(wrap, room, li);
-  }
   if (li.lifecycle === "in_progress") {
     const question = questionFor(li.position);
     const my = me?.answers?.[li.qid];
@@ -2715,8 +2326,6 @@ function autoPlayerView() {
       wrap.appendChild(waitPanel("Загружаем вопрос…"));
     } else if (li.phase === "question" && my == null) {
       wrap.appendChild(answerForm(question, li.qid));
-    } else if (li.phase === "question" && room.instantVerdict === true) {
-      wrap.appendChild(verdictCard(li.qid, { hint: "Следующий вопрос появится автоматически." }));
     } else if (li.phase === "question") {
       wrap.appendChild(h("div", { class: "panel" },
         h("div", { class: "empty-state" },
@@ -2734,45 +2343,6 @@ function autoPlayerView() {
   return finishedPlayerView(wrap, room, li);
 }
 
-// Карточка вердикта: «Верно! +16 б.» / «Неверно» — приходит от ведущего без
-// ключа ответа. Класс verdict-correct / verdict-wrong запускает реакцию
-// карточки (вспышка и конфетти / дрожание, только transform и opacity).
-function verdictCard(qid, { hint = "" } = {}) {
-  const { verdict, points } = verdictFromDoc(local.verdicts, qid);
-  const title = verdict === null ? "Ответ принят — проверяем…"
-    : verdict ? "Верно!" : "Неверно";
-  const cls = verdict === null ? "" : verdict ? " verdict-correct" : " verdict-wrong";
-  return h("div", { class: `panel verdict-card${cls}`, role: "status" },
-    h("div", { class: "empty-state" },
-      h("h2", { class: verdict === true ? "live-ok" : verdict === false ? "live-bad" : "" }, title),
-      verdict === true ? h("p", { class: "verdict-points" }, `+${points} б.`) : null,
-      verdict === false ? h("p", { class: "muted" }, "Правильный ответ откроется после завершения теста.") : null,
-      hint ? h("p", { class: "muted" }, hint) : null));
-}
-
-// Вид участника в режиме «в своём темпе».
-function selfPlayerBody(wrap, room, li) {
-  wrap.appendChild(selfProgressPanel(li, room));
-  if (!local.shownReady) {
-    wrap.appendChild(waitPanel("Загружаем вопрос…"));
-  } else if (li.ownDone) {
-    wrap.appendChild(h("div", { class: "panel" },
-      h("div", { class: "empty-state" },
-        h("div", { class: "empty-state-icon", innerHTML: icons.check }),
-        h("h2", {}, "Вы ответили на все вопросы"),
-        h("p", { class: "muted" }, "Ждём остальных участников. Итоги и правильные ответы появятся, когда тест завершится."))));
-  } else if (li.phase === "verdict") {
-    wrap.appendChild(verdictCard(li.qid, { hint: "Следующий вопрос — сейчас…" }));
-  } else if (li.needsShow) {
-    wrap.appendChild(waitPanel("Готовим вопрос…"));
-  } else {
-    const question = questionFor(li.position);
-    wrap.appendChild(question ? answerForm(question, li.qid) : waitPanel("Загружаем вопрос…"));
-  }
-  if (room.showLeaderboard === true) wrap.appendChild(ratingPanel({ title: "Рейтинг", limit: 10 }));
-  return wrap;
-}
-
 // Мои результаты по закрытым вопросам с разбивкой очков по единой формуле
 // (core/rooms-logic.js): «Верно: 10 · Серия ×1.2 · Скорость +4 = 16 б.».
 function myResults() {
@@ -2780,7 +2350,7 @@ function myResults() {
   if (!me) return [];
   const li = liveInfo();
   const times = normalizePlayerTimes(me).times || {};
-  const starts = li.self ? (local.myShown || {}) : li.plan ? autoQStarts(li.plan) : qStartsMs(local.room);
+  const starts = li.plan ? autoQStarts(li.plan) : qStartsMs(local.room);
   const duration = li.plan ? li.plan.questionSec : questionDurationSec(local.test, local.room?.settings);
   const speedOn = local.room?.speedBonus !== false;
   const ids = Object.keys(local.reveals || {}).sort((a, b) => Number(a) - Number(b));
@@ -2836,13 +2406,13 @@ function finishedPlayerView(wrap, room, li) {
   const mine = rows.find(r => r.uid === State.user?.uid);
   wrap.appendChild(h("section", { class: "panel" },
     h("div", { class: "panel-head" },
-      h("h2", {}, li.lifecycle === "closed" ? "Комната закрыта — ваш результат" : "Тест завершён")),
+      h("h2", {}, li.lifecycle === "closed" ? "Комната закрыта — ваш результат" : lt("room.finished"))),
     h("div", { class: "panel-body" },
       mine
         ? h("div", { class: "quick-actions" },
             h("div", { class: "quick-action" }, h("b", {}, `${mine.place}`), h("span", {}, "место")),
             h("div", { class: "quick-action" }, h("b", {}, `${mine.score}`), h("span", {}, "баллов")),
-            h("div", { class: "quick-action" }, h("b", {}, `${mine.percent}%`), h("span", {}, "верных")))
+            h("div", { class: "quick-action" }, h("b", {}, `${mine.percent}%`), h("span", {}, "верных"))) 
         : h("p", { class: "muted" }, "Ваш результат появится, как только ведущий подведёт итоги."),
       mine ? h("p", { class: "muted" }, `Верных ответов: ${mine.correctCount} из ${room.questionCount || 0}`) : null)));
   const results = myResults();
@@ -2866,13 +2436,11 @@ function autoObserverView() {
   const participants = local.players.filter(p => roleOfPlayer(p) !== ROLE_OBSERVER);
   const observers = local.players.length - participants.length;
   wrap.appendChild(h("div", { class: "quick-actions" },
-    h("div", { class: "quick-action" }, h("b", { "data-live-players-count": "1" }, String(participants.length)), h("span", {}, "участников")),
-    h("div", { class: "quick-action" }, h("b", { "data-live-observers-count": "1" }, String(observers)), h("span", {}, "наблюдателей")),
+    h("div", { class: "quick-action" }, h("b", {}, String(participants.length)), h("span", {}, "участников")),
+    h("div", { class: "quick-action" }, h("b", {}, String(observers)), h("span", {}, "наблюдателей")),
     h("div", { class: "quick-action" },
-      li.self
-        ? h("b", { "data-live-done-count": "1" }, `${(local.scores || []).filter(r => r.done === true && !r.isAdminPlayer).length}`)
-        : h("b", { "data-live-questions-progress": "1" }, `${Math.max(0, li.lifecycle === "waiting" ? 0 : li.position + (li.phase === "gap" || li.phase === "done" ? 1 : 0))}/${room.questionCount || 0}`),
-      h("span", {}, li.self ? "закончили тест" : "вопросов пройдено"))));
+      h("b", {}, `${Math.max(0, li.lifecycle === "waiting" ? 0 : li.position + (li.phase === "gap" || li.phase === "done" ? 1 : 0))}/${room.questionCount || 0}`),
+      h("span", {}, "вопросов пройдено"))));
   if (li.lifecycle === "waiting") {
     wrap.appendChild(lobbyPanel(room, "observer"));
   } else {
@@ -2914,15 +2482,36 @@ function emptyIcon(name) {
   return el;
 }
 
+function skeletonPanel() {
+  return h("div", { class: "room-view" },
+    h("div", { class: "panel" },
+      h("div", { class: "skeleton" },
+        h("div", { class: "skeleton-line", style: "width: 60%; margin-bottom: 1rem" }),
+        h("div", { class: "skeleton-line", style: "width: 80%; margin-bottom: 1rem" }),
+        h("div", { class: "skeleton-line", style: "width: 70%; margin-bottom: 1rem" }),
+        h("div", { class: "skeleton-line", style: "width: 50%; margin-bottom: 1rem" }),
+        h("div", { class: "skeleton-line", style: "width: 90%; margin-bottom: 1rem" }),
+        h("div", { class: "skeleton-line", style: "width: 60%; margin-bottom: 1rem" }))
+    )
+  );
+}
+
 // connecting: идёт проверка членства и загрузка комнаты. Тупика здесь нет:
 // по ошибке или через 15 секунд клиент уходит в connection_error с кнопкой.
-function connectingPanel() {
+function connectingPanel(code, showRetry = false) {
+  const retry = h("button", { type: "button", class: "btn primary btn-block", style: showRetry ? "" : "display:none" }, "Повторить");
+  retry.addEventListener("click", () => { router(); });
   return h("div", { class: "room-view" },
     h("div", { class: "panel" },
       h("div", { class: "empty-state" },
         emptyIcon("users"),
         h("h2", {}, "Подключаемся к комнате…"),
-        h("p", { class: "muted" }, `Код ${local.room?.code || local.code || ""}.`))));
+        h("p", { class: "muted" }, `Код ${code}.`),
+        showRetry ? h("p", { class: "muted" }, "Подключение занимает больше времени, чем обычно. Проверьте интернет или попробуйте позже.") : null,
+        retry
+      )
+    )
+  );
 }
 
 // connection_error: ошибка подключения с понятной причиной и повтором.

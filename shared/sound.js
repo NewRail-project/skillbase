@@ -40,7 +40,7 @@ export const SOUND_DEFS = {
 // Паттерны вибрации.
 export const VIBRATION_DEFS = {
   correct: [30],
-  wrong: [70, 40, 70, 40, 120],
+  wrong: [60, 40, 60],
   streak3: [40, 30, 40],
   streak5: [50, 30, 50, 30, 90],
   streakBreak: [120],
@@ -165,6 +165,11 @@ function makeOscillator(audio, def, opts) {
   }
   osc.connect(opts.gainNode);
   return osc;
+}
+
+// Для тестов: сброс дедупликации между «событиями».
+export function resetGate() {
+  lastPlayedMs = {};
 }
 
 // Вибрация: верный [30], неверный [60,40,60] — только если поддерживается

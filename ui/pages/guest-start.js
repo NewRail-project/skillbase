@@ -7,19 +7,18 @@
 //
 // #guest/<testId> допускает прямой заход: testId берётся из параметра,
 // иначе — из сохранённого returnTo (#quiz/<testId>).
-import { appearanceTools } from "../components/theme-toggle.js";
+import { themeToggle } from "../components/theme-toggle.js";
+import { skinSwitch } from "../components/skin-switch.js";
 import { h } from "../../shared/dom.js";
 import { State, signInGuestForTest, logout } from "../../core/auth.js";
 import { getGuestName, validateGuestForm } from "../../core/guest.js";
-import { saveConsent } from "../../core/consents.js";
-import { hasConsentMarker, markConsent } from "../../core/consent-docs.js";
-import { consentCheckbox } from "../../ui/components/consent.js";
 import { loadTest } from "../../core/editor.js";
 import { startAttempt, listMyAttemptsForTest } from "../../core/attempts.js";
 import { effectiveSettings } from "../../core/settings.js";
 import { peekReturnTo, clearReturnTo } from "../../shared/return-to.js";
 import { authErrorMessage } from "../../shared/errors.js";
 import { railScene, brandLockup } from "../../ui/components/brand.js";
+import { t as tr, lt } from "../../core/i18n.js";
 
 // Флаг «в этой ссылке гость только что начал попытку»: quiz откроет
 // её сразу, минуя интро-экран. Одна попытка — без дублей при обновлении.
@@ -43,8 +42,8 @@ function attemptsLimitOf(test) {
 
 export default async function GuestStartPage() {
   const page = h("div", { class: "page auth-page" });
-  // Тема и палитра хранятся на устройстве (localStorage), поэтому доступны и гостю.
-  page.appendChild(h("div", { class: "auth-corner" }, appearanceTools({ withLabel: true })));
+  // Тема хранится на устройстве (localStorage), поэтому доступна и гостю.
+  page.appendChild(h("div", { class: "auth-corner" }, skinSwitch(), themeToggle({ withLabel: true })));
   const errorBox = h("div", { class: "form-error", role: "alert" });
 
   // Целевой тест: параметр маршрута #guest/<testId> или сохранённый
@@ -79,14 +78,14 @@ export default async function GuestStartPage() {
       }
     });
     const target = testId
-      ? ` ${h("a", { href: `#quiz/${encodeURIComponent(testId)}` }, "Ссылка на тест, который вы открывали")}`
+      ? ` ${h("a", { href: `#quiz/${encodeURIComponent(testId)}` }, tr("guest.linkLabel"))}`
       : null;
     const alertPanel = h("section", { class: "panel auth-form" },
       brandLockup({ size: 32 }),
       h("div", { class: "eyebrow" }, "Гостевой вход"),
       h("h1", { style: "margin:4px 0 8px" }, "Вы уже вошли в аккаунт"),
       h("p", { class: "muted", style: "margin:0 0 16px" },
-        "Под аккаунтом тесты проходят через каталог и задания: результаты сразу привязаны к вашему профилю. ",
+        lt("guest.accountHint"),
         "Проход гостем доступен после выхода."),
       errorBox,
       out,
@@ -98,39 +97,26 @@ export default async function GuestStartPage() {
 
   // Анонимный гость уже есть: разрешаем читать published тест.
   // Проверяем доступность заранее, чтобы не уводить гостя в тупик
-  // после отправки формы. Результат переиспользуется в submit —
-  // без повторного чтения того же документа из Firestore.
+  // после отправки формы.
   let testTitle = "";
-  let prefetchedTest = null;
   if (State.user?.isAnonymous === true && testId) {
     try {
       const test = await loadTest(testId);
-      prefetchedTest = test;
       testTitle = test?.title || "";
       if (test?.status !== "published") {
-        errorBox.textContent = "Тест снят с публикации. Преподаватель может дать ссылку повторно.";
+        errorBox.textContent = tr("guest.unpublished");
       }
     } catch (err) {
       errorBox.textContent = err?.code === "permission-denied"
-        ? "Ссылка недоступна: тест не опубликован."
-        : "Не удалось открыть тест по ссылке. Проверьте интернет и попробуйте снова.";
+        ? tr("guest.linkUnavailable")
+        : tr("guest.openFailed");
     }
   }
 
   const surname = h("input", { type: "text", id: "guest-surname", autocomplete: "family-name", placeholder: "Иванов" });
   const given = h("input", { type: "text", id: "guest-name", autocomplete: "given-name", placeholder: "Иван" });
   const patronymic = h("input", { type: "text", id: "guest-patronymic", autocomplete: "additional-name", placeholder: "Иванович" });
-  const submit = h("button", { type: "submit", class: "btn primary btn-block" }, "Начать тест");
-
-  // Согласие с документами перед началом гостевой работы. Анонимная
-  // сессия переживает обновление страницы, поэтому уже согласившемуся
-  // гостю (маркер ставится только после записи в Firestore) не показываем
-  // чекбокс повторно.
-  const guestUid = State.user?.isAnonymous === true ? State.user.uid : null;
-  const consentNeeded = !guestUid || !hasConsentMarker(guestUid, "guest-test");
-  const consent = consentNeeded
-    ? consentCheckbox({ idPrefix: "guest" })
-    : null;
+  const submit = h("button", { type: "submit", class: "btn primary btn-block" }, lt("guest.startBtn"));
 
   // Уже знакомое ФИО не запрашиваем заново: поля заполняются им,
   // гость может сразу нажать «Начать тест».
@@ -145,12 +131,12 @@ export default async function GuestStartPage() {
   const form = h("form", { class: "panel auth-form", novalidate: "novalidate" },
     brandLockup({ size: 32 }),
     h("div", { class: "eyebrow" }, "Гостевой вход"),
-    h("h1", { style: "margin:4px 0 8px" }, "Перед началом теста"),
+    h("h1", { style: "margin:4px 0 8px" }, lt("guest.beforeStart")),
     h("p", { class: "muted", style: "margin:0" },
-      "Вы проходите тест как гость. Регистрация не требуется. ",
-      "Укажите ФИО, чтобы преподаватель мог идентифицировать ваш результат."),
+      lt("guest.asGuest"),
+      lt("guest.needName")),
     testTitle ? h("p", { class: "muted", style: "margin:8px 0 0;font-size:.875rem" },
-      "Тест: ", h("strong", {}, testTitle)) : null,
+      lt("guest.testLabel"), h("strong", {}, testTitle)) : null,
     errorBox,
     h("div", { class: "field" },
       h("label", { for: "guest-surname" }, "Фамилия"),
@@ -164,7 +150,6 @@ export default async function GuestStartPage() {
       h("label", { for: "guest-patronymic" }, "Отчество (необязательно)"),
       patronymic
     ),
-    consent ? consent.el : null,
     submit,
     h("p", { class: "muted", style: "margin:0;font-size:.875rem" },
       "Есть аккаунт? ", h("a", { href: "#login" }, "Войти"))
@@ -188,32 +173,10 @@ export default async function GuestStartPage() {
       return;
     }
 
-    // Гость не продолжит без согласия: чекбокс обязателен, когда его
-    // показывают (согласия в Firestore для этой сессии ещё нет).
-    if (consent && !consent.checked()) {
-      consent.setError("Чтобы продолжить, подтвердите согласие с Политикой конфиденциальности и Пользовательским соглашением.");
-      consent.input.focus();
-      return;
-    }
-
     submit.disabled = true;
-    submit.setAttribute("aria-busy", "true");
-    submit.textContent = "Готовим тест…";
+    submit.textContent = tr("guest.preparing");
     try {
       const user = await signInGuestForTest(check.value);
-
-      // Сохраняем согласие ДО начала теста: без записи в Firestore
-      // гостевая работа не продолжается (нет доступа к тестам).
-      if (consentNeeded) {
-        try {
-          await saveConsent({ uid: user.uid, type: "guest-test" });
-          markConsent(user.uid, "guest-test");
-        } catch (consentErr) {
-          console.error("Согласие гостя не сохранено:", consentErr);
-          throw new Error("Не удалось сохранить согласие с документами. Проверьте интернет и попробуйте ещё раз.");
-        }
-      }
-
       // Ссылка отработана: обычный вход после гостя не должен вернуть
       // сюда повторно.
       clearReturnTo();
@@ -223,9 +186,9 @@ export default async function GuestStartPage() {
         return;
       }
 
-      const test = prefetchedTest || await loadTest(testId);
+      const test = await loadTest(testId);
       if (test?.status !== "published") {
-        throw new Error("Тест снят с публикации. Преподаватель может дать ссылку повторно.");
+        throw new Error(tr("guest.unpublished"));
       }
 
       const attempts = await listMyAttemptsForTest(user.uid, testId);
@@ -259,13 +222,12 @@ export default async function GuestStartPage() {
     } catch (err) {
       console.error("Guest start error:", err);
       errorBox.textContent = err?.code === "permission-denied"
-        ? "Ссылка недоступна: тест не опубликован."
+        ? tr("guest.linkUnavailable")
         : err?.code
           ? authErrorMessage(err)
           : (err?.message || authErrorMessage(err));
       submit.disabled = false;
-      submit.removeAttribute("aria-busy");
-      submit.textContent = "Начать тест";
+      submit.textContent = tr("guest.startBtn");
     }
   });
 
@@ -278,8 +240,8 @@ function railAside() {
   scene.innerHTML = railScene();
   scene.appendChild(h("div", { class: "auth-aside-text" },
     h("div", { class: "eyebrow" }, "Skillbase"),
-    h("h2", {}, "Быстрый вход в тест"),
-    h("p", {}, "Ссылка от преподавателя — и тест открыт: без учётной записи и пароля, результат уходит в общую таблицу.")
+    h("h2", {}, lt("guest.quickTitle")),
+    h("p", {}, lt("guest.quickHint"))
   ));
   return scene;
 }

@@ -1,8 +1,9 @@
 import {
-  db, collection, doc, getDoc, getDocs, addDoc,
-  query, where, serverTimestamp, Timestamp
+  db, collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc,
+  query, where, serverTimestamp, orderBy, Timestamp
 } from "../shared/firebase.js";
 import { validateAssignmentDraft } from "./assignment-logic.js";
+import { t } from "./i18n.js";
 
 function toDeadline(value) {
   if (!value) return null;
@@ -31,7 +32,7 @@ export async function assignTest({
 
   const group = String(groupId || "").trim();
   if (group.length < 1 || group.length > 100) {
-    throw new Error("Укажите группу (от 1 до 100 символов).");
+    throw new Error(t("group.required"));
   }
 
   const testSnap = await getDoc(doc(db, "tests", test.id));
@@ -104,6 +105,21 @@ export async function getStudentAssignments(groupId, orgId) {
   return snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
 }
 
+// Все задания организации. Нужно планированию удаления теста (deletionPlan):
+// найти активные задания удаляемого теста и понять, какие из них закроет
+// текущий пользователь. Правила Firestore разрешают staff читать задания
+// своей организации; студенту список не нужен, поэтому функция не фильтрует
+// по группе. Ошибку (например, permission-denied) отдаём вызывающему коду —
+// он решает, как деградировать.
+export async function listAssignments(orgId) {
+  if (!orgId) return [];
+  const snapshot = await getDocs(query(
+    collection(db, "assignments"),
+    where("orgId", "==", orgId)
+  ));
+  return snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
+}
+
 // Получение результатов теста для преподавателя с учетом ограничения по группам.
 export async function getTeacherResults(testId, teacherGroups = null) {
   const q = query(
@@ -117,4 +133,15 @@ export async function getTeacherResults(testId, teacherGroups = null) {
     attempts = attempts.filter(a => teacherGroups.includes(a.groupId));
   }
   return attempts.sort((a, b) => (b.finishedAt?.seconds || 0) - (a.finishedAt?.seconds || 0));
+}
+
+export async function closeAssignment(assignmentId) {
+  await updateDoc(doc(db, "assignments", assignmentId), {
+    status: "closed",
+    updatedAt: serverTimestamp()
+  });
+}
+
+export async function removeAssignment(assignmentId) {
+  await deleteDoc(doc(db, "assignments", assignmentId));
 }

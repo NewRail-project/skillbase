@@ -3,13 +3,15 @@
 // бумажная типографика, листание кнопками/свайпом/стрелками.
 // Хеш-страж: пока читалка открыта, hashchange возвращает на текущую
 // страницу; выйти можно только кнопкой «К тесту» после последней страницы.
-// Тёмная тема в читалке не применяется.
+// Читалка имеет свои режимы «бумага» / «ночь» и размер шрифта (A− / A+),
+// выбор хранится на устройстве. Из лобби Live-комнаты открывается как
+// #material/<testId>/free/<код комнаты> и возвращает обратно в комнату.
 import { h } from "../../shared/dom.js";
 import { State } from "../../core/auth.js";
-import { db, doc, getDoc } from "../../shared/firebase.js";
 import { loadMaterial, loadMaterialProgress, saveMaterialProgress } from "../../core/materials.js";
 import { materialProgress } from "../../core/material-logic.js";
 import { setHashGuard, leaveWithHash } from "../../shared/app.js";
+import { t as tr, lt } from "../../core/i18n.js";
 
 // Метаданные книги не берём из router: нужно знать orgId, чтобы правила
 // разрешили чтение. Материал грузим напрямую.
@@ -19,6 +21,22 @@ const REDUCED = window.matchMedia
   : false;
 
 let exit = null;
+
+const PREFS_KEY = "sb-reader";
+const SIZE_MIN = 15, SIZE_MAX = 28, SIZE_STEP = 1;
+
+function loadPrefs() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}") || {}; } catch (_) { /* нет storage */ }
+  const siteDark = document.documentElement.getAttribute("data-theme") === "dark";
+  const mode = saved.mode === "night" || saved.mode === "paper" ? saved.mode : (siteDark ? "night" : "paper");
+  const size = Math.min(SIZE_MAX, Math.max(SIZE_MIN, Number(saved.size) || 19));
+  return { mode, size };
+}
+
+function savePrefs(prefs) {
+  try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch (_) { /* приватный режим */ }
+}
 
 function blockEl(block) {
   switch (block?.type) {
@@ -52,27 +70,7 @@ function imgEl(src) {
   if (String(src || "").startsWith("data:")) {
     return h("img", { src, alt: "" });
   }
-  // loading="lazy" — картинки ниже экрана не грузятся до прокрутки,
-  // decoding="async" — декодирование не блокирует поток отрисовки.
-  return h("img", { src, alt: "", referrerpolicy: "no-referrer", loading: "lazy", decoding: "async" });
-}
-
-// Кэш публичных имён авторов на сессию: одна книга может открываться
-// несколько раз за визит, и каждый раз ходить в Firestore за именем не нужно.
-const authorNameCache = new Map();
-
-async function loadAuthorName(authorId) {
-  if (!authorId) return null;
-  if (authorNameCache.has(authorId)) return authorNameCache.get(authorId);
-  try {
-    const pub = await getDoc(doc(db, "publicProfiles", authorId));
-    const name = pub.exists() ? (pub.data().displayName || null) : null;
-    authorNameCache.set(authorId, name);
-    return name;
-  } catch (pubErr) {
-    console.warn("Автор недоступен:", pubErr);
-    return null;
-  }
+  return h("img", { src, alt: "", referrerpolicy: "no-referrer" });
 }
 
 export default async function MaterialPage() {
@@ -81,21 +79,19 @@ export default async function MaterialPage() {
   const testId = decodeURIComponent(routeParts[0] || "");
   // #material/<id>/free — добровольное чтение: выйти к тесту можно в любой момент.
   const freeMode = routeParts[1] === "free";
+  const previewMode = routeParts[1] === "preview";
+  // Код комнаты (чтение из лобби): «К тесту» возвращает в комнату.
+  const roomCode = routeParts[2] ? decodeURIComponent(routeParts[2]).toUpperCase() : "";
+  const backHash = previewMode ? `#create-test/${testId}` : (roomCode ? `#room/${roomCode}` : `#quiz/${testId}`);
+  const prefs = loadPrefs();
+  page.dataset.rd = prefs.mode;
+  page.style.setProperty("--rd-size", `${prefs.size}px`);
 
   let material = null;
   let progress = { lastPage: 0, completed: false };
-  let authorName = null;
   try {
-    // Материал и прогресс не зависят друг от друга — читаем параллельно.
-    // Имя автора зависит от authorId из меты, поэтому идёт вторым шагом
-    // (и кэшируется: повторное открытие книги не ходит в Firestore снова).
-    [material, progress] = await Promise.all([
-      loadMaterial(testId),
-      loadMaterialProgress(State.user.uid, testId)
-    ]);
-    if (material?.authorId) {
-      authorName = await loadAuthorName(material.authorId);
-    }
+    material = await loadMaterial(testId);
+    progress = await loadMaterialProgress(State.user.uid, testId);
   } catch (err) {
     // Нет доступа — материал закрыт правилом (идёт попытка?):
     page.appendChild(h("div", { class: "reader-stage" },
@@ -104,9 +100,9 @@ export default async function MaterialPage() {
           h("h1", { class: "book-h" }, "Материал недоступен"),
           h("p", { class: "book-p" },
             err?.code === "permission-denied"
-              ? "Во время активной попытки учебный материал закрыт, чтобы его не подсматривали."
+              ? lt("mat.closedDuring")
               : "Книга не найдена или сеть недоступна."),
-          exitBtn("#quiz/" + testId)
+          exitBtn(backHash)
         )
       )
     ));
@@ -116,9 +112,9 @@ export default async function MaterialPage() {
   if (!material?.pages?.length) {
     page.appendChild(h("div", { class: "reader-stage" },
       h("div", { class: "book" }, h("div", { class: "book-page" },
-        h("h1", { class: "book-h" }, "Материала пока нет"),
-        h("p", { class: "book-p" }, "К этому тесту ещё не добавлен учебный материал."),
-        exitBtn("#quiz/" + testId)
+        h("h1", { class: "book-h" }, lt("mat.none")),
+        h("p", { class: "book-p" }, lt("mat.noneHint")),
+        exitBtn(backHash)
       ))
     ));
     return page;
@@ -129,7 +125,7 @@ export default async function MaterialPage() {
   let exitRequested = false;
 
   // Хеш-страж: любые смены хеша, кроме разрешённого выхода, откатываются.
-  if (!freeMode) {
+  if (!freeMode && !previewMode) {
     setHashGuard(nextHash => {
       if (exitRequested || nextHash.startsWith(`#material/${testId}/`)) {
         return true;
@@ -140,15 +136,35 @@ export default async function MaterialPage() {
 
   document.body.classList.add("reading-mode");
 
-  // Прогресс-бар
-  const progressEl = h("div", { class: "reader-progress" });
-  const progressFill = h("div", { class: "reader-progress-fill" });
-  progressEl.appendChild(progressFill);
+  const title = h("div", { class: "reader-title" }, material.title || "Материал");
+  const progressBar = h("div", { class: "reader-progress-bar" });
+  const progressWrap = h("div", { class: "reader-progress", role: "progressbar", "aria-label": "Прогресс чтения" }, progressBar);
 
-  // Заголовок книги (running header)
-  const title = h("div", { class: "reader-title", style: "opacity: 0" }, material.title || "Материал");
-
-  // Навигация и контейнер страниц
+  const sizeDown = h("button", { type: "button", class: "reader-tool", "aria-label": "Уменьшить шрифт" }, "A−");
+  const sizeUp = h("button", { type: "button", class: "reader-tool", "aria-label": "Увеличить шрифт" }, "A+");
+  const modeBtn = h("button", { type: "button", class: "reader-tool" });
+  const paintMode = () => {
+    modeBtn.textContent = prefs.mode === "night" ? "Бумага" : "Ночь";
+    modeBtn.setAttribute("aria-label", prefs.mode === "night" ? "Включить светлый режим" : "Включить ночной режим");
+    page.dataset.rd = prefs.mode;
+  };
+  paintMode();
+  const applySize = (delta) => {
+    prefs.size = Math.min(SIZE_MAX, Math.max(SIZE_MIN, prefs.size + delta));
+    page.style.setProperty("--rd-size", `${prefs.size}px`);
+    sizeDown.disabled = prefs.size <= SIZE_MIN;
+    sizeUp.disabled = prefs.size >= SIZE_MAX;
+    savePrefs(prefs);
+  };
+  sizeDown.addEventListener("click", () => applySize(-SIZE_STEP));
+  sizeUp.addEventListener("click", () => applySize(SIZE_STEP));
+  modeBtn.addEventListener("click", () => {
+    prefs.mode = prefs.mode === "night" ? "paper" : "night";
+    paintMode();
+    savePrefs(prefs);
+  });
+  applySize(0);
+  const bar = h("div", { class: "reader-bar" }, title, h("div", { class: "reader-tools" }, sizeDown, sizeUp, modeBtn));
   const pageNumEl = h("div", { class: "reader-page-num" });
   const stage = h("div", { class: "reader-stage" });
   const book = h("article", { class: "book" });
@@ -159,61 +175,19 @@ export default async function MaterialPage() {
 
   const exitRow = h("div", { class: "reader-exit" });
 
-  page.append(progressEl, title, stage, prevBtn, nextBtn, pageNumEl, exitRow);
-
-  // Fade-in заголовка при монтировании — плавное появление
-  requestAnimationFrame(() => {
-    title.style.opacity = "1";
-    title.style.transition = "opacity .3s ease";
-  });
-
-  // Обложка книги (типографический фронтиспис)
-  function coverEl() {
-    const cover = h("div", { class: "book-cover" });
-    cover.appendChild(h("h1", { class: "book-cover-title" }, material.title || "Учебный материал"));
-    
-    // Подзаголовок/информация
-    if (material.description) {
-      cover.appendChild(h("p", { class: "book-cover-subtitle" }, material.description));
-    }
-    
-    // Автор
-    if (authorName) {
-      cover.appendChild(h("div", { class: "book-cover-author" }, `Преподаватель: ${authorName}`));
-    }
-    
-    // Информация о материале
-    const meta = h("div", { class: "book-cover-meta" });
-    meta.appendChild(h("div", { class: "book-cover-chapter" }, `Глава ${index + 1}`));
-    meta.appendChild(h("div", { class: "book-cover-pages" }, `${material.pages.length} страниц`));
-    if (material.updatedAt) {
-      const date = new Date(material.updatedAt.seconds * 1000).toLocaleDateString("ru-RU");
-      meta.appendChild(h("div", { class: "book-cover-date" }, `Обновлено: ${date}`));
-    }
-    cover.appendChild(meta);
-    
-    return cover;
-  }
+  page.append(progressWrap, bar, stage, prevBtn, nextBtn, pageNumEl, exitRow);
 
   function paintPage() {
     book.style.transition = REDUCED ? "none" : "transform .25s ease";
     book.textContent = "";
-    
-    // На первой странице добавляем обложку
-    if (index === 0) {
-      const cover = coverEl();
-      book.appendChild(cover);
-    }
-    
     const blocks = material.pages[index];
-    const body = h("div", { class: "book-page" },
+    const body = h("div", { class: "book-page" + (index === 0 ? " is-first" : "") },
       ...blocks.map(blockEl).filter(Boolean));
+    const pct = Math.round(((index + 1) / material.pages.length) * 100);
+    progressBar.style.width = `${pct}%`;
+    progressWrap.setAttribute("aria-valuenow", String(pct));
     book.appendChild(body);
 
-    // Обновляем прогресс-бар
-    const progress = (index + 1) / material.pages.length;
-    progressFill.style.width = `${progress * 100}%`;
-    
     pageNumEl.textContent = `${index + 1} / ${material.pages.length}`;
     prevBtn.disabled = index === 0;
 
@@ -225,27 +199,32 @@ export default async function MaterialPage() {
     // Кнопка выхода: в обязательном режиме только на последней странице,
     // в добровольном (#material/<id>/free) — всегда.
     exitRow.textContent = "";
-    if (freeMode && !isLast) {
+    const backLabel = previewMode ? "К редактору" : "К тесту";
+    if ((freeMode || previewMode) && !isLast) {
       exitRow.appendChild(h("button", {
         type: "button", class: "btn secondary",
-        onclick: () => exitTo("#quiz/" + testId)
-      }, "К тесту"));
+        onclick: () => exitTo(backHash)
+      }, backLabel));
     } else if (isLast) {
       exitRow.appendChild(h("button", {
         type: "button", class: "btn primary",
-        onclick: () => exitTo("#quiz/" + testId)
-      }, "К тесту"));
+        onclick: () => exitTo(backHash)
+      }, backLabel));
       exitRow.appendChild(h("span", { class: "reader-complete badge badge-success" }, "Прочитано"));
     } else {
       exitRow.appendChild(h("span", { class: "reader-hint muted" },
-        "Прочитайте до конца — после последней страницы появится кнопка «К тесту»."));
+        `Прочитайте до конца — после последней страницы появится кнопка «${backLabel}».`));
     }
 
     // Прогресс: последняя страница и флаг completed — materialProgress.
     const state = materialProgress(material.pages, index);
-    if (!freeMode || state.completed) saveMaterialProgress(State.user.uid, testId, state).catch(err => {
-      console.error("Не удалось сохранить прогресс:", err);
-    });
+    if ((!freeMode && !previewMode) || state.completed) {
+      if (!previewMode) {
+        saveMaterialProgress(State.user.uid, testId, state).catch(err => {
+          console.error("Не удалось сохранить прогресс:", err);
+        });
+      }
+    }
   }
 
   function turn(delta) {
@@ -323,7 +302,7 @@ function exitBtn(hash) {
       document.body.classList.remove("reading-mode");
       window.location.hash = hash;
     }
-  }, "К тесту");
+  }, hash.startsWith("#create-test") ? "К редактору" : "К тесту");
 }
 
 export function cleanup() {

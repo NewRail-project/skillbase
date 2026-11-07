@@ -165,40 +165,6 @@ service cloud.firestore {
         && validAvatar();
     }
 
-    // ---------- consents ----------
-
-    // Доказательства принятия документов (регистрация и гостевые входы).
-    // Записи неизменяемы: только create и чтение собственных — так
-    // пользователь не сможет скрыть или «переписать» своё согласие.
-    match /consents/{id} {
-      function consentTypes() {
-        return ["signup", "guest-test", "live-room"];
-      }
-
-      function validVersions() {
-        // Версии документов — непустые строки (редакция датой); дату и
-        // время принятия ставит сервер: acceptedAt == request.time.
-        return request.resource.data.docs.keys().hasOnly(["privacy", "terms"])
-          && request.resource.data.docs.privacy is string
-          && request.resource.data.docs.privacy.size() > 0
-          && request.resource.data.docs.terms is string
-          && request.resource.data.docs.terms.size() > 0;
-      }
-
-      allow read: if signedIn()
-        && resource.data.uid == request.auth.uid;
-
-      allow create: if signedIn()
-        && request.resource.data.uid == request.auth.uid
-        && request.resource.data.keys().hasOnly(
-          ["uid", "type", "docs", "acceptedAt"])
-        && request.resource.data.type in consentTypes()
-        && validVersions()
-        && request.resource.data.acceptedAt == request.time;
-
-      allow update, delete: if false;
-    }
-
     // ---------- tests ----------
 
     match /tests/{id} {
@@ -227,40 +193,12 @@ service cloud.firestore {
         && request.resource.data.questions is list
         && request.resource.data.questions.size() > 0;
 
-      // Обновление: автор или админ организации, authorId и orgId
-      // неизменяемы. Мягкое удаление — это тоже update:
-      //   status → "deleted" может поставить только автор или админ
-      //   организации, и вместе со статусом обязан записать
-      //   deletedBy == свой uid (кто удалил — видно в документе).
-      //   Воскресить удалённый тест нельзя: статус "deleted" не
-      //   меняется, а правки прочих полей удалённого теста запрещены
-      //   (допустимо только повторное удаление — идемпотентность).
       allow update: if signedIn()
         && (resource.data.authorId == request.auth.uid
           || isAdminOf(resource.data.orgId))
         && request.resource.data.authorId == resource.data.authorId
-        && request.resource.data.orgId == resource.data.orgId
-        && (
-          (
-            resource.data.status != "deleted"
-            && request.resource.data.status != "deleted"
-          )
-          || (
-            request.resource.data.status == "deleted"
-            && request.resource.data.get("deletedBy", "") == request.auth.uid
-            // Мягкое удаление меняет только служебные поля:
-            // прочие правки удалённого теста запрещены.
-            && request.resource.data.diff(resource.data)
-              .affectedKeys().hasOnly(
-                ["status", "deletedAt", "deletedBy", "updatedAt", "settings"]
-              )
-          )
-        )
-        && !(resource.data.status == "deleted"
-          && request.resource.data.status != "deleted");
+        && request.resource.data.orgId == resource.data.orgId;
 
-      // Жёсткое удаление запрещено: попытки, история и аналитика
-      // хранятся вокруг документа теста.
       allow delete: if false;
     }
 
@@ -789,25 +727,6 @@ function isGuest() {
           );
       }
 
-      // Необязательные поля players/{uid} при входе с профилем:
-      //  groupId — группа профиля (цвет кольца аватара в рейтинге);
-      //  isAdminPlayer — администратор проходит тест участником. Флаг обязателен
-      //  для администратора-участника (иначе он попал бы в общий топ под видом
-      //  обычного участника) и недопустим для остальных ролей.
-      function validPlayerExtras() {
-        return (!("groupId" in request.resource.data)
-            || (request.resource.data.groupId is string
-              && request.resource.data.groupId == myGroup()))
-          && (!("isAdminPlayer" in request.resource.data)
-            || (request.resource.data.isAdminPlayer == true
-              && role() == "admin"
-              && request.resource.data.observer == false))
-          && (role() != "admin"
-            || request.resource.data.observer == true
-            || roomDoc().hostId == request.auth.uid
-            || request.resource.data.get("isAdminPlayer", false) == true);
-      }
-
       // ---------- Автономный режим: расписание от серверного времени ----------
       // Те же формулы считает клиент (core/live-auto.js, autoPosition /
       // answerAllowed), поэтому «текущий вопрос» одинаков у всех устройств
@@ -820,13 +739,6 @@ function isGuest() {
         return roomDoc().get("mode", "manual") == "auto";
       }
 
-      // «В своём темпе»: комната автономного режима без общего расписания.
-      // У каждого игрока своя лента вопросов (players/{uid}/shown/{qid}).
-      // Корневое поле pace дублирует settings.pace ради простых правил.
-      function isSelfRoom() {
-        return isAutoRoom() && roomDoc().get("pace", "sync") == "self";
-      }
-
       function autoSlotMs() {
         return (roomDoc().questionSec + roomDoc().gapSec) * 1000;
       }
@@ -837,7 +749,6 @@ function isGuest() {
 
       function autoAnswerWindowOpen(qid) {
         return isAutoRoom()
-          && !isSelfRoom()
           && roomDoc().status == "active"
           && roomDoc().get("liveState", "waiting") == "in_progress"
           && roomDoc().get("autoStartedAt", null) != null
@@ -851,25 +762,6 @@ function isGuest() {
           && int(qid) < roomDoc().questionCount
           && (autoElapsedMs() - int(qid) * autoSlotMs())
             < roomDoc().questionSec * 1000 + 1000;
-      }
-
-      // Ответ «в своём темпе»: вопрос уже показан игроку (shown/{qid}) и
-      // его личное время questionSec (+ допуск 1 с на сеть) не истекло.
-      // Серверные метки: at показа и request.time — часы устройств не влияют.
-      function selfAnswerWindowOpen(qid) {
-        return isSelfRoom()
-          && roomDoc().status == "active"
-          && roomDoc().get("liveState", "waiting") == "in_progress"
-          && roomDoc().get("autoEndedAt", null) == null
-          && roomDoc().questionSec is int
-          && qid.matches("^[0-9]{1,4}$")
-          && int(qid) < roomDoc().questionCount
-          && exists(
-            /databases/$(database)/documents/rooms/$(roomId)/players/$(request.auth.uid)/shown/$(qid)
-          )
-          && request.time.toMillis() < get(
-            /databases/$(database)/documents/rooms/$(roomId)/players/$(request.auth.uid)/shown/$(qid)
-          ).data.at.toMillis() + roomDoc().questionSec * 1000 + 1000;
       }
 
       function manualAnswerWindowOpen(qid) {
@@ -895,12 +787,7 @@ function isGuest() {
         && request.resource.data.status == "active"
         // Ёмкость комнаты задана при создании; по документации MVP — 100.
         && request.resource.data.get("maxPlayers", 100) is int
-        && request.resource.data.maxPlayers > 0
-        // Темп: «sync» (общий таймер) или «self» (каждый в своём темпе);
-        // «в своём темпе» возможен только в автономном режиме.
-        && request.resource.data.get("pace", "sync") in ["sync", "self"]
-        && (request.resource.data.get("pace", "sync") != "self"
-          || request.resource.data.get("mode", "manual") == "auto");
+        && request.resource.data.maxPlayers > 0;
 
       // Ведущему можно менять состояние комнаты, но не хозяина: hostId
       // остаётся неизменяемым даже для самого ведущего.
@@ -927,14 +814,12 @@ function isGuest() {
         allow create: if (hasProfile()
           && request.auth.uid == playerId
           && request.resource.data.keys().hasOnly(
-            ["uid", "playerId", "name", "observer", "role", "joinedAt", "updatedAt",
-              "groupId", "isAdminPlayer"]
+            ["uid", "playerId", "name", "observer", "role", "joinedAt", "updatedAt"]
           )
           && request.resource.data.uid == playerId
           && request.resource.data.playerId == request.auth.uid
           && request.resource.data.observer is bool
           && validRole()
-          && validPlayerExtras()
           && roomDoc().status == "active"
           && roomDoc().get("registrationOpen", true) == true
           && roomDoc().get("playersCount", 0) < roomDoc().get("maxPlayers", 100)
@@ -949,8 +834,6 @@ function isGuest() {
                 !isStaff()
                 || request.resource.data.observer == true
                 || roomDoc().get("allowObservers", false) == true
-                // Администратор может пройти тест участником.
-                || role() == "admin"
               )
             )
           )) || (isGuest()
@@ -1030,84 +913,13 @@ function isGuest() {
           && request.auth.uid == playerId
           && playerDoc().observer != true
           && playerDoc().get("role", "player") != "observer"
-          && (manualAnswerWindowOpen(qid) || autoAnswerWindowOpen(qid)
-            || selfAnswerWindowOpen(qid))
+          && (manualAnswerWindowOpen(qid) || autoAnswerWindowOpen(qid))
           && request.resource.data.keys().hasOnly(["answer", "at"])
           && request.resource.data.at == request.time;
 
         // Перезаписать ответ нельзя: обновление — только ведущему
         // (на случай чистки комнаты).
         allow update, delete: if isRoomHost();
-      }
-
-      // «В своём темпе»: когда игроку показан вопрос. Документ создаётся один
-      // раз (update и delete запрещены игроку), at — серверная метка и старт
-      // ЛИЧНОГО таймера. Лента идёт строго по порядку: вопрос N можно показать,
-      // только если показан N−1 и на него уже есть ответ либо вышло его время.
-      // Номер предыдущего вопроса клиент передаёт полем prev — правило сверяет
-      // его с qid. Читают сам игрок и ведущий (очки и бонус за скорость).
-      match /players/{playerId}/shown/{qid} {
-        function shownPlayerDoc() {
-          return get(
-            /databases/$(database)/documents/rooms/$(roomId)/players/$(playerId)
-          ).data;
-        }
-
-        // Предыдущий вопрос закончен: на него есть ответ или вышло время.
-        function prevQuestionDone() {
-          return exists(
-            /databases/$(database)/documents/rooms/$(roomId)/players/$(playerId)/shown/$(request.resource.data.prev)
-          )
-            && (
-              exists(
-                /databases/$(database)/documents/rooms/$(roomId)/players/$(playerId)/answers/$(request.resource.data.prev)
-              )
-              || request.time.toMillis() >= get(
-                /databases/$(database)/documents/rooms/$(roomId)/players/$(playerId)/shown/$(request.resource.data.prev)
-              ).data.at.toMillis() + roomDoc().questionSec * 1000
-            );
-        }
-
-        allow read: if request.auth.uid == playerId
-          || isRoomHost();
-
-        allow create: if (hasProfile() || isGuest())
-          && request.auth.uid == playerId
-          && isSelfRoom()
-          && roomDoc().status == "active"
-          && roomDoc().get("liveState", "waiting") == "in_progress"
-          && roomDoc().get("autoEndedAt", null) == null
-          && roomDoc().questionSec is int
-          && shownPlayerDoc().observer != true
-          && shownPlayerDoc().get("role", "player") != "observer"
-          && qid.matches("^[0-9]{1,4}$")
-          && int(qid) < roomDoc().questionCount
-          && request.resource.data.at == request.time
-          && (
-            (int(qid) == 0
-              && request.resource.data.keys().hasOnly(["at"]))
-            || (int(qid) > 0
-              && request.resource.data.keys().hasOnly(["at", "prev"])
-              && request.resource.data.prev is string
-              && request.resource.data.prev.matches("^[0-9]{1,4}$")
-              && int(request.resource.data.prev) == int(qid) - 1
-              && prevQuestionDone())
-          );
-
-        allow update: if false;
-        allow delete: if isRoomHost();
-      }
-
-      // Вердикты: верно/неверно и очки по отвеченным вопросам игрока. Пишет
-      // только ведущий (у него есть ключи), читает сам игрок. Правильный ответ
-      // тут не хранится: игрок узнаёт итог своего ответа, но не ключ.
-      match /verdicts/{verdictId} {
-        allow read: if request.auth.uid == verdictId || isRoomHost();
-
-        allow create, update: if isRoomHost()
-          && request.resource.data.uid == verdictId;
-
-        allow delete: if false;
       }
 
       match /scores/{scoreId} {
