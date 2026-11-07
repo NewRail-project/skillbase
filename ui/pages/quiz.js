@@ -618,7 +618,7 @@ export default async function QuizPage() {
     const active = activeAttempt();
     const completed = completedCount();
     const limitReached = completed >= attemptsLimit;
-    const activeDeadline = active ? attemptDeadlineMs(active) : null;
+    const activeDeadline = active ? calcAttemptDeadlineMs(active) : null;
     const activeExpired = activeDeadline ? activeDeadline <= Date.now() : false;
 
     const actions = h("section", { class: "panel" },
@@ -905,7 +905,10 @@ export default async function QuizPage() {
       });
     }
     let questionDeadline = null; // мс, привязано к моменту показа вопроса
-    let questionTimerId = null;
+    // questionTimerId — модульная переменная (как timerId и saveTimer выше
+    // по файлу): её очищает cleanup() при уходе со страницы. Не объявлять
+    // здесь локальную копию: она затеняла бы модульную и роняла openRunner
+    // по TDZ на проверке в начале функции.
 
     function setSaveState(text, isError) {
       saveState.textContent = text;
