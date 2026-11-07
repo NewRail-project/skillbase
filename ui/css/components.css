@@ -358,3 +358,74 @@ input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; min-hei
 }
 /* Узкий телефон: скин-переключатель Education уступает место переключателю режима. */
 @media (max-width: 480px) { html[data-mode="education"] .skin-switch-top { display: none; } }
+
+/* ========== Футер ========== */
+.site-footer {
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: var(--space-4) var(--space-2);
+  margin-top: auto;
+}
+
+.site-footer .container {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  text-align: center;
+}
+
+.site-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  justify-content: center;
+  align-items: center;
+}
+
+.site-footer-links a {
+  color: var(--text-2);
+  text-decoration: none;
+  font-size: 0.875rem;
+  transition: color var(--dur-fast) ease;
+}
+
+.site-footer-links a:hover {
+  color: var(--text);
+}
+
+.site-footer-links a[aria-current="page"] {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+#footer-text {
+  color: var(--text-2);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+/* Мобильная адаптация */
+@media (max-width: 560px) {
+  .site-footer {
+    padding: var(--space-3) var(--space-2);
+  }
+
+  .site-footer-links {
+    gap: var(--space-2);
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .site-footer-links a {
+    font-size: 0.8125rem;
+  }
+}
+
+@media (max-width: 480px) {
+  #footer-text {
+    font-size: 0.75rem;
+  }
+}
