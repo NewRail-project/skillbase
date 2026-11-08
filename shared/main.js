@@ -73,8 +73,10 @@ function bindShellTexts() {
   if (tagline) tagline.replaceChildren(liveText(() => t("app.tagline")));
   const footer = document.getElementById("footer-text");
   if (footer) footer.replaceChildren(liveText(() => t("app.footer")));
-  // Версия платформы и дата редакции документов — из единой конфигурации
+  // Год, версия платформы и дата редакции документов — из единой конфигурации
   // (configs/organization.js); в HTML остаются статические фолбэк-значения.
+  const fwYear = document.getElementById("footer-year");
+  if (fwYear) fwYear.textContent = ORGANIZATION_CONFIG.year;
   const fwVersion = document.getElementById("footer-version");
   if (fwVersion) fwVersion.textContent = ORGANIZATION_CONFIG.version;
   const fwDocs = document.getElementById("footer-docversion");

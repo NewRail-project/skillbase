@@ -30,24 +30,38 @@ test("index.html: ровно один общий футер .site-footer и не
   assert.ok(!html.includes(".container"), "className .container внутри футера");
 });
 
-test("футер: три раздела (Платформа/Документы/Контакты) и нижняя строка", () => {
+test("футер: три раздела (Платформа/Документы/Информация) и нижняя строка", () => {
   for (const fragment of [
     "site-footer-inner",
     "site-footer-title",
+    "site-footer-brand",
     "Платформа",
     "Документы",
-    "Контакты",
+    "Информация",
     '<a href="#privacy">',
     '<a href="#terms">',
     '<a href="#rules">',
     '<a href="#contact">',
+    '<a href="#contact/channels">',
     "site-footer-bottom",
-    "© 2026 Skillbase",
+    'id="footer-year"',
     'id="footer-version"',
     'id="footer-docversion"'
   ]) {
     assert.ok(html.includes(fragment), `футер не содержит: ${fragment}`);
   }
+});
+
+test("футер не содержит персональных контактов и имён разработчиков", () => {
+  const start = html.indexOf('<footer class="site-footer">');
+  const end = html.indexOf("</footer>", start) + "</footer>".length;
+  const footer = html.slice(start, end);
+  for (const forbidden of ["mailto:", "t.me", "bujlenkovdaniil", "YourAssistantWeb", "Frozencode_f", "core.singl", "Буйленков", "Голубятников", "instagram", "github.com"]) {
+    assert.ok(!footer.includes(forbidden), `персональные данные в футере: ${forbidden}`);
+  }
+  // Способы связи остаются на своих страницах.
+  assert.ok(read("ui/pages/contact.js").includes("mailto:bujlenkovdaniil@gmail.com"));
+  assert.ok(read("ui/pages/contact.js").includes("t.me/YourAssistantWeb"));
 });
 
 test("маршруты футера, согласий и англоязычных версий зарегистрированы в роутере", () => {
@@ -60,11 +74,11 @@ test("маршруты футера, согласий и англоязычны�
   }
 });
 
-test("main.js синхронизирует версию и дату документов из конфига организации", () => {
+test("main.js синхронизирует год, версию и дату документов из конфига организации", () => {
   assert.ok(main.includes("configs/organization.js"), "main.js не импортирует конфиг организации");
   assert.ok(org.includes("version"), "в конфиге нет version");
   assert.ok(org.includes("docVersion"), "в конфиге нет docVersion");
-  for (const id of ["footer-version", "footer-docversion"]) {
+  for (const id of ["footer-year", "footer-version", "footer-docversion"]) {
     assert.ok(main.includes(id), `main.js не привязывает #${id}`);
   }
 });
