@@ -519,35 +519,71 @@ main#app {
 
 /* ---------- Подвал ---------- */
 
+/* Флекс-элемент .shell с margin-top: auto: на коротких страницах футер
+   прижат к низу окна, на длинных — идёт после контента без наложения. */
 .site-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-<<<<<<< HEAD
-  padding: var(--space-5) var(--space-4);
-=======
-  padding: var(--space-4) var(--space-3);
->>>>>>> integrate/workforce
+  margin-top: auto;
+  width: 100%;
+  flex-shrink: 0;
+  padding: var(--space-5) var(--space-4) var(--space-4);
   border-top: 1px solid var(--border);
   color: var(--text-2);
   font-size: .8125rem;
-  width: 100%;
-  flex-shrink: 0;
-  margin-top: auto;
 }
-.site-footer-links {
+
+.site-footer-inner {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-4) var(--space-5);
+}
+
+.site-footer-title {
+  margin: 0 0 var(--space-2);
+  font-size: .6875rem;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.site-footer-desc {
+  margin: 0 0 var(--space-2);
+}
+
+.site-footer-col {
   display: flex;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-  justify-content: center;
-  width: 100%;
+  flex-direction: column;
+  gap: var(--space-1);
 }
-<<<<<<< HEAD
-.site-footer-links { display: flex; gap: var(--space-3); }
-=======
->>>>>>> integrate/workforce
+
+.site-footer-col a {
+  color: var(--text-2);
+  text-decoration: none;
+  padding: var(--space-2) 0;
+  /* Тач-цель вторичных ссылок: 36px = --tap (44px) минус --space-2. */
+  min-height: calc(var(--tap) - var(--space-2));
+  display: inline-flex;
+  align-items: center;
+}
+
+.site-footer-col a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.site-footer-bottom {
+  max-width: var(--content-max);
+  margin: var(--space-4) auto 0;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  font-size: .75rem;
+}
+
 @media (min-width: 900px) {
   /* На широком экране полный логотип живёт в боковой панели,
      в шапке остаётся только знак — без дублирования надписи. */
@@ -594,7 +630,7 @@ main#app {
   .panel { padding: var(--space-4); }
   .panel-head, .panel-body { padding: var(--space-3) var(--space-4); }
   .stat-value { font-size: 1.5rem; }
-  .site-footer { flex-direction: column; align-items: flex-start; }
+  .site-footer { padding: var(--space-4) var(--space-3) var(--space-3); }
 }
 
 /* ---------- Таблицы и служебные блоки ---------- */

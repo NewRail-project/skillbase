@@ -25,21 +25,21 @@
   <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js">
   <link rel="modulepreload" href="core/auth.js">
   <link rel="modulepreload" href="shared/firebase.js">
-  <link rel="stylesheet" href="ui/css/tokens.css?v=1.0.0.20261107214324">
-  <link rel="stylesheet" href="ui/css/themes/education.css?v=1.0.0.20261107214324">
-  <link rel="stylesheet" href="ui/css/themes/operations.css?v=1.0.0.20261107214324">
-  <link rel="stylesheet" href="ui/css/themes/depot.css?v=1.0.0.20261107214324">
-  <link rel="stylesheet" href="ui/css/themes/workforce.css?v=1.0.0.20261107214324">
-  <link rel="stylesheet" href="ui/css/base.css?v=1.0.0.20261107214324">
-  <link rel="stylesheet" href="ui/css/components.css?v=1.0.0.20261107214324">
-  <link rel="stylesheet" href="ui/css/brand.css?v=1.0.0.20261107214324">
+  <link rel="stylesheet" href="ui/css/tokens.css?v=1.0.0.20261108234051">
+  <link rel="stylesheet" href="ui/css/themes/education.css?v=1.0.0.20261108234051">
+  <link rel="stylesheet" href="ui/css/themes/operations.css?v=1.0.0.20261108234051">
+  <link rel="stylesheet" href="ui/css/themes/depot.css?v=1.0.0.20261108234051">
+  <link rel="stylesheet" href="ui/css/themes/workforce.css?v=1.0.0.20261108234051">
+  <link rel="stylesheet" href="ui/css/base.css?v=1.0.0.20261108234051">
+  <link rel="stylesheet" href="ui/css/components.css?v=1.0.0.20261108234051">
+  <link rel="stylesheet" href="ui/css/brand.css?v=1.0.0.20261108234051">
   <!-- Inter подключён последним: font-display: swap не блокирует отрисовку,
        а системный fallback уже отрисовал текст. -->
-  <link rel="stylesheet" href="ui/css/fonts.css?v=1.0.0.20261107214324">
+  <link rel="stylesheet" href="ui/css/fonts.css?v=1.0.0.20261108234051">
   <!-- live.css (21 КБ) нужен только Live-комнатам и запуску теста:
        подключается точечно в room.js/launch.js, а не блокирует первую
        отрисовку главной. -->
-  <script type="module" src="shared/main.js?v=1.0.0.20261107214324"></script>
+  <script type="module" src="shared/main.js?v=1.0.0.20261108234051"></script>
   <script>
     // Тема применяется до первой отрисовки, чтобы не было вспышки светлого фона.
     (function () {
@@ -101,23 +101,31 @@
     </header>
     <main id="app" tabindex="-1"></main>
     <footer class="site-footer">
-<<<<<<< HEAD
-      <span id="footer-text">Skillbase · платформа обучения и проверки знаний для колледжей и университетов</span>
-      <span class="site-footer-links">
-        <a href="#/">Главная</a>
-        <a href="#login">Вход</a>
-      </span>
-=======
-      <div class="container">
-        <span id="footer-text" data-live-key="app.footer"></span>
-        <nav class="site-footer-links" aria-label="Служебные ссылки">
+      <div class="site-footer-inner">
+        <nav class="site-footer-col" aria-labelledby="footer-col-platform">
+          <h2 class="site-footer-title" id="footer-col-platform">Платформа</h2>
+          <p class="site-footer-desc" id="footer-text">Skillbase · платформа обучения и проверки знаний для колледжей и университетов</p>
           <a href="#/">Главная</a>
-          <a href="#tests">Каталог тестов</a>
           <a href="#about">О проекте</a>
-          <a href="#login">Вход</a>
+        </nav>
+        <nav class="site-footer-col" aria-labelledby="footer-col-docs">
+          <h2 class="site-footer-title" id="footer-col-docs">Документы</h2>
+          <a href="#privacy">Политика конфиденциальности</a>
+          <a href="#terms">Пользовательское соглашение</a>
+          <a href="#rules">Правила использования</a>
+        </nav>
+        <nav class="site-footer-col" aria-labelledby="footer-col-contacts">
+          <h2 class="site-footer-title" id="footer-col-contacts">Контакты</h2>
+          <a href="#contact">Страница контактов</a>
+          <a href="mailto:bujlenkovdaniil@gmail.com">bujlenkovdaniil@gmail.com</a>
+          <a href="https://t.me/YourAssistantWeb" target="_blank" rel="noopener noreferrer">Telegram: @YourAssistantWeb</a>
         </nav>
       </div>
->>>>>>> integrate/workforce
+      <div class="site-footer-bottom">
+        <span>© 2026 Skillbase</span>
+        <span>Версия: <span id="footer-version">1.0.0</span></span>
+        <span>Документы от <span id="footer-docversion">02.11.2026</span></span>
+      </div>
     </footer>
   </div>
   <div id="loading-spinner" class="loading-spinner" style="display: none;">

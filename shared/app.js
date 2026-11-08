@@ -57,6 +57,17 @@ const routes = {
   "launch":       { file: "ui/pages/launch.js",            title: "Как провести тест",    tkey: "title.launch",      auth: true, roles: STAFF },
   "join":         { file: "ui/pages/join.js",              title: "Вход по коду" },
   "about":        { file: "ui/pages/about.js",             title: "О проекте" },
+  // Юридические документы и контакты: хэши использует футер, ссылки
+  // согласия (core/consent-docs.js → CONSENT_DOCUMENTS, route: "#privacy")
+  // и перекрёстные ссылки англоязычных версий документов. Открыты гостям:
+  // страницы информационные, ничего не пишут в Firestore.
+  "privacy":      { file: "ui/pages/privacy.js",           title: "Политика конфиденциальности" },
+  "terms":        { file: "ui/pages/terms.js",             title: "Пользовательское соглашение" },
+  "rules":        { file: "ui/pages/rules.js",             title: "Правила использования" },
+  "contact":      { file: "ui/pages/contact.js",           title: "Контакты" },
+  "privacy-en":   { file: "ui/pages/privacy-en.js",        title: "Privacy Policy" },
+  "terms-en":     { file: "ui/pages/terms-en.js",          title: "Terms of Use" },
+  "rules-en":     { file: "ui/pages/rules-en.js",          title: "Usage Rules" },
   // guest: маршрут открыт анонимному гостю (участие в live-комнате —
   // единственная гостевая функция; остальное требует регистрации).
   "room":         { file: "ui/pages/room.js",              title: "Live-комната",         auth: true, guest: true },

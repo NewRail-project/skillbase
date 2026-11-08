@@ -8,6 +8,7 @@ import { modeToggle } from '../ui/components/mode-toggle.js';
 import { initMode, subscribeMode } from '../core/mode.js';
 import { t } from '../core/i18n.js';
 import { liveText, liveAttr } from './live.js';
+import { ORGANIZATION_CONFIG } from '../configs/organization.js';
 
 function mountSidebar() {
   const box = document.getElementById("sidebar-container");
@@ -72,6 +73,12 @@ function bindShellTexts() {
   if (tagline) tagline.replaceChildren(liveText(() => t("app.tagline")));
   const footer = document.getElementById("footer-text");
   if (footer) footer.replaceChildren(liveText(() => t("app.footer")));
+  // Версия платформы и дата редакции документов — из единой конфигурации
+  // (configs/organization.js); в HTML остаются статические фолбэк-значения.
+  const fwVersion = document.getElementById("footer-version");
+  if (fwVersion) fwVersion.textContent = ORGANIZATION_CONFIG.version;
+  const fwDocs = document.getElementById("footer-docversion");
+  if (fwDocs) fwDocs.textContent = ORGANIZATION_CONFIG.docVersion;
   const meta = document.querySelector('meta[name="description"]');
   if (meta) liveAttr(meta, "content", () => t("app.description"));
 }
