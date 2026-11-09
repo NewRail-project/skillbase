@@ -325,3 +325,35 @@
   .lb-card, .lb-enter .lb-card, .lb-card.lb-bump, .pod-person, .pod-person::before, .pod-block::after { animation: none !important; transition: none !important; }
   .pod-col.pod-hidden .pod-block { transform: none; }
 }
+
+/* ---------- Плавная смена видов Live-комнаты ----------
+   Причина прежнего мерцания: общее правило `.page > *` (brand.css) запускало
+   анимацию sb-rise (opacity 0 + задержка 60–200 мс, fill: both) для КАЖДОГО
+   нового .room-view, а комната пересобирает вид при каждой смене вопроса,
+   фазы или ответа. Вид на миг становился прозрачным — экран «мигал».
+   Теперь вход страницы не повторяется, а смена шага идёт кроссфейдом. */
+.page.room-page > * { animation: none; }
+.room-page { position: relative; }
+
+/* Новый вид проявляется поверх уходящего: без пустого кадра. */
+.page.room-page > .room-view-enter { animation: room-view-in .28s cubic-bezier(.2, .8, .2, 1) backwards; }
+@keyframes room-view-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* «Снимок» уходящего вида: лежит поверх, гаснет и не ловит клики. */
+.room-view-ghost {
+  position: absolute;
+  z-index: 2;
+  margin: 0;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Таймер и полосы прогресса двигаются плавно, а не рывками раз в 0,5 с. */
+[data-live-bar] { transition: width .5s linear; }
+
+@media (prefers-reduced-motion: reduce) {
+  .page.room-page > .room-view-enter, .room-view-ghost { animation: none !important; }
+}

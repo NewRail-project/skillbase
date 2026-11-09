@@ -69,6 +69,7 @@ let meterStreak = 0;       // серия, показанная над карто
 let pendingRect = null;    // позиции карточек до перерисовки (FLIP)
 const autoClosed = new Set();
 let lastSignature = null;
+let lastStepKey = null;   // «шаг» комнаты: смена вопроса/фазы/роли → плавный переход вида
 let lastBoardSig = null;
 let lastReactionSig = null;
 let local = null;
@@ -107,6 +108,7 @@ function reset() {
   streakRef = null;
   autoClosed.clear();
   lastSignature = null;
+  lastStepKey = null;
   lastBoardSig = null;
   lastReactionSig = null;
   lastRanks = null;
@@ -821,18 +823,78 @@ function fillStatusBarIfChanged() {
   fillStatusBar();
 }
 
+// Ключ «шага»: меняется, только когда на экране должен появиться другой вид
+// (новый вопрос, пауза, раскрытие ответа, финал, смена роли). Обновления
+// толпы (чужие ответы, очки, новые участники) шаг не меняют — вид
+// пересобирается на месте без анимации, чтобы ничто не мигало.
+function stepKey() {
+  const li = liveInfo();
+  const revealed = li.legacyPhase === "closed" && li.qid !== "" && local.reveals?.[li.qid] ? 1 : 0;
+  return [
+    local.room ? local.room.status : "no-room",
+    connState(), role() || "-", local.removed ? 1 : 0,
+    li.lifecycle, li.position, li.phase, li.qid, revealed,
+    local.room?.registrationOpen === false ? 0 : 1
+  ].join("|");
+}
+
+const VIEW_FADE_MS = 280;
+
+// Старый вид не исчезает мгновенно: его «снимок» остаётся поверх и плавно
+// гаснет, пока новый вид плавно проявляется под ним (кроссфейд). Между
+// ними нет кадра с пустым фоном — поэтому нет и «мерцания».
+function crossfade(page, existing, next) {
+  const ghost = existing.cloneNode(true);
+  ghost.classList.add("room-view-ghost");
+  ghost.setAttribute("aria-hidden", "true");
+  ghost.removeAttribute("id");
+  ghost.querySelectorAll("[id]").forEach(el => el.removeAttribute("id"));
+  ghost.querySelectorAll("button, input, textarea, select, a").forEach(el => {
+    el.tabIndex = -1;
+    el.disabled = true;
+  });
+  const pageBox = page.getBoundingClientRect();
+  const box = existing.getBoundingClientRect();
+  ghost.style.top = `${box.top - pageBox.top}px`;
+  ghost.style.left = `${box.left - pageBox.left}px`;
+  ghost.style.width = `${box.width}px`;
+  existing.replaceWith(next);
+  page.appendChild(ghost);
+  next.classList.add("room-view-enter");
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    ghost.remove();
+    next.classList.remove("room-view-enter");
+  };
+  if (typeof ghost.animate === "function") {
+    const fade = ghost.animate(
+      [{ opacity: 1 }, { opacity: 0 }],
+      { duration: VIEW_FADE_MS * 0.8, easing: "ease-out", fill: "forwards" }
+    );
+    fade.onfinish = finish;
+    fade.oncancel = finish;
+  }
+  setTimeout(finish, VIEW_FADE_MS + 120);
+}
+
 function renderPage(page) {
-  const existing = page.querySelector(".room-view");
+  const existing = page.querySelector(".room-view:not(.room-view-ghost)");
   syncBoardFrame();
   const oldTops = captureRects(existing);
   const next = buildView();
+  const key = stepKey();
+  const stepChanged = key !== lastStepKey;
+  lastStepKey = key;
   if (existing) {
     // Фиксируем высоту и прокрутку на время подмены: страница не
     // «проваливается» и не прыгает, когда вид собирается заново.
     const scrollY = window.scrollY;
     const lockH = page.offsetHeight;
     page.style.minHeight = `${lockH}px`;
-    existing.replaceWith(next);
+    if (stepChanged && !reducedMotion()) crossfade(page, existing, next);
+    else existing.replaceWith(next);
     if (window.scrollY !== scrollY) window.scrollTo(0, scrollY);
     requestAnimationFrame(() => requestAnimationFrame(() => { page.style.minHeight = ""; }));
   } else {
