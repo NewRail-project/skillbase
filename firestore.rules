@@ -675,6 +675,115 @@ service cloud.firestore {
         );
     }
 
+    // ---------- subjects, topics ----------
+    // Предметы и темы обучения: самостоятельные справочники организации,
+    // не привязанные к тестам, материалам и попыткам. Читают все члены
+    // организации (включая студентов), пишут только сотрудники своей
+    // организации (isStaff + сверка orgId, как у tests).
+    //
+    // Ограничение teacherGroups (доступ преподавателя к попыткам своих
+    // групп) на предметы и темы НЕ переносится: это общая структура
+    // организации без данных студентов и без привязки к группам —
+    // сужать права по группам здесь не на чем.
+    // Удаление запрещено — вместо него архивирование (status = "archived"),
+    // чтобы темы предмета не пропадали незаметно.
+
+    match /subjects/{subjectId} {
+      // Поля названия и порядка: непустой заголовок до 120 символов
+      // (как ФИО), описание до 600, order — неотрицательное целое.
+      // Проверяется пост-состояние документа (request.resource.data
+      // при update — документ после объединения).
+      function subjectFieldsOk() {
+        return request.resource.data.title is string
+          && request.resource.data.title.trim().size() > 0
+          && request.resource.data.title.size() <= 120
+          && (!("description" in request.resource.data)
+            || (request.resource.data.description is string
+              && request.resource.data.description.size() <= 600))
+          && request.resource.data.order is int
+          && request.resource.data.order >= 0;
+      }
+
+      // Отсутствующий документ читается как «нет» (resource == null),
+      // как у materials. Существующий — только своей организации.
+      allow read: if (resource == null)
+        || (hasProfile() && resource.data.orgId == myOrg());
+
+      // Создание: сотрудник организации; orgId из профиля, createdBy из
+      // сессии; новый предмет всегда «active», архивирование — через update.
+      allow create: if isStaff()
+        && request.resource.data.orgId == myOrg()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.status == "active"
+        && request.resource.data.keys().hasOnly(
+          ["orgId", "title", "description", "order", "status",
+           "createdBy", "createdAt", "updatedAt"])
+        && subjectFieldsOk();
+
+      // Изменение: сотрудник организации документа. orgId, createdBy и
+      // createdAt неизменяемы; статус — active|archived (архивирование и
+      // возврат из архива); название и порядок остаются валидными.
+      allow update: if isStaffOf(resource.data.orgId)
+        && request.resource.data.orgId == resource.data.orgId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.status in ["active", "archived"]
+        && request.resource.data.keys().hasOnly(
+          ["orgId", "title", "description", "order", "status",
+           "createdBy", "createdAt", "updatedAt"])
+        && subjectFieldsOk();
+
+      // Архивирование вместо удаления.
+      allow delete: if false;
+    }
+
+    match /topics/{topicId} {
+      function topicFieldsOk() {
+        return request.resource.data.title is string
+          && request.resource.data.title.trim().size() > 0
+          && request.resource.data.title.size() <= 120
+          && (!("description" in request.resource.data)
+            || (request.resource.data.description is string
+              && request.resource.data.description.size() <= 600))
+          && request.resource.data.order is int
+          && request.resource.data.order >= 0;
+      }
+
+      allow read: if (resource == null)
+        || (hasProfile() && resource.data.orgId == myOrg());
+
+      // Создание: сотрудник организации; предмет обязан существовать и
+      // принадлежать той же организации — тему нельзя повесить на чужой
+      // или несуществующий предмет; статус — только «active».
+      allow create: if isStaff()
+        && request.resource.data.orgId == myOrg()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.subjectId is string
+        && exists(/databases/$(database)/documents/subjects/$(request.resource.data.subjectId))
+        && get(/databases/$(database)/documents/subjects/$(request.resource.data.subjectId)).data.orgId == myOrg()
+        && request.resource.data.status == "active"
+        && request.resource.data.keys().hasOnly(
+          ["orgId", "subjectId", "title", "description", "order", "status",
+           "createdBy", "createdAt", "updatedAt"])
+        && topicFieldsOk();
+
+      // Изменение: сотрудник организации темы; orgId, subjectId, createdBy
+      // и createdAt неизменяемы (перенос темы между предметами запрещён).
+      allow update: if isStaffOf(resource.data.orgId)
+        && request.resource.data.orgId == resource.data.orgId
+        && request.resource.data.subjectId == resource.data.subjectId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.status in ["active", "archived"]
+        && request.resource.data.keys().hasOnly(
+          ["orgId", "subjectId", "title", "description", "order", "status",
+           "createdBy", "createdAt", "updatedAt"])
+        && topicFieldsOk();
+
+      allow delete: if false;
+    }
+
+
     // ---------- rooms, players, scores, reveals, observers ----------
     // Live-комнаты: ведущий пишет room/scores/reveals, участник —
     // только свой players/{uid} и только answers.<номер вопроса>,

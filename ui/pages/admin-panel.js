@@ -122,6 +122,13 @@ export default async function AdminPanelPage() {
         text: "Личные данные, скин интерфейса и тема.",
         href: "#profile",
         action: "Настроить"
+      }),
+      tile({
+        icon: icons.book,
+        title: "Предметы и темы",
+        text: "Структура обучения: предметы и темы внутри них.",
+        href: "#subjects",
+        action: "Управлять"
       })
     )
   ));
