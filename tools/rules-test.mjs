@@ -473,6 +473,537 @@ function liveAutoCases() {
     ];
 }
 
+// ---------- Предметы и темы ----------
+
+const SUBJECT_KEYS = {
+    orgId: ORG,
+    title: "Электрические машины",
+    description: "",
+    order: 0,
+    status: "active",
+    createdBy: "teacher1",
+    createdAt: ISO,
+    updatedAt: ISO
+};
+
+function subjectDoc(overrides = {}) {
+    return { ...SUBJECT_KEYS, ...overrides };
+}
+
+function topicDoc(overrides = {}) {
+    return {
+        orgId: ORG,
+        subjectId: "s1",
+        title: "Тяговые двигатели",
+        description: "",
+        order: 0,
+        status: "active",
+        createdBy: "teacher1",
+        createdAt: ISO,
+        updatedAt: ISO,
+        ...overrides
+    };
+}
+
+// Моки предмета s1 для правила create у тем.
+function subjectMock(subjectId = "s1", orgId = ORG) {
+    const path = `${DB}/subjects/${subjectId}`;
+    return [
+        {
+            function: "exists",
+            args: [{ exactValue: path }],
+            result: { value: true }
+        },
+        {
+            function: "get",
+            args: [{ exactValue: path }],
+            result: { value: { data: { orgId, title: "Предмет" } } }
+        }
+    ];
+}
+
+function subjectCases() {
+    return [
+        // ---------- чтение ----------
+        {
+            name: "Предметы: студент читает предмет своей организации",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/subjects/s1`,
+                method: "get"
+            },
+            resource: { data: subjectDoc() },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Предметы: студент не читает предмет чужой организации",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/subjects/s-other`,
+                method: "get"
+            },
+            resource: { data: subjectDoc({ orgId: "other-org" }) },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Предметы: анонимный гость не читает предметы",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "guest1", token: { firebase: { sign_in_provider: "anonymous" } } },
+                path: `${DB}/subjects/s1`,
+                method: "get"
+            },
+            resource: { data: subjectDoc() },
+            functionMocks: [
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/users/guest1` }],
+                    result: { value: false }
+                }
+            ]
+        },
+        {
+            name: "Предметы: сотрудник читает отсутствующий предмет",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/subjects/s-none`,
+                method: "get"
+            },
+            resource: null,
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        // ---------- создание ----------
+        {
+            name: "Предметы: преподаватель создаёт предмет своей организации",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/subjects/s-new`,
+                method: "create",
+                resource: { data: subjectDoc() }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Предметы: администратор создаёт предмет",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "admin1" },
+                path: `${DB}/subjects/s-admin`,
+                method: "create",
+                resource: { data: subjectDoc({ createdBy: "admin1" }) }
+            },
+            functionMocks: profileMocks("admin1", "admin")
+        },
+        {
+            name: "Предметы: преподаватель с ограничением групп управляет предметами",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher3" },
+                path: `${DB}/subjects/s-grouped`,
+                method: "create",
+                resource: { data: subjectDoc({ createdBy: "teacher3" }) }
+            },
+            functionMocks: profileMocks("teacher3", "teacher", ORG, {
+                teacherGroups: ["group-a"]
+            })
+        },
+        {
+            name: "Предметы: студент не создаёт предмет",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/subjects/s-student`,
+                method: "create",
+                resource: { data: subjectDoc({ createdBy: "student1" }) }
+            },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Предметы: нельзя создать предмет в чужой организации",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/subjects/s-foreign`,
+                method: "create",
+                resource: { data: subjectDoc({ orgId: "other-org" }) }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Предметы: нельзя подменить автора при создании",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/subjects/s-spoof`,
+                method: "create",
+                resource: { data: subjectDoc({ createdBy: "student1" }) }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Предметы: пустое название — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/subjects/s-empty`,
+                method: "create",
+                resource: { data: subjectDoc({ title: "   " }) }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Предметы: название длиннее 120 символов — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/subjects/s-long`,
+                method: "create",
+                resource: { data: subjectDoc({ title: "Б".repeat(121) }) }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Предметы: некорректный тип названия (число) — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/subjects/s-type`,
+                method: "create",
+                resource: { data: subjectDoc({ title: 5 }) }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Предметы: дробный order — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/subjects/s-frac`,
+                method: "create",
+                resource: { data: subjectDoc({ order: 1.5 }) }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Предметы: отрицательный order — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/subjects/s-neg`,
+                method: "create",
+                resource: { data: subjectDoc({ order: -1 }) }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Предметы: строка вместо числа order — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/subjects/s-str`,
+                method: "create",
+                resource: { data: subjectDoc({ order: "1" }) }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Предметы: создание сразу в архиве — отказ (только active)",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/subjects/s-arch`,
+                method: "create",
+                resource: { data: subjectDoc({ status: "archived" }) }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Предметы: неизвестное поле — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/subjects/s-hack`,
+                method: "create",
+                resource: { data: { ...subjectDoc(), hack: 1 } }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        // ---------- изменение ----------
+        {
+            name: "Предметы: преподаватель архивирует предмет",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/subjects/s1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: subjectDoc(),
+            newDoc: subjectDoc({ status: "archived", updatedAt: "2026-01-02T00:00:00Z" }),
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Предметы: студент не изменяет предмет",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/subjects/s1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: subjectDoc(),
+            newDoc: subjectDoc({ title: "Взлом" }),
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Предметы: преподаватель другой организации не изменяет предмет",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher2" },
+                path: `${DB}/subjects/s1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: subjectDoc({ orgId: "other-org" }),
+            newDoc: subjectDoc({ orgId: "other-org", title: "Чужое" }),
+            functionMocks: profileMocks("teacher2", "teacher")
+        },
+        {
+            name: "Предметы: нельзя перенести предмет в другую организацию",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/subjects/s1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: subjectDoc(),
+            newDoc: subjectDoc({ orgId: "other-org" }),
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Предметы: нельзя подменить автора при изменении",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/subjects/s1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: subjectDoc(),
+            newDoc: subjectDoc({ createdBy: "student1" }),
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Предметы: изменение с пустым названием — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/subjects/s1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: subjectDoc(),
+            newDoc: subjectDoc({ title: "" }),
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        // ---------- темы ----------
+        {
+            name: "Темы: студент читает тему своей организации",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/topics/t1`,
+                method: "get"
+            },
+            resource: { data: topicDoc() },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Темы: студент не читает тему чужой организации",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/topics/t-other`,
+                method: "get"
+            },
+            resource: { data: topicDoc({ orgId: "other-org" }) },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Темы: преподаватель создаёт тему своего предмета",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/topics/t-new`,
+                method: "create",
+                resource: { data: topicDoc() }
+            },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                ...subjectMock("s1")
+            ]
+        },
+        {
+            name: "Темы: нельзя создать тему на предмет чужой организации",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/topics/t-foreign`,
+                method: "create",
+                resource: { data: topicDoc() }
+            },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                ...subjectMock("s1", "other-org")
+            ]
+        },
+        {
+            name: "Темы: нельзя создать тему на несуществующий предмет",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/topics/t-none`,
+                method: "create",
+                resource: { data: topicDoc({ subjectId: "s-none" }) }
+            },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/subjects/s-none` }],
+                    result: { value: false }
+                }
+            ]
+        },
+        {
+            name: "Темы: студент не создаёт тему",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/topics/t-student`,
+                method: "create",
+                resource: { data: topicDoc({ createdBy: "student1" }) }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...subjectMock("s1")
+            ]
+        },
+        {
+            name: "Темы: пустое название темы — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/topics/t-empty`,
+                method: "create",
+                resource: { data: topicDoc({ title: "" }) }
+            },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                ...subjectMock("s1")
+            ]
+        },
+        {
+            name: "Темы: отрицательный order — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/topics/t-neg`,
+                method: "create",
+                resource: { data: topicDoc({ order: -2 }) }
+            },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                ...subjectMock("s1")
+            ]
+        },
+        {
+            name: "Темы: нельзя подменить автора темы",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/topics/t-spoof`,
+                method: "create",
+                resource: { data: topicDoc({ createdBy: "student1" }) }
+            },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                ...subjectMock("s1")
+            ]
+        },
+        {
+            name: "Темы: преподаватель архивирует тему",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/topics/t1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: topicDoc(),
+            newDoc: topicDoc({ status: "archived", updatedAt: "2026-01-02T00:00:00Z" }),
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Темы: нельзя сменить предмет темы",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/topics/t1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: topicDoc(),
+            newDoc: topicDoc({ subjectId: "s2" }),
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Темы: нельзя перенести тему в другую организацию",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/topics/t1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: topicDoc(),
+            newDoc: topicDoc({ orgId: "other-org" }),
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Темы: студент не изменяет тему",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/topics/t1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: topicDoc(),
+            newDoc: topicDoc({ title: "Взлом" }),
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Темы: недопустимый статус published — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/topics/t1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: topicDoc(),
+            newDoc: topicDoc({ status: "published" }),
+            functionMocks: profileMocks("teacher1", "teacher")
+        }
+    ];
+}
+
 function testCases() {
     return [
         {
@@ -2591,6 +3122,7 @@ function testCases() {
             ]
         }
         ,
+        ...subjectCases(),
         ...liveAutoCases()
     ];
 }
