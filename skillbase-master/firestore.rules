@@ -1,0 +1,981 @@
+rules_version = '2';
+
+// Skillbase — правила Cloud Firestore.
+// Роли и организация читаются из users/{uid}; custom claims не используются.
+// Всё, что не описано ниже, запрещено (Firestore запрещает по умолчанию).
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- Базовые функции ----------
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function uid() {
+      return request.auth.uid;
+    }
+
+    function userDoc() {
+      return get(
+        /databases/$(database)/documents/users/$(uid())
+      ).data;
+    }
+
+    function hasProfile() {
+      return signedIn()
+        && exists(
+          /databases/$(database)/documents/users/$(request.auth.uid)
+        );
+    }
+
+    function role() {
+      return userDoc().role;
+    }
+
+    function myOrg() {
+      return userDoc().orgId;
+    }
+
+    function myGroup() {
+      return userDoc().groupId;
+    }
+
+    // Сотрудник = teacher | admin.
+    function isStaff() {
+      return hasProfile()
+        && (role() == "teacher" || role() == "admin");
+    }
+
+    function isStaffOf(orgId) {
+      return isStaff() && myOrg() == orgId;
+    }
+
+    function isAdminOf(orgId) {
+      return hasProfile()
+        && role() == "admin"
+        && myOrg() == orgId;
+    }
+
+    // teacherGroups учитывается, только если поле задано непустым списком:
+    // absent или null означают «все группы организации».
+    function teacherCanSeeGroup(groupId) {
+      return !("teacherGroups" in userDoc().keys())
+        || userDoc().teacherGroups == null
+        || (userDoc().teacherGroups is list
+          && userDoc().teacherGroups.size() == 0)
+        || (userDoc().teacherGroups is list
+          && groupId != null
+          && groupId in userDoc().teacherGroups);
+    }
+
+    // ---------- users ----------
+
+    match /users/{id} {
+      // Регистрация: студент, организация и группа строго дефолтные,
+      // ФИО непустое, набор ключей зафиксирован.
+      allow create: if signedIn()
+        && request.auth.uid == id
+        && request.resource.data.keys().hasOnly([
+          "uid", "email", "role", "orgId", "groupId", "fullName", "ui",
+          "createdAt", "position", "department"
+        ])
+        && request.resource.data.role == "student"
+        && request.resource.data.orgId == "default-org"
+        && request.resource.data.groupId == "default-group"
+        && request.resource.data.groupId is string
+        && request.resource.data.fullName is string
+        && request.resource.data.fullName.size() > 0
+        && request.resource.data.fullName.trim().size() > 0
+        && (
+          !("position" in request.resource.data)
+          || request.resource.data.position is string
+        )
+        && (
+          !("department" in request.resource.data)
+          || request.resource.data.department is string
+        );
+
+      // Читают: сам пользователь и сотрудники его организации
+      // (иначе у преподавателя падает страница «Пользователи»).
+      allow read: if signedIn()
+        && (resource == null || request.auth.uid == id || isStaffOf(resource.data.orgId));
+
+      // Пользователь меняет только личные поля: role, orgId, groupId,
+      // teacherGroups ему недоступны.
+      allow update: if signedIn()
+        && request.auth.uid == id
+        && request.resource.data.diff(resource.data)
+          .affectedKeys().hasOnly([
+            "fullName", "position", "department", "ui",
+            "themeMode", "updatedAt"
+          ]);
+
+      // Администратор меняет role, groupId и teacherGroups другим
+      // пользователям только своей организации и не себе.
+      allow update: if hasProfile()
+        && role() == "admin"
+        && request.auth.uid != id
+        && resource.data.orgId == myOrg()
+        && request.resource.data.diff(resource.data)
+          .affectedKeys().hasOnly(["role", "groupId", "teacherGroups", "updatedAt"])
+        && request.resource.data.role in ["student", "teacher", "admin"]
+        && (
+          !("groupId" in request.resource.data)
+          || request.resource.data.groupId == null
+          || request.resource.data.groupId is string
+        )
+        && (
+          !("teacherGroups" in request.resource.data)
+          || request.resource.data.teacherGroups == null
+          || (
+            request.resource.data.teacherGroups is list
+            && request.resource.data.teacherGroups.size() <= 10
+          )
+        );
+    }
+
+    // Пресеты реакций Live-комнат (для правила reactions ниже).
+    function reactionsList() {
+      return ["signal", "horn", "bell", "star", "👍", "🔥", "😂", "😮", "🎉"];
+    }
+
+    // ---------- publicProfiles ----------
+
+    match /publicProfiles/{id} {
+      allow read: if signedIn()
+        && (resource == null
+          || request.auth.uid == id
+          || (hasProfile()
+            && userDoc().orgId == resource.data.orgId));
+
+      // Аватар — только пресет «preset:<id>» (строка: латиница, цифры и
+      // дефисы, до 20 символов) или null. Загрузка файлов запрещена.
+      function validAvatar() {
+        return request.resource.data.get("avatar", null) == null
+          || (request.resource.data.avatar is string
+            && request.resource.data.avatar.matches("^preset:[a-z0-9-]{1,20}$"));
+      }
+
+      allow create, update: if signedIn()
+        && request.auth.uid == id
+        && request.resource.data.keys().hasOnly(
+          ["displayName", "orgId", "avatar", "updatedAt"])
+        && validAvatar();
+    }
+
+    // ---------- tests ----------
+
+    match /tests/{id} {
+      // Тесты видны только внутри организации: опубликованные — любому
+      // её участнику, черновики — автору, черновики и всё остальное —
+      // администратору организации. Больше «любой вошедший» не читает.
+      // Гость в Live-комнате отвечает с телефона: текст вопросов берётся
+      // из опубликованного теста. Правильные ответы хранятся отдельно
+      // (testKeys) и гостям недоступны.
+      allow read: if (resource == null)
+        || (hasProfile()
+        && myOrg() == resource.data.orgId
+        && (
+          resource.data.status == "published"
+          || resource.data.authorId == request.auth.uid
+          || role() == "admin"
+        ))
+        || (isGuest() && resource.data.status == "published");
+
+      // Создание: teacher или admin, свой authorId, черновик,
+      // вопросы — непустой список.
+      allow create: if isStaff()
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.status == "draft"
+        && request.resource.data.orgId == myOrg()
+        && request.resource.data.questions is list
+        && request.resource.data.questions.size() > 0;
+
+      allow update: if signedIn()
+        && (resource.data.authorId == request.auth.uid
+          || isAdminOf(resource.data.orgId))
+        && request.resource.data.authorId == resource.data.authorId
+        && request.resource.data.orgId == resource.data.orgId;
+
+      allow delete: if false;
+    }
+
+    // Снимки опубликованных версий. Создаёт публикатор, читают сотрудники
+    // организации. Правила раньше отсутствовали — публикация падала.
+    match /tests/{testId}/versions/{version} {
+      function versionTest() {
+        return get(
+          /databases/$(database)/documents/tests/$(testId)
+        ).data;
+      }
+
+      function isVersionStaff() {
+        return hasProfile()
+          && myOrg() == versionTest().orgId
+          && (versionTest().authorId == request.auth.uid || role() == "admin");
+      }
+
+      allow read: if isVersionStaff();
+
+      allow create: if isVersionStaff()
+        && request.resource.data.authorId == versionTest().authorId
+        && request.resource.data.orgId == versionTest().orgId
+        && request.resource.data.status == "published";
+
+      allow update, delete: if false;
+    }
+
+    // ---------- testKeys ----------
+
+    match /testKeys/{id} {
+      // Ключи теста: сотрудники организации; студент — только пока у него
+      // открыта попытка этого теста И в настройках теста включён
+      // showCorrectAfterQuestion (правильный ответ после фиксации ответа).
+      // Известная цена: правилу доступен весь документ keys, клиент
+      // обязан показывать только текущий вопрос (см. tests/schema).
+      allow read: if (resource == null)
+        || isStaffOf(resource.data.orgId)
+        || (
+          role() == "student"
+          && get(
+            /databases/$(database)/documents/tests/$(id)
+          ).data.settings.showCorrectAfterQuestion == true
+          && get(
+            /databases/$(database)/documents/activeAttempts/$(request.auth.uid)
+          ).data.testId == id
+        );
+
+      allow create: if isStaff()
+        && request.resource.data.orgId == myOrg()
+        && request.resource.data.authorId == request.auth.uid;
+
+      allow update: if isStaffOf(resource.data.orgId);
+
+      allow delete: if false;
+    }
+
+    // ---------- activeAttempts ----------
+    // Маркер «у меня идёт попытка на тест X». Один документ на студента.
+    // Его назначение: во время попытки закрывать учебный материал
+    // (materials/**), чтобы ответы не подсматривали.
+    match /activeAttempts/{ownerId} {
+      // MarkerDoc удален: проверка наличия маркера осуществляется через exists()
+      // в правилах чтения материалов и правилах создания попытки.
+      // маркер нужен только ему и правилам materials.
+      allow read: if signedIn() && request.auth.uid == ownerId;
+
+      // Создать или перезаписать маркер может только владелец и только
+      // под свою попытку в этой же организации.
+      allow create, update: if
+        (
+          hasProfile()
+          && role() == "student"
+          && request.auth.uid == ownerId
+          && request.resource.data.keys().hasOnly(
+            ["uid", "attemptId", "testId", "deadlineAt", "startedAt"]
+          )
+          && request.resource.data.uid == ownerId
+          && exists(/databases/$(database)/documents/tests/$(request.resource.data.testId))
+          && get(
+            /databases/$(database)/documents/tests/$(request.resource.data.testId)
+          ).data.orgId == myOrg()
+          && get(
+            /databases/$(database)/documents/tests/$(request.resource.data.testId)
+          ).data.status == "published"
+          // Попытка создаётся в том же batch — смотрим в пост-состояние.
+          && existsAfter(/databases/$(database)/documents/attempts/$(request.resource.data.attemptId))
+          && getAfter(
+            /databases/$(database)/documents/attempts/$(request.resource.data.attemptId)
+          ).data.userId == request.auth.uid
+          && getAfter(
+            /databases/$(database)/documents/attempts/$(request.resource.data.attemptId)
+          ).data.status == "in_progress"
+        )
+        || (
+          // Гостевой маркер: та же схема без профиля. Тест обязан быть
+          // опубликованным, попытка из того же batch — гостевой,
+          // своей и в работе.
+          isGuest()
+          && request.auth.uid == ownerId
+          && request.resource.data.keys().hasOnly(
+            ["uid", "attemptId", "testId", "deadlineAt", "startedAt"]
+          )
+          && request.resource.data.uid == ownerId
+          && exists(/databases/$(database)/documents/tests/$(request.resource.data.testId))
+          && get(
+            /databases/$(database)/documents/tests/$(request.resource.data.testId)
+          ).data.status == "published"
+          && existsAfter(/databases/$(database)/documents/attempts/$(request.resource.data.attemptId))
+          && getAfter(
+            /databases/$(database)/documents/attempts/$(request.resource.data.attemptId)
+          ).data.userId == request.auth.uid
+          && getAfter(
+            /databases/$(database)/documents/attempts/$(request.resource.data.attemptId)
+          ).data.status == "in_progress"
+          && getAfter(
+            /databases/$(database)/documents/attempts/$(request.resource.data.attemptId)
+          ).data.guest == true
+        );
+
+      // Удалить маркер можно, только если соответствующая попытка больше
+      // не в работе (пост-состояние batch: отправка и снятие маркера
+      // атомарны) либо срок попытки прошёл (освобождение материала).
+      allow delete: if signedIn()
+        && request.auth.uid == ownerId
+        && (
+          getAfter(
+            /databases/$(database)/documents/attempts/$(resource.data.attemptId)
+          ).data.status != "in_progress"
+          || (
+            resource.data.deadlineAt != null
+            && request.time >= resource.data.deadlineAt
+          )
+        );
+    }
+
+    // ---------- materials, materialProgress ----------
+    // Учебный материал-книга, читают ДО теста. Во время активной попытки
+    // (маркер activeAttempts/{uid}) студентам материалы закрыты,
+    // чтобы не подсматривать ответы; срок маркера (deadlineAt) отпускает.
+    match /materials/{testId} {
+      // Отсутствующая книга: resource.data пуст, orgId сверить не с чем.
+      // Чтение вернёт «материала нет» (UI предложит создать его), а не
+      // отказ. Существующие книги чужой организации по-прежнему закрыты.
+      allow read: if (resource == null)
+        || isStaffOf(resource.data.orgId)
+        || (
+          hasProfile()
+          && role() == "student"
+          && myOrg() == resource.data.orgId
+          && !exists(/databases/$(database)/documents/activeAttempts/$(request.auth.uid))
+        );
+
+      allow create, update: if isStaff()
+        && request.resource.data.orgId == myOrg()
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.pageCount is int
+        && request.resource.data.pageCount >= 1;
+
+      allow delete: if isStaffOf(resource.data.orgId);
+
+      match /pages/{n} {
+        allow read: if get(
+            /databases/$(database)/documents/materials/$(testId)
+          ).data.orgId == myOrg()
+          && (
+            isStaff()
+            || (
+              role() == "student"
+              && !exists(
+                /databases/$(database)/documents/activeAttempts/$(request.auth.uid)
+              )
+            )
+          );
+
+        // Страницу пишет только сотрудник своей организации; структурность
+        // blocks проверяется на клиенте (core/material-logic.js).
+        allow create, update: if isStaff()
+          && get(
+            /databases/$(database)/documents/materials/$(testId)
+          ).data.orgId == myOrg();
+
+        allow delete: if isStaff()
+          && get(
+            /databases/$(database)/documents/materials/$(testId)
+          ).data.orgId == myOrg();
+      }
+    }
+
+    // Прогресс чтения: один документ на пару «студент+тест».
+    match /materialProgress/{progressId} {
+      // Прогресс может ещё не существовать (первое чтение материала):
+      // пустой документ читается как «прогресса нет», существующий —
+      // только его владельцем.
+      allow read: if signedIn()
+        && (
+          resource == null
+          || (progressId == resource.data.uid + "_" + resource.data.testId
+            && resource.data.uid == request.auth.uid)
+        );
+
+      allow create, update: if hasProfile()
+        && role() == "student"
+        && progressId == request.auth.uid + "_" + request.resource.data.testId
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.testId is string
+        && request.resource.data.lastPage is int
+        && request.resource.data.lastPage >= 0
+        && request.resource.data.completed is bool
+        && request.resource.data.keys().hasOnly(
+          ["uid", "testId", "lastPage", "completed", "updatedAt"]
+        );
+
+      allow delete: if false;
+    }
+
+    match /attempts/{id} {
+      // По заданию типа training тест можно начать только после того,
+      // как студент дочитал материал (materialProgress.completed).
+      function attemptMaterialReadOk(d) {
+        return d.assignmentId == ""
+          || get(
+            /databases/$(database)/documents/assignments/$(d.assignmentId)
+          ).data.kind != "training"
+          || get(
+            /databases/$(database)/documents/materialProgress/$(request.auth.uid + "_" + d.testId)
+          ).data.completed == true;
+      }
+
+      // Попытка: снимок полей профиля должен совпадать с самим профилем.
+      function attemptProfileMatches(d) {
+        return (!("userName" in d.keys()) || d.userName == userDoc().fullName)
+          && (!("groupId" in d.keys()) || d.groupId == userDoc().groupId);
+      }
+
+      // Тест должен существовать и быть опубликованным. Для гостевой
+      // попытки профиль отсутствует, поэтому организация не сверяется:
+      // гость имеет право только на published тест (orgId проверки в
+      // отдельном условии — организация попытки обязана совпадать
+      // с организацией теста).
+      function attemptTestPublished(d) {
+        return exists(/databases/$(database)/documents/tests/$(d.testId))
+          && get(
+            /databases/$(database)/documents/tests/$(d.testId)
+          ).data.status == "published";
+      }
+
+      // Тест должен существовать, быть опубликованным и из организации
+      // студента. get() на несуществующий документ даёт отказ.
+      function attemptTestOk(d) {
+        return exists(/databases/$(database)/documents/tests/$(d.testId))
+          && get(
+            /databases/$(database)/documents/tests/$(d.testId)
+          ).data.status == "published"
+          && get(
+            /databases/$(database)/documents/tests/$(d.testId)
+          ).data.orgId == myOrg();
+      }
+
+      // Задание, если указано: active, та же группа и организация,
+      // срок не прошёл, дедлайн попытки не позже срока задания.
+      function attemptAssignmentOk(d) {
+        return d.assignmentId == ""
+          || (
+            exists(/databases/$(database)/documents/assignments/$(d.assignmentId))
+            && get(
+              /databases/$(database)/documents/assignments/$(d.assignmentId)
+            ).data.status == "active"
+            && get(
+              /databases/$(database)/documents/assignments/$(d.assignmentId)
+            ).data.groupId == myGroup()
+            && get(
+              /databases/$(database)/documents/assignments/$(d.assignmentId)
+            ).data.orgId == myOrg()
+            && (
+              get(
+                /databases/$(database)/documents/assignments/$(d.assignmentId)
+              ).data.deadline == null
+              || request.time < get(
+                /databases/$(database)/documents/assignments/$(d.assignmentId)
+              ).data.deadline
+            )
+            && (
+              d.deadlineAt == null
+              || get(
+                /databases/$(database)/documents/assignments/$(d.assignmentId)
+              ).data.deadline == null
+              || d.deadlineAt <= get(
+                /databases/$(database)/documents/assignments/$(d.assignmentId)
+              ).data.deadline
+            )
+          );
+      }
+
+      allow read: if signedIn()
+        && (
+          resource.data.userId == request.auth.uid
+          || (
+            isStaffOf(resource.data.orgId)
+            && (role() == "admin"
+              || teacherCanSeeGroup(
+                "groupId" in resource.data.keys()
+                  ? resource.data.groupId
+                  : null
+              ))
+          )
+        );
+
+      allow create: if
+        (
+          hasProfile()
+          && role() == "student"
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.orgId == myOrg()
+          && request.resource.data.status == "in_progress"
+          && request.resource.data.answers is map
+          && attemptMaterialReadOk(request.resource.data)
+          && !request.resource.data.keys().hasAny([
+            "score", "total", "percent", "review", "gradedBy", "gradedAt"
+          ])
+          && attemptProfileMatches(request.resource.data)
+          && attemptTestOk(request.resource.data)
+          && attemptAssignmentOk(request.resource.data)
+        )
+        || (
+          // ---------- Гостевая попытка по прямой ссылке ----------
+          // Анонимная сессия (как в Live-комнатах) проходит опубликованный
+          // тест без профиля. Гость владельцем считается только своей
+          // попытки: userId обязан совпадать с uid. Задания гостям
+          // недоступны (assignmentId == ""), материалы не участвуют,
+          // оценка клиенту не положена — score/total/percent/review
+          // запрещены, её выставляет сотрудник. ФИО — единственная
+          // идентификация гостя для преподавателя: обязательная строка
+          // разумной длины, записанная в собственную попытку.
+          isGuest()
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.orgId == get(
+            /databases/$(database)/documents/tests/$(request.resource.data.testId)
+          ).data.orgId
+          && request.resource.data.status == "in_progress"
+          && request.resource.data.answers is map
+          && request.resource.data.assignmentId == ""
+          && request.resource.data.userName is string
+          && request.resource.data.userName.trim().size() >= 2
+          && request.resource.data.userName.trim().size() <= 120
+          && request.resource.data.keys().hasOnly(
+            ["userId", "userEmail", "orgId", "testId", "testTitle",
+             "assignmentId", "answers", "startedAt", "status", "attemptNo",
+             "deadlineAt", "testVersion", "userName", "guest",
+             "testAuthorId", "createdAt", "updatedAt"]
+          )
+          && request.resource.data.guest == true
+          && attemptTestPublished(request.resource.data)
+          && !request.resource.data.keys().hasAny([
+            "score", "total", "percent", "review", "gradedBy", "gradedAt"
+          ])
+        );
+
+      // Студент сохраняет ответы и отправляет попытку, пока она не завершена.
+      allow update: if signedIn()
+        && resource.data.userId == request.auth.uid
+        && resource.data.status == "in_progress"
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.orgId == resource.data.orgId
+        && request.resource.data.diff(resource.data)
+          .affectedKeys().hasOnly([
+            "answers", "updatedAt", "status",
+            "submittedAt", "finishedAt"
+          ])
+        && request.resource.data.answers is map
+        && (
+          (
+            request.resource.data.status == "in_progress"
+            && !request.resource.data.diff(resource.data)
+              .affectedKeys().hasAny(["submittedAt", "finishedAt"])
+          )
+          || (
+            request.resource.data.status == "submitted"
+            && request.resource.data.submittedAt == request.time
+            && request.resource.data.finishedAt == request.time
+          )
+          || (
+            // Просроченная попытка: автоотправка помечает её как expired,
+            // оценивать её правила не дадут (grading — только submitted).
+            request.resource.data.status == "expired"
+            && request.resource.data.submittedAt == request.time
+            && request.resource.data.finishedAt == request.time
+          )
+        );
+
+      // Оценка сотрудником своей организации: score не больше total.
+      allow update: if isStaffOf(resource.data.orgId)
+        && resource.data.status in ["submitted", "graded"]
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.orgId == resource.data.orgId
+        && request.resource.data.status == "graded"
+        && request.resource.data.gradedBy == request.auth.uid
+        && request.resource.data.score <= request.resource.data.total
+        && request.resource.data.diff(resource.data)
+          .affectedKeys().hasOnly([
+            "status", "score", "total", "percent", "review",
+            "finishedAt", "gradedAt", "gradedBy", "updatedAt"
+          ]);
+
+      allow delete: if false;
+    }
+
+    // ---------- assignments ----------
+
+    match /assignments/{id} {
+      // Строительные проверки длины и подписи полей задания.
+      function assignmentFieldsOk(d) {
+        return (!("note" in d.keys()) || d.note.size() <= 200)
+          && (!("materialText" in d.keys()) || d.materialText.size() <= 6000)
+          && (!("materialUrl" in d.keys())
+            || (d.materialUrl.size() <= 500
+              && d.materialUrl.matches("^https://.+$")));
+      }
+
+      allow read: if hasProfile()
+        && resource.data.orgId == myOrg()
+        && (
+          (
+            role() == "student"
+            && resource.data.groupId == myGroup()
+            && (!("startAt" in resource.data.keys())
+              || resource.data.startAt == null
+              || request.time >= resource.data.startAt)
+          )
+          || (role() == "teacher" && resource.data.teacherId == request.auth.uid)
+          || role() == "admin"
+        );
+
+      // Создание: teacher или admin; kind строго exam|training;
+      // для training срок обязателен; ограничены note и материалы.
+      allow create: if isStaff()
+        && request.resource.data.teacherId == request.auth.uid
+        && request.resource.data.orgId == myOrg()
+        && request.resource.data.status == "active"
+        && request.resource.data.kind in ["exam", "training"]
+        && (
+          request.resource.data.kind != "training"
+          || request.resource.data.deadline != null
+        )
+        && request.resource.data.groupId is string
+        && request.resource.data.groupId.size() > 0
+        && request.resource.data.testId is string
+        && assignmentFieldsOk(request.resource.data);
+
+      allow update: if hasProfile()
+        && (
+          (
+            role() == "teacher"
+            && resource.data.teacherId == request.auth.uid
+            && resource.data.orgId == myOrg()
+          )
+          || isAdminOf(resource.data.orgId)
+        )
+        && request.resource.data.kind == resource.data.kind
+        && request.resource.data.teacherId == resource.data.teacherId
+        && request.resource.data.orgId == resource.data.orgId
+        && request.resource.data.groupId == resource.data.groupId
+        && request.resource.data.testId == resource.data.testId
+        && request.resource.data.status in ["active", "closed"];
+
+      allow delete: if hasProfile()
+        && (
+          (
+            role() == "teacher"
+            && resource.data.teacherId == request.auth.uid
+            && resource.data.orgId == myOrg()
+          )
+          || isAdminOf(resource.data.orgId)
+        );
+    }
+
+    // ---------- rooms, players, scores, reveals, observers ----------
+    // Live-комнаты: ведущий пишет room/scores/reveals, участник —
+    // только свой players/{uid} и только answers.<номер вопроса>,
+    // один раз per вопрос; наблюдатель ответ не пишет; чужие players
+    // не читаются (таблица результатов приходит из scores).
+
+
+// Проверка гостевого доступа (анонимная аутентификация).
+// Гость читает только публичные данные комнаты и пишет только свои
+// документы: players/{uid}, answers, reactions. Профиль users/{uid} у
+// гостя отсутствует, поэтому hasProfile() для него всегда false —
+// привилегированные правила (тесты, задания, пользователи, роли) на
+// гостей не распространяются.
+function isGuest() {
+  return signedIn() && 'token' in request.auth && 'firebase' in request.auth.token && request.auth.token.firebase.sign_in_provider == 'anonymous';
+}
+
+    match /rooms/{roomId} {
+      function roomDoc() {
+        return get(
+          /databases/$(database)/documents/rooms/$(roomId)
+        ).data;
+      }
+
+      function isRoomHost() {
+        return hasProfile() && roomDoc().hostId == request.auth.uid;
+      }
+
+      function inRoomAsPlayer() {
+        return exists(
+          /databases/$(database)/documents/rooms/$(roomId)/players/$(request.auth.uid)
+        );
+      }
+
+      function inRoomAnyRole() {
+        return inRoomAsPlayer() || exists(
+          /databases/$(database)/documents/rooms/$(roomId)/observers/$(request.auth.uid)
+        );
+      }
+
+      // Роль в создаваемом players/{uid}: поле role необязательно (старые
+      // клиенты), но если задано — «player» или «observer» и строго
+      // согласовано с флагом observer. После создания роль не меняется
+      // (update ниже разрешает менять только name/avatar/updatedAt).
+      function validRole() {
+        return !("role" in request.resource.data)
+          || (
+            request.resource.data.role in ["player", "observer"]
+            && (request.resource.data.role == "observer") == request.resource.data.observer
+          );
+      }
+
+      // ---------- Автономный режим: расписание от серверного времени ----------
+      // Те же формулы считает клиент (core/live-auto.js, autoPosition /
+      // answerAllowed), поэтому «текущий вопрос» одинаков у всех устройств
+      // и не зависит от того, нажал ли ведущий кнопку.
+      //   слот   = questionSec + gapSec (мс), gap ≥ 2 с;
+      //   позиция = floor((request.time − autoStartedAt) / слот);
+      //   ответ принимается только на текущую позицию, в первые
+      //   questionSec секунд слота + допуск 1 с на сеть.
+      function isAutoRoom() {
+        return roomDoc().get("mode", "manual") == "auto";
+      }
+
+      function autoSlotMs() {
+        return (roomDoc().questionSec + roomDoc().gapSec) * 1000;
+      }
+
+      function autoElapsedMs() {
+        return request.time.toMillis() - roomDoc().autoStartedAt.toMillis();
+      }
+
+      function autoAnswerWindowOpen(qid) {
+        return isAutoRoom()
+          && roomDoc().status == "active"
+          && roomDoc().get("liveState", "waiting") == "in_progress"
+          && roomDoc().get("autoStartedAt", null) != null
+          && roomDoc().get("autoEndedAt", null) == null
+          && roomDoc().questionSec is int
+          && roomDoc().gapSec is int
+          && roomDoc().gapSec >= 2
+          && autoElapsedMs() >= 0
+          && qid.matches("^[0-9]{1,4}$")
+          && int(qid) == math.floor(autoElapsedMs() / autoSlotMs())
+          && int(qid) < roomDoc().questionCount
+          && (autoElapsedMs() - int(qid) * autoSlotMs())
+            < roomDoc().questionSec * 1000 + 1000;
+      }
+
+      function manualAnswerWindowOpen(qid) {
+        return !isAutoRoom()
+          && roomDoc().status == "active"
+          && roomDoc().phase == "opened"
+          && roomDoc().currentQuestionId is string
+          && roomDoc().currentQuestionId != ""
+          && qid == roomDoc().currentQuestionId;
+      }
+
+      // Публичные данные комнаты: документ не содержит вопросов и ключей
+      // ответов. Читать комнату до входа необходимо, чтобы войти по коду
+      // (проверка статуса и лимита), поэтому её видят все с профилем
+      // и анонимные гости. Ключи теста лежат в testKeys и гостям недоступны.
+      allow read: if isRoomHost() || inRoomAnyRole()
+        || hasProfile()
+        || isGuest();
+
+      allow create: if isStaff()
+        && request.resource.data.orgId == myOrg()
+        && request.resource.data.hostId == request.auth.uid
+        && request.resource.data.status == "active"
+        // Ёмкость комнаты задана при создании; по документации MVP — 100.
+        && request.resource.data.get("maxPlayers", 100) is int
+        && request.resource.data.maxPlayers > 0;
+
+      // Ведущему можно менять состояние комнаты, но не хозяина: hostId
+      // остаётся неизменяемым даже для самого ведущего.
+      allow update, delete: if isRoomHost()
+        && request.resource.data.hostId == resource.data.hostId;
+
+      match /players/{playerId} {
+        // Свой документ — любому вошедшему, участников комнаты — всем
+        // членам комнаты (список с именами и аватарами нужен интерфейсу
+        // комнаты: роль, счётчики, FLIP-таблица), и ведущему.
+        allow read: if request.auth.uid == playerId
+          || isRoomHost()
+          || inRoomAnyRole();
+
+        // Войти в комнату может только сам участник; лимит — maxPlayers
+        // (счётчик playersCount публикуется ведущим с задержкой — это
+        // допустимая погрешность, см. docs/PROGRESS.md). Преподаватель,
+        // не являющийся ведущим этой комнаты, входит только наблюдателем.
+        // Комната принадлежит организации создателя: участник с профилем
+        // другой организации не входит (ведущего проверка org не касается).
+        // Гость входит как обычный участник: только свой документ,
+        // только участник (не наблюдатель), активная комната и свободное
+        // место. Аватар гость выбирает сам — только пресет.
+        allow create: if (hasProfile()
+          && request.auth.uid == playerId
+          && request.resource.data.keys().hasOnly(
+            ["uid", "playerId", "name", "observer", "role", "joinedAt", "updatedAt"]
+          )
+          && request.resource.data.uid == playerId
+          && request.resource.data.playerId == request.auth.uid
+          && request.resource.data.observer is bool
+          && validRole()
+          && roomDoc().status == "active"
+          && roomDoc().get("registrationOpen", true) == true
+          && roomDoc().get("playersCount", 0) < roomDoc().get("maxPlayers", 100)
+          && (
+            roomDoc().hostId == request.auth.uid
+            || (
+              (
+                roomDoc().get("orgId", null) == null
+                || roomDoc().get("orgId", "") == myOrg()
+              )
+              && (
+                !isStaff()
+                || request.resource.data.observer == true
+                || roomDoc().get("allowObservers", false) == true
+              )
+            )
+          )) || (isGuest()
+          && request.auth.uid == playerId
+          && request.resource.data.keys().hasOnly(
+            ["uid", "playerId", "name", "avatar", "observer", "role", "joinedAt"]
+          )
+          && request.resource.data.uid == playerId
+          && request.resource.data.playerId == request.auth.uid
+          && request.resource.data.observer is bool
+          && validRole()
+          && request.resource.data.name is string
+          && request.resource.data.name.size() >= 2
+          && request.resource.data.name.size() <= 120
+          && request.resource.data.avatar is string
+          && request.resource.data.avatar.matches('^preset:[a-z0-9-]{1,20}$')
+          && roomDoc().status == "active"
+          && roomDoc().get("registrationOpen", true) == true
+          && roomDoc().get("playersCount", 0) < roomDoc().get("maxPlayers", 100));
+
+        // Повторный вход (update при merge:true) разрешён только самому
+        // участнику. Можно обновить имя или аватар (гостю), но нельзя
+        // сменить роль (observer), время первого входа (joinedAt) или
+        // привязку к аккаунту. Имя/аватар при изменении проверяются так же
+        // строго, как при создании.
+        allow update: if request.auth.uid == playerId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+            ["name", "avatar", "updatedAt"]
+          )
+          && (
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny(["name"])
+            || (
+              request.resource.data.name is string
+              && request.resource.data.name.size() >= 2
+              && request.resource.data.name.size() <= 120
+            )
+          )
+          && (
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny(["avatar"])
+            || request.resource.data.avatar.matches('^preset:[a-z0-9-]{1,20}$')
+          )
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.playerId == resource.data.playerId
+          && request.resource.data.joinedAt == resource.data.joinedAt
+          && request.resource.data.observer == resource.data.observer;
+
+        // Ответ на текущий вопрос — отдельным документом
+        // players/{uid}/answers/{qid}: создать можно только если он ещё
+        // не существует (перезапись невозможна в принципе), только во
+        // время открытого вопроса и только для номера currentQuestionId.
+        // Метка времени at == request.time — ведущий считает разницу
+        // серверных at - qStartedAt, часы устройств не влияют.
+        // Наблюдатель ответ не пишет (см. match /answers/ ниже).
+        allow delete: if isRoomHost();
+      }
+
+      match /players/{playerId}/answers/{qid} {
+        function playerDoc() {
+          return get(
+            /databases/$(database)/documents/rooms/$(roomId)/players/$(playerId)
+          ).data;
+        }
+
+        // Чужие ответы участника не читаются: сам игрок (любой вошедший
+        // со своим документом) или ведущий. Ответы до раскрытия вопроса
+        // участникам недоступны — слушатель чужих ответов у не-ведущего
+        // просто не получает данных.
+        allow read: if request.auth.uid == playerId
+          || isRoomHost();
+
+        // Ответ создаётся только участником (не наблюдателем) в открытом
+        // окне вопроса: ручной режим — пока ведущий держит вопрос открытым
+        // (currentQuestionId), автономный — по расписанию от серверного
+        // времени. Роль «observer» (поле role или флаг observer) ответ
+        // не пишет. at == request.time — серверная метка.
+        allow create: if (hasProfile() || isGuest())
+          && request.auth.uid == playerId
+          && playerDoc().observer != true
+          && playerDoc().get("role", "player") != "observer"
+          && (manualAnswerWindowOpen(qid) || autoAnswerWindowOpen(qid))
+          && request.resource.data.keys().hasOnly(["answer", "at"])
+          && request.resource.data.at == request.time;
+
+        // Перезаписать ответ нельзя: обновление — только ведущему
+        // (на случай чистки комнаты).
+        allow update, delete: if isRoomHost();
+      }
+
+      match /scores/{scoreId} {
+        // Таблицу видят игроки и наблюдатели комнаты; пишет только ведущий.
+        allow read: if isRoomHost() || inRoomAnyRole();
+
+        allow create, update: if isRoomHost()
+          && request.resource.data.uid == scoreId;
+
+        allow delete: if false;
+      }
+
+      match /reveals/{qid} {
+        // Правильный ответ раскрывается только после закрытия вопроса.
+        allow read: if isRoomHost() || inRoomAnyRole();
+
+        allow create: if isRoomHost();
+
+        allow update, delete: if false;
+      }
+
+      match /reactions/{reactorId} {
+        // Реакции: участник и наблюдатель пишут только свой документ и
+        // не чаще раза в секунду (request.time > at + 1 с, сравнение в
+        // миллисекундах). Эмодзи — только из пресетов reactionsList.
+        function validReaction() {
+          return request.resource.data.keys().hasOnly(["emoji", "at"])
+            && reactionsList().hasAll([request.resource.data.emoji])
+            && request.resource.data.at == request.time;
+        }
+
+        allow read: if isRoomHost() || inRoomAnyRole();
+
+        allow create: if (hasProfile() || isGuest())
+          && request.auth.uid == reactorId
+          && validReaction();
+
+        allow update: if request.auth.uid == reactorId
+          && validReaction()
+          && request.time.toMillis() > resource.data.at.toMillis() + 1000;
+
+        allow delete: if request.auth.uid == reactorId;
+      }
+
+      match /observers/{observerId} {
+        allow read: if request.auth.uid == observerId
+          || isRoomHost()
+          || inRoomAsPlayer();
+
+        allow create, update: if request.auth.uid == observerId
+          && hasProfile()
+          && request.resource.data.uid == observerId
+          && roomDoc().status == "active";
+
+        allow delete: if request.auth.uid == observerId || isRoomHost();
+      }
+    }
+  }
+}

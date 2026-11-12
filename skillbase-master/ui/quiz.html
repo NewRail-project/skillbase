@@ -1,0 +1,18 @@
+<!-- ui/quiz.html -->
+<div id="quiz-app" class="card">
+  <div id="timer"></div>
+  <div id="question-area"></div>
+  <div id="controls">
+    <button id="next-btn">Следующий</button>
+  </div>
+</div>
+
+<script type="module">
+  import { startAttempt, saveAnswer, finishAttempt } from '../core/quiz.js';
+  // UI logic would go here:
+  // 1. Fetch test by ID
+  // 2. Start attempt
+  // 3. Render questions one by one
+  // 4. On answer, saveAnswer()
+  // 5. On last question, finishAttempt() and show results
+</script>
