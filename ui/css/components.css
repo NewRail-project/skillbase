@@ -360,3 +360,9 @@ input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; min-hei
 }
 /* Узкий телефон: скин-переключатель Education уступает место переключателю режима. */
 @media (max-width: 480px) { html[data-mode="education"] .skin-switch-top { display: none; } }
+
+/* ---- Предмет → тема: теория и тесты внутри темы ---- */
+.topic-item { border-bottom: 1px solid var(--border, rgba(127,127,127,.25)); }
+.topic-content { display: grid; gap: var(--space-4); padding: var(--space-3); background: rgba(127,127,127,.06); border-radius: var(--radius, 8px); margin: 0 0 var(--space-3); }
+.topic-block h3 { margin: 0 0 var(--space-2); }
+.topic-block .btn { margin-top: var(--space-2); }

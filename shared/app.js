@@ -72,6 +72,7 @@ const routes = {
   // единственная гостевая функция; остальное требует регистрации).
   "room":         { file: "ui/pages/room.js",              title: "Live-комната",         auth: true, guest: true },
   "material":     { file: "ui/pages/material.js",          title: "Материал",             tkey: "title.material",    auth: true },
+  "test-history": { file: "ui/pages/test-history.js",       title: "История теста",        tkey: "title.results",     auth: true, roles: STAFF },
   "results":      { file: "ui/pages/results.js",           title: "Результаты",           tkey: "title.results",     auth: true, roles: STAFF },
   "analytics":    { file: "ui/pages/analytics.js",         title: "Аналитика по тесту",   tkey: "title.analytics",   auth: true, roles: STAFF },
   "review":       { file: "ui/pages/review.js",            title: "Проверка попытки",     auth: true, roles: STAFF },

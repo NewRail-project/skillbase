@@ -50,6 +50,9 @@ import { hasMaterial } from "../../core/materials.js";
 import { themedQrOptions, qrPalette } from "../../shared/qr-theme.js";
 import { subscribeTheme, subscribeSkin } from "../../shared/theme.js";
 import { t as tr, lt } from "../../core/i18n.js";
+import { buildLiveReport } from "../../core/live-report.js";
+import { gradeRoster, journalRows } from "../../core/pair-grade.js";
+import { journalPanel, reportPanel } from "../components/live-report.js";
 
 let unsubs = [];
 let autoTimer = null;   // автозакрытие у ведущего (ручной режим)
@@ -74,6 +77,10 @@ let lastCrowdSig = null;  // подпись «толпы»: ответы/очк�
 let lastStepKey = null;   // «шаг» комнаты: смена вопроса/фазы/роли → плавный переход вида
 let lastBoardSig = null;
 let lastReactionSig = null;
+const ratingNodes = new Map(); // рейтинг живёт между перерисовками вида: карточки не пересоздаются
+let finalDock = null;     // блок отчёта и журнала: обновляется на месте
+let finalDockSig = "";
+let reportOpen = false;   // подробный отчёт раскрыт: состояние переживает перерисовку вида
 let local = null;
 
 // Обратный замеченный предыдущее «событийное» состояние комнаты.
@@ -121,6 +128,10 @@ function reset() {
   lastStepKey = null;
   lastBoardSig = null;
   lastReactionSig = null;
+  reportOpen = false;
+  ratingNodes.clear();
+  finalDock = null;
+  finalDockSig = "";
   lastRanks = null;
   lastScores = null;
   shownReactions = new Map();
@@ -861,6 +872,7 @@ function scheduleRender(page) {
     updateAnswered(target);
     updatePeople(target);
     updateLivePodiums(target);
+    if (finalDock?.isConnected) updateFinalDock();
   }
   updateStreakMeter();
   updateReactionBar();
@@ -896,7 +908,7 @@ const VIEW_FADE_MS = 280;
 // Старый вид не исчезает мгновенно: его «снимок» остаётся поверх и плавно
 // гаснет, пока новый вид плавно проявляется под ним (кроссфейд). Между
 // ними нет кадра с пустым фоном — поэтому нет и «мерцания».
-function crossfade(page, existing, next) {
+function makeGhost(page, existing) {
   const ghost = existing.cloneNode(true);
   ghost.classList.add("room-view-ghost");
   ghost.setAttribute("aria-hidden", "true");
@@ -911,6 +923,10 @@ function crossfade(page, existing, next) {
   ghost.style.top = `${box.top - pageBox.top}px`;
   ghost.style.left = `${box.left - pageBox.left}px`;
   ghost.style.width = `${box.width}px`;
+  return ghost;
+}
+
+function crossfade(page, existing, next, ghost) {
   existing.replaceWith(next);
   page.appendChild(ghost);
   next.classList.add("room-view-enter");
@@ -936,17 +952,20 @@ function renderPage(page) {
   const existing = page.querySelector(".room-view:not(.room-view-ghost)");
   syncBoardFrame();
   const oldTops = captureRects(existing);
-  const next = buildView();
   const key = stepKey();
   const stepChanged = key !== lastStepKey;
   lastStepKey = key;
+  // Снимок старого вида — ДО сборки нового: общие узлы (рейтинг) переедут
+  // в новый вид, а снимок сохранит их для плавного исчезновения.
+  const ghost = existing && stepChanged && !reducedMotion() ? makeGhost(page, existing) : null;
+  const next = buildView();
   if (existing) {
     // Фиксируем высоту и прокрутку на время подмены: страница не
     // «проваливается» и не прыгает, когда вид собирается заново.
     const scrollY = window.scrollY;
     const lockH = page.offsetHeight;
     page.style.minHeight = `${lockH}px`;
-    if (stepChanged && !reducedMotion()) crossfade(page, existing, next);
+    if (ghost) crossfade(page, existing, next, ghost);
     else existing.replaceWith(next);
     if (window.scrollY !== scrollY) window.scrollTo(0, scrollY);
     requestAnimationFrame(() => requestAnimationFrame(() => { page.style.minHeight = ""; }));
@@ -2341,6 +2360,17 @@ function screenView() {
 // Содержимое собирает updateRatingPanels: рейтинг меняется при каждом
 // пересчёте очков, поэтому он точечный, без пересборки вида.
 function ratingPanel({ title = "Общий рейтинг", limit = null } = {}) {
+  // Один и тот же DOM-узел переезжает в новый вид: карточки остаются на
+  // месте, поэтому места меняются плавно (FLIP), а не пересоздаются.
+  const key = `${title}|${limit || 0}`;
+  const kept = ratingNodes.get(key);
+  if (kept) return kept;
+  const node = buildRatingPanel({ title, limit });
+  ratingNodes.set(key, node);
+  return node;
+}
+
+function buildRatingPanel({ title, limit }) {
   return h("section", {
     class: "panel live-rating",
     "aria-label": title,
@@ -2379,6 +2409,63 @@ function settingsSummary(room) {
   const order = room.shuffleQuestions ? "случайный" : "последовательный";
   const totalMin = Math.round(((room.questionCount || 0) * ((room.questionSec || 0) + (room.gapSec || 0))) / 60);
   return `Вопросов: ${room.questionCount || 0} · ${room.questionSec} с на вопрос + пауза ${room.gapSec} с · порядок: ${order} · бонус за скорость: ${room.speedBonus === false ? "нет" : "да"} · ≈ ${totalMin} мин`;
+}
+
+// Данные для оценок и подробного отчёта: только реальные сохранённые ответы
+// и ключи теста (не строки рейтинга, где есть бонусы за скорость и серию).
+function liveReportInput() {
+  const room = local.room;
+  const li = liveInfo();
+  const plan = li.plan;
+  const keysByPos = local.keysReady ? keysByPosition(local.keys, room) : [];
+  const positions = plan
+    ? finishedPositions(plan, serverNowMs())
+    : Object.keys(local.reveals || {}).map(Number).sort((a, b) => a - b);
+  const questions = keysByPos.map((_, position) =>
+    local.test?.questions?.[questionIndexAt(room, position)] || null);
+  const starts = plan ? autoQStarts(plan) : qStartsMs(room);
+  const players = local.players.map(raw => {
+    const times = normalizePlayerTimes(raw).times || {};
+    const durations = {};
+    for (const qid of Object.keys(times)) {
+      const start = starts[qid] ?? toMs(raw.shown?.[qid]);
+      if (typeof times[qid] === "number" && start) durations[qid] = Math.max(0, times[qid] - start);
+    }
+    return { ...raw, durations };
+  });
+  return { players, keysByPos, questions, positions };
+}
+
+// Блок «подробный отчёт + журнал» — один постоянный узел. Новые ответы
+// и очки меняют только его содержимое и только при реальном изменении данных;
+// раскрытый отчёт и прокрутка сохраняются.
+function finalDockNode() {
+  if (!finalDock) {
+    finalDock = h("div", { class: "final-dock" },
+      h("div", { "data-final-report": "1" }),
+      h("div", { "data-final-journal": "1" }));
+    finalDockSig = "";
+  }
+  updateFinalDock();
+  return finalDock;
+}
+
+function updateFinalDock() {
+  if (!finalDock || !local.keysReady) return;
+  const input = liveReportInput();
+  const sig = [
+    input.positions.join(","),
+    input.players.map(p => `${p.uid}:${p.role || ""}:${JSON.stringify(p.answers || {})}`).sort().join("|")
+  ].join("#");
+  if (sig === finalDockSig) return;
+  finalDockSig = sig;
+  const scrollY = window.scrollY;
+  const grades = gradeRoster(input);
+  finalDock.querySelector("[data-final-report]").replaceChildren(
+    reportPanel(buildLiveReport(input), { open: reportOpen, onToggle: (value) => { reportOpen = value; } }));
+  finalDock.querySelector("[data-final-journal]").replaceChildren(
+    journalPanel(journalRows(grades), { grades }));
+  if (window.scrollY !== scrollY) window.scrollTo(0, scrollY);
 }
 
 function autoHostView() {
@@ -2478,31 +2565,16 @@ function autoHostView() {
           "Вопросы идут автоматически по расписанию. Эту страницу лучше держать открытой: она раскрывает ответы и считает баллы."))));
     wrap.appendChild(ratingPanel());
   } else {
-    // completed / closed: итоги и статистика.
-    const rows = ratingSource();
-    const sum = summarizeRating(rows);
-    const plan = li.plan;
-    const positions = plan ? finishedPositions(plan, serverNowMs()) : [];
-    const acc = questionAccuracy({
-      players: local.players,
-      keysByPos: local.keysReady ? keysByPosition(local.keys, room) : [],
-      positions
-    });
+    // completed / closed. Порядок блоков фиксированный:
+    // название теста → подиум → полный рейтинг → подробный отчёт → журнал.
+    wrap.appendChild(h("div", { class: "final-title" },
+      h("h2", {}, room.testTitle || "Итоги Live"),
+      h("p", { class: "muted" }, "Итоги Live-тестирования")));
     wrap.appendChild(progressPanel(li, room));
     const hostSeq = finalSequence();
     if (hostSeq) wrap.appendChild(hostSeq);
-    wrap.appendChild(h("section", { class: "panel" },
-      h("div", { class: "panel-head" }, h("h2", {}, "Итоговая статистика")),
-      h("div", { class: "panel-body" },
-        h("div", { class: "quick-actions" },
-          h("div", { class: "quick-action" }, h("b", {}, String(sum.participants)), h("span", {}, "участников")),
-          h("div", { class: "quick-action" }, h("b", {}, String(sum.averageScore)), h("span", {}, "средний балл")),
-          h("div", { class: "quick-action" }, h("b", {}, `${sum.averagePercent}%`), h("span", {}, "верных в среднем"))),
-         sum.best ? h("p", { class: "muted" }, `Лучший результат: ${sum.best.name} — ${sum.best.score} б.`) : null,
-        acc.length ? h("ol", { class: "live-accuracy" },
-          acc.map(item => h("li", {},
-            `Вопрос ${item.position + 1}: ${item.percent}% верно (ответили ${item.answered} из ${item.participants})`))) : null)));
-    wrap.appendChild(ratingPanel({ title: "Итоговый рейтинг" }));
+    wrap.appendChild(ratingPanel({ title: "Полный рейтинг участников" }));
+    wrap.appendChild(finalDockNode());
   }
 
   if (active) {
@@ -2650,6 +2722,9 @@ function gapPanel(question, li, my) {
 
 function finishedPlayerView(wrap, room, li) {
   const rows = ratingSource();
+  wrap.appendChild(h("div", { class: "final-title" },
+    h("h2", {}, room.testTitle || "Итоги Live"),
+    h("p", { class: "muted" }, "Итоги Live-тестирования")));
   const seq = finalSequence();
   if (seq) wrap.appendChild(seq);
   const mine = rows.find(r => r.uid === State.user?.uid);

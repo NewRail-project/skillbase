@@ -19,6 +19,8 @@ import { confirmAction } from "../components/confirm.js";
 import { toast } from "../components/toast.js";
 import { icons } from "../../shared/icons.js";
 import { t as tr, lt } from "../../core/i18n.js";
+import { getSubjects, getTopics } from "../../core/subjects.js";
+import { listMaterials } from "../../core/material-library.js";
 
 const EXAMPLE = `1. Какой сигнал разрешает движение?
 A) Красный
@@ -417,8 +419,13 @@ function buildMaterialEditor(editing) {
 }
 
 export default async function CreateTestPage() {
-  const editId = decodeURIComponent((State.routeParam || "").split("/")[0] || "");
-  const back = h("a", { class: "btn secondary", href: "#tests" }, lt("ed.backToList"));
+  // #create-test/<id> — правка; #create-test/new/<предмет>/<тема> — новый тест
+  // сразу внутри темы (кнопка «Добавить тест» на странице предмета).
+  const routeParts = (State.routeParam || "").split("/").map(part => decodeURIComponent(part || ""));
+  const isNewInTopic = routeParts[0] === "new";
+  const editId = isNewInTopic ? "" : (routeParts[0] || "");
+  const prefill = isNewInTopic ? { subjectId: routeParts[1] || "", topicId: routeParts[2] || "" } : {};
+  const back = h("a", { class: "btn secondary", href: isNewInTopic && prefill.subjectId ? "#subjects" : "#tests" }, lt("ed.backToList"));
   let editing = null;
 
   if (editId) {
@@ -581,6 +588,57 @@ export default async function CreateTestPage() {
       instructionsInput, h("span", { class: "form-hint" }, "Показывается на странице теста до начала попытки."))
   );
 
+
+  // ---- Привязка к предмету и теме ----
+  // Тест из темы показывается внутри предмета; если теория обязательна,
+  // ученик открывает тест только после её прочтения.
+  const bindSource = editing || getCurrentTest();
+  const bound = {
+    subjectId: bindSource.subjectId || prefill.subjectId || "",
+    topicId: bindSource.topicId || prefill.topicId || "",
+    materialId: bindSource.materialId || "",
+    requireMaterial: bindSource.requireMaterial === true
+  };
+  const subjectSel = h("select", { id: "t-subject" }, h("option", { value: "" }, "Без предмета"));
+  const topicSel = h("select", { id: "t-topic", disabled: "disabled" }, h("option", { value: "" }, "Сначала выберите предмет"));
+  const materialSel = h("select", { id: "t-material" }, h("option", { value: "" }, "Без теории из библиотеки"));
+  const requireRead = checkbox("t-require-material", "Сначала нужно изучить теорию (тест откроется после прочтения)", bound.requireMaterial);
+  const topicCache = new Map();
+  async function paintTopics(subjectId, selected = "") {
+    topicSel.textContent = "";
+    topicSel.appendChild(h("option", { value: "" }, subjectId ? "Тема не выбрана" : "Сначала выберите предмет"));
+    topicSel.disabled = !subjectId;
+    if (!subjectId) return;
+    if (!topicCache.has(subjectId)) {
+      try { topicCache.set(subjectId, await getTopics(subjectId)); } catch (_) { topicCache.set(subjectId, []); }
+    }
+    topicCache.get(subjectId).filter(t => t.status !== "archived")
+      .forEach(t => topicSel.appendChild(h("option", { value: t.id }, t.title || "Тема")));
+    topicSel.value = selected || "";
+  }
+  (async () => {
+    try {
+      const subjects = (await getSubjects()).filter(s => s.status !== "archived");
+      subjects.forEach(s => subjectSel.appendChild(h("option", { value: s.id }, s.title || "Предмет")));
+      subjectSel.value = bound.subjectId;
+      await paintTopics(bound.subjectId, bound.topicId);
+    } catch (err) { console.error("Предметы для привязки теста:", err); }
+    try {
+      const mats = (await listMaterials()).filter(m => m.status !== "archived");
+      mats.forEach(m => materialSel.appendChild(h("option", { value: m.id }, m.title || "Материал")));
+      materialSel.value = bound.materialId;
+    } catch (err) { console.error("Материалы для привязки теста:", err); }
+  })();
+  subjectSel.addEventListener("change", () => paintTopics(subjectSel.value));
+
+  const bindingBox = h("fieldset", { class: "field", style: "border:1px solid var(--border);border-radius:var(--radius, 8px);padding:var(--space-3)" },
+    h("legend", {}, "Предмет и тема"),
+    h("div", { class: "field" }, h("label", { for: "t-subject" }, "Предмет"), subjectSel),
+    h("div", { class: "field" }, h("label", { for: "t-topic" }, "Тема"), topicSel),
+    h("div", { class: "field" }, h("label", { for: "t-material" }, "Теория к тесту (книга или PDF из библиотеки)"), materialSel,
+      h("span", { class: "form-hint" }, "Необязательно. Теорию можно привязать к теме и отдельно — она покажется в предмете.")),
+    h("div", { class: "options" }, requireRead.row));
+
   function readSettingsForm() {
     return {
       shuffleQuestions: shuffleQ.input.checked,
@@ -602,7 +660,11 @@ export default async function CreateTestPage() {
     return {
       category: categoryInput.value.trim(),
       color: colorSelect.value,
-      instructions: instructionsInput.value
+      instructions: instructionsInput.value,
+      subjectId: subjectSel.value || null,
+      topicId: subjectSel.value ? (topicSel.value || null) : null,
+      materialId: materialSel.value || null,
+      requireMaterial: requireRead.input.checked
     };
   }
 
@@ -676,6 +738,7 @@ export default async function CreateTestPage() {
       h("span", { class: "form-hint" },
         "Правильный ответ отмечайте [+], [правильный] или * в конце строки. Несколько отмеченных вариантов — вопрос с множественным выбором. Короткий ответ: «Ответ: текст».")
     ),
+    bindingBox,
     settingsBox,
     catalogBox,
     status,

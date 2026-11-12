@@ -191,13 +191,21 @@ service cloud.firestore {
         && request.resource.data.status == "draft"
         && request.resource.data.orgId == myOrg()
         && request.resource.data.questions is list
-        && request.resource.data.questions.size() > 0;
+        && request.resource.data.questions.size() > 0
+        && (!("subjectId" in request.resource.data) || request.resource.data.subjectId is string || request.resource.data.subjectId == null)
+        && (!("topicId" in request.resource.data) || request.resource.data.topicId is string || request.resource.data.topicId == null)
+        && (!("materialId" in request.resource.data) || request.resource.data.materialId is string || request.resource.data.materialId == null)
+        && (!("requireMaterial" in request.resource.data) || request.resource.data.requireMaterial is bool);
 
       allow update: if signedIn()
         && (resource.data.authorId == request.auth.uid
           || isAdminOf(resource.data.orgId))
         && request.resource.data.authorId == resource.data.authorId
-        && request.resource.data.orgId == resource.data.orgId;
+        && request.resource.data.orgId == resource.data.orgId
+        && (!("subjectId" in request.resource.data) || request.resource.data.subjectId is string || request.resource.data.subjectId == null)
+        && (!("topicId" in request.resource.data) || request.resource.data.topicId is string || request.resource.data.topicId == null)
+        && (!("materialId" in request.resource.data) || request.resource.data.materialId is string || request.resource.data.materialId == null)
+        && (!("requireMaterial" in request.resource.data) || request.resource.data.requireMaterial is bool);
 
       allow delete: if false;
     }
@@ -479,8 +487,14 @@ service cloud.firestore {
             /databases/$(database)/documents/assignments/$(d.assignmentId)
           ).data.kind != "training"
           || get(
-            /databases/$(database)/documents/materialProgress/$(request.auth.uid + "_" + d.testId)
+            /databases/$(database)/documents/materialProgress/$(request.auth.uid + "_" + attemptMaterialId(d))
           ).data.completed == true;
+      }
+
+      function attemptMaterialId(d) {
+        let t = get(/databases/$(database)/documents/tests/$(d.testId)).data;
+        return (("materialId" in t) && t.materialId is string && t.materialId.size() > 0)
+          ? t.materialId : d.testId;
       }
 
       // Попытка: снимок полей профиля должен совпадать с самим профилем.
@@ -577,6 +591,9 @@ service cloud.firestore {
           && attemptProfileMatches(request.resource.data)
           && attemptTestOk(request.resource.data)
           && attemptAssignmentOk(request.resource.data)
+          && (!("subjectId" in request.resource.data) || request.resource.data.subjectId is string)
+          && (!("topicId" in request.resource.data) || request.resource.data.topicId is string)
+          && (!("testTitle" in request.resource.data) || request.resource.data.testTitle is string)
         )
         || (
           // ---------- Гостевая попытка по прямой ссылке ----------

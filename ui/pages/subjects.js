@@ -21,6 +21,8 @@ import { confirmAction } from "../components/confirm.js";
 import { modal } from "../components/modal.js";
 import { toast } from "../components/toast.js";
 import { icons } from "../../shared/icons.js";
+import { listMaterials } from "../../core/material-library.js";
+import { listMyTests, listPublishedTests } from "../../core/editor.js";
 
 // Стартовые предметы (план этапа 1: на старте два предмета). Названия
 // предзаполняются в диалоге создания — сотрудник может изменить их
@@ -146,6 +148,9 @@ export default async function SubjectsPage() {
   const state = {
     subjects: [],
     topics: new Map(),   // subjectId -> массив тем
+    open: new Set(),     // раскрытые темы (id)
+    content: new Map(),  // topicId -> { loading, error, materials, tests }
+    catalog: null,       // { materials, tests } — читается один раз для всех тем
     loading: true,
     error: null
   };
@@ -320,30 +325,120 @@ export default async function SubjectsPage() {
     );
   }
 
+  // Каталог теории и тестов читается один раз и раскладывается по темам.
+  async function loadCatalog() {
+    if (state.catalog) return state.catalog;
+    const profile = State.profile || {};
+    const [materials, tests] = await Promise.all([
+      listMaterials().catch(() => []),
+      (staff
+        ? listMyTests(State.user.uid, profile.orgId, profile.role)
+        : listPublishedTests(profile.orgId)).catch(() => [])
+    ]);
+    state.catalog = {
+      materials: materials.filter(m => staff || !m.status || m.status === "published"),
+      tests: tests.filter(t => t.status !== "deleted")
+    };
+    return state.catalog;
+  }
+
+  async function toggleTopic(topic) {
+    if (state.open.has(topic.id)) { state.open.delete(topic.id); draw(); return; }
+    state.open.add(topic.id);
+    state.content.set(topic.id, { loading: true });
+    draw();
+    try {
+      const catalog = await loadCatalog();
+      state.content.set(topic.id, {
+        materials: catalog.materials.filter(m => m.topicId === topic.id),
+        tests: catalog.tests.filter(t => t.topicId === topic.id)
+      });
+    } catch (err) {
+      console.error("Содержимое темы:", err);
+      state.content.set(topic.id, { error: true });
+    }
+    draw();
+  }
+
+  const encode = encodeURIComponent;
+
+  function topicContent(subject, topic) {
+    const data = state.content.get(topic.id) || { loading: true };
+    if (data.loading) return h("div", { class: "topic-content" }, h("div", { class: "spinner" }));
+    if (data.error) return h("div", { class: "topic-content" }, h("p", { class: "form-error" }, "Не удалось загрузить теорию и тесты темы."));
+
+    const theory = h("div", { class: "topic-block" },
+      h("h3", {}, "Теория"),
+      data.materials.length
+        ? h("div", { class: "list" }, data.materials.map(m => h("div", { class: "list-row" },
+          h("div", { class: "list-row-main" },
+            h("div", { class: "list-row-title" }, m.title || "Материал"),
+            h("div", { class: "list-row-sub" }, [m.pdfName ? `PDF · ${m.pdfName}` : "Книга", m.pageCount ? `${m.pageCount} стр.` : ""].filter(Boolean).join(" · "))),
+          h("div", { class: "list-row-end" },
+            h("a", { class: "btn primary", href: `#material/${encode(m.id)}/free` }, m.pdfName ? "Открыть" : "Читать"),
+            staff ? h("a", { class: "btn secondary", href: `#material-editor/${encode(m.id)}` }, "Изменить") : null))))
+        : h("p", { class: "muted" }, "Теория к теме пока не добавлена."),
+      staff ? h("a", { class: "btn secondary", href: `#material-editor/new/${encode(subject.id)}/${encode(topic.id)}` }, "Добавить теорию (книга или PDF)") : null);
+
+    const tests = h("div", { class: "topic-block" },
+      h("h3", {}, "Тесты"),
+      data.tests.length
+        ? h("div", { class: "list" }, data.tests.map(t => h("div", { class: "list-row" },
+          h("div", { class: "list-row-main" },
+            h("div", { class: "list-row-title" }, t.title || "Тест"),
+            h("div", { class: "list-row-sub" }, [
+              Array.isArray(t.questions) ? `${t.questions.length} вопр.` : (t.questionCount ? `${t.questionCount} вопр.` : ""),
+              t.requireMaterial ? "сначала теория" : "",
+              staff && t.status !== "published" ? "черновик" : ""
+            ].filter(Boolean).join(" · "))),
+          h("div", { class: "list-row-end" },
+            staff
+              ? [
+                t.status === "published" ? h("a", { class: "btn primary", href: `#launch/${encode(t.id)}` }, "Запустить в Live") : null,
+                h("a", { class: "btn secondary", href: `#test-history/${encode(t.id)}` }, "История и оценки"),
+                h("a", { class: "btn secondary", href: `#create-test/${encode(t.id)}` }, "Изменить")
+              ]
+              : h("a", { class: "btn primary", href: `#quiz/${encode(t.id)}` }, "Пройти тест")))))
+        : h("p", { class: "muted" }, "Тестов к теме пока нет."),
+      staff ? h("a", { class: "btn secondary", href: `#create-test/new/${encode(subject.id)}/${encode(topic.id)}` }, "Добавить тест") : null);
+
+    return h("div", { class: "topic-content" }, theory, tests);
+  }
+
   function topicRow(subject, topic) {
     const archived = topic.status === STATUS_ARCHIVED;
-    const end = staff ? h("div", { class: "list-row-end" },
+    const isOpen = state.open.has(topic.id);
+    const end = h("div", { class: "list-row-end" },
       h("button", {
+        type: "button",
+        class: "btn primary",
+        "aria-expanded": isOpen ? "true" : "false",
+        onclick: () => toggleTopic(topic)
+      }, isOpen ? "Свернуть" : "Открыть"),
+      staff ? h("button", {
         type: "button",
         class: "btn secondary",
         onclick: () => topicForm(subject, topic)
-      }, "Изменить"),
-      h("button", {
+      }, "Изменить") : null,
+      staff ? h("button", {
         type: "button",
         class: "btn secondary",
         onclick: () => toggleArchive("topic", topic, subject)
-      }, archived ? "Вернуть" : "В архив")
-    ) : null;
+      }, archived ? "Вернуть" : "В архив") : null
+    );
 
-    return h("div", { class: "list-row" },
-      h("div", { class: "list-row-main" },
-        h("div", archived
-          ? { class: "list-row-title", style: "color:var(--text-2)" }
-          : { class: "list-row-title" }, topic.title),
-        h("div", { class: "list-row-sub" },
-          archived ? "В архиве — скрыта от студентов" : (topic.description || ""))
+    return h("div", { class: "topic-item" },
+      h("div", { class: "list-row" },
+        h("div", { class: "list-row-main" },
+          h("div", archived
+            ? { class: "list-row-title", style: "color:var(--text-2)" }
+            : { class: "list-row-title" }, topic.title),
+          h("div", { class: "list-row-sub" },
+            archived ? "В архиве — скрыта от студентов" : (topic.description || ""))
+        ),
+        end
       ),
-      end
+      isOpen ? topicContent(subject, topic) : null
     );
   }
 

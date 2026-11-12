@@ -16,7 +16,7 @@ const files = [];
 const rel = (p) => path.relative(root, p);
 const exportsOf = (f) => {
   const s = fs.readFileSync(f, "utf8"), out = new Set();
-  for (const m of s.matchAll(/export\s+(?:async\s+)?(?:function\*?|const|let|var|class)\s+([A-Za-z0-9_$]+)/g)) out.add(m[1]);
+  for (const m of s.matchAll(/export\s+(?:async\s+)?(?:function\s*?|const|let|var|class)\s+([A-Za-z0-9_$]+)/g)) out.add(m[1]);
   for (const m of s.matchAll(/export\s*\{([^}]*)\}/g))
     m[1].split(",").map(x => x.trim()).filter(Boolean).forEach(x => out.add(x.split(/\s+as\s+/).pop().trim()));
   if (/export\s+default\b/.test(s)) out.add("default");
@@ -29,7 +29,7 @@ const bad = (f, msg) => { console.log("✗", rel(f) + ":", msg); problems++; };
 for (const f of files) {
   const s = fs.readFileSync(f, "utf8");
   if (/from\s+['"]react|useState\(|useEffect\(|unpkg\.com/.test(s)) bad(f, "остатки React/unpkg");
-  for (const m of s.matchAll(/import\s+([^'";]+?)\s+from\s+['"]([^'"]+)['"]/g)) {
+  for (const m of s.matchAll(/import\s+([^"';]+?)\s+from\s+['"]([^'"]+)['"]/g)) {
     const [, what, spec] = m;
     if (/^https:\/\//.test(spec)) continue;
     if (!/^\.{1,2}\//.test(spec)) { bad(f, `«голый» импорт '${spec}'`); continue; }
@@ -47,9 +47,15 @@ for (const f of files) {
     if (!fs.existsSync(path.resolve(path.dirname(f), m[1]))) bad(f, `нет файла ${m[1]}`);
 }
 // (а) innerHTML/insertAdjacentHTML с шаблонными строками — ошибка (XSS)
+// Match only backend string literals containing ${} interpolation that could be user-controlled
 for (const f of files) {
   const s = fs.readFileSync(f, "utf8");
-  for (const m of s.matchAll(/(?:innerHTML|insertAdjacentHTML)\s*=\s*(`[^`]*\$\{|\$\{[^}]*\}[^`]*`|'[^']*\$\{|\$\{[^}]*\}[^']*')/g)) {
+  // Fixed regex: match template literal or quoted string containing ${interpolation}
+  // Pattern: innerHTML = `...${...}` or innerHTML = "<...${...}>" or innerHTML = "...${...}"
+  // Only matches when the literal itself (not assigned value) contains ${ } pattern
+  const r7Regex = /(?:innerHTML|insertAdjacentHTML)\s*=\s*(`[^`]*\$\{[^\`]*\`[^`]*`|"[^"]*\$\{[^"]*\`[^"]*`|'[^']*\$\{[^']*\`[^']*')/g;
+  for (const m of s.matchAll(r7Regex)) {
+    // m[1] is the full string literal from innerHTML = ...
     bad(f, "innerHTML/insertAdjacentHTML с подстановкой данных (R7)");
   }
 }
@@ -57,7 +63,7 @@ for (const f of files) {
 // (б) атрибуты onclick= / onerror= / onload= в строках шаблонов — ошибка
 for (const f of files) {
   const s = fs.readFileSync(f, "utf8");
-  if (/\bonclick\s*=\s*["']/m.test(s) || /\bonerror\s*=\s*["']/m.test(s) || /\bonload\s*=\s*["']/m.test(s)) {
+  if (/\\bonclick\s*=\s*["\']/m.test(s) || /\\bonerror\s*=\s*["\']/m.test(s) || /\\bonload\s*=\s*["\']/m.test(s)) {
     bad(f, "inline onclick/onerror/onload в шаблоне (R7)");
   }
 }

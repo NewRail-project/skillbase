@@ -295,7 +295,9 @@ export default async function QuizPage() {
   // Обучающее задание (kind=training): тест открывается только после
   // прочтения материала-книги (materialProgress.completed == true).
   let needMaterialRead = false;
-  if (!staff && assignment?.kind === "training") {
+  // Тест из темы с обязательной теорией (test.requireMaterial) закрыт для
+  // ученика до прочтения книги так же, как обучающее задание.
+  if (!staff && (assignment?.kind === "training" || test.requireMaterial === true)) {
     try {
       needMaterialRead = !(await materialCompleted(State.user.uid, test.id));
     } catch (_) {
