@@ -5,13 +5,15 @@ import { listOrgAttempts } from "../../core/attempts.js";
 import { icons } from "../../shared/icons.js";
 import { brandLockup } from "../../ui/components/brand.js";
 import { t as tr, lt, roleLabel } from "../../core/i18n.js";
+import { createIcon } from "../../shared/svg.js";
 
 
 function tile({ icon, title, text, href, action }) {
   const card = h("a", { class: "quick-action", href });
   // icon — статичная SVG-константа из shared/icons.js.
   const ic = h("span", { class: "icon" });
-  ic.innerHTML = icon;
+  const svgIcon = createIcon(icon);
+  ic.appendChild(svgIcon);
   card.append(
     ic,
     h("b", {}, title),

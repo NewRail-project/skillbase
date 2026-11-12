@@ -9,7 +9,7 @@ import { confirmAction } from "../../ui/components/confirm.js";
 import { toast } from "../../ui/components/toast.js";
 import { getStudentAssignments, listAssignments } from "../../core/assign.js";
 import { icons } from "../../shared/icons.js";
-import { railScene } from "../../ui/components/brand.js";
+import { createRailScene, createIcon } from "../../shared/svg.js";
 
 // Тексты героя зависят от режима Education / Workforce: функции (lt) обновляются
 // на месте при переключении, страница не перерисовывается.
@@ -41,7 +41,8 @@ function daysLeft(value) {
 
 function hero({ eyebrow, title, lead, actions, stats }) {
   const section = h("section", { class: "hero" });
-  section.innerHTML = railScene();
+  const railSceneSVG = createRailScene();
+  section.appendChild(railSceneSVG);
   const inner = h("div", { class: "hero-inner" },
     h("div", { class: "eyebrow" }, eyebrow),
     h("h1", { class: "hero-title" }, title),
@@ -150,7 +151,8 @@ function quickActions(items) {
       const a = h("a", { class: "quick-action", href: item.href });
       // item.icon — статичная SVG-константа из shared/icons.js.
       const ic = h("span", { class: "icon" });
-      ic.innerHTML = item.icon;
+      const svgIcon = createIcon(item.icon);
+      ic.appendChild(svgIcon);
       a.append(ic, h("b", {}, item.label), h("span", {}, item.hint));
       return a;
     })

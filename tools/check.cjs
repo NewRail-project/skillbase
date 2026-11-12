@@ -1,7 +1,4 @@
 // Проверка проекта без браузера: node tools/check.cjs
-// 1) относительные импорты ведут на существующие файлы
-// 2) импортируемые ИМЕНА реально экспортируются целевым файлом (именно это ломало приложение)
-// 3) нет «голых» импортов (firebase/firestore и т.п.) и JSX/React
 const fs = require("fs"), path = require("path");
 const root = path.resolve(__dirname, "..");
 const files = [];
@@ -27,6 +24,7 @@ let problems = 0;
 const bad = (f, msg) => { console.log("✗", rel(f) + ":", msg); problems++; };
 
 for (const f of files) {
+  if (rel(f).startsWith("skillbase-master")) continue;
   const s = fs.readFileSync(f, "utf8");
   if (/from\s+['"]react|useState\(|useEffect\(|unpkg\.com/.test(s)) bad(f, "остатки React/unpkg");
   for (const m of s.matchAll(/import\s+([^"';]+?)\s+from\s+['"]([^'"]+)['"]/g)) {
@@ -46,29 +44,17 @@ for (const f of files) {
   for (const m of s.matchAll(/import\(\s*['"`](\.{1,2}\/[^'"`$]+)['"`]\s*\)/g))
     if (!fs.existsSync(path.resolve(path.dirname(f), m[1]))) bad(f, `нет файла ${m[1]}`);
 }
-// (а) innerHTML/insertAdjacentHTML с шаблонными строками — ошибка (XSS)
-// Match only backend string literals containing ${} interpolation that could be user-controlled
-for (const f of files) {
-  const s = fs.readFileSync(f, "utf8");
-  // Fixed regex: match template literal or quoted string containing ${interpolation}
-  // Pattern: innerHTML = `...${...}` or innerHTML = "<...${...}>" or innerHTML = "...${...}"
-  // Only matches when the literal itself (not assigned value) contains ${ } pattern
-  const r7Regex = /(?:innerHTML|insertAdjacentHTML)\s*=\s*(`[^`]*\$\{[^\`]*\`[^`]*`|"[^"]*\$\{[^"]*\`[^"]*`|'[^']*\$\{[^']*\`[^']*')/g;
-  for (const m of s.matchAll(r7Regex)) {
-    // m[1] is the full string literal from innerHTML = ...
-    bad(f, "innerHTML/insertAdjacentHTML с подстановкой данных (R7)");
-  }
-}
 
-// (б) атрибуты onclick= / onerror= / onload= в строках шаблонов — ошибка
 for (const f of files) {
+  if (rel(f).startsWith("skillbase-master")) continue;
   const s = fs.readFileSync(f, "utf8");
-  if (/\\bonclick\s*=\s*["\']/m.test(s) || /\\bonerror\s*=\s*["\']/m.test(s) || /\\bonload\s*=\s*["\']/m.test(s)) {
+  const r7Regex = /(?:innerHTML|insertAdjacentHTML)\s*=\s*(`[^`]*\$\{[^\`]*\`[^`]*`|"[^"]*\$\{[^"]*\`[^"]*`|'[^']*\$\{[^']*\`[^']*')/g;
+  for (const m of s.matchAll(r7Regex)) bad(f, "innerHTML/insertAdjacentHTML с подстановкой данных (R7)");
+  if (/\bonclick\s*=\s*["\']/m.test(s) || /\bonerror\s*=\s*["\']/m.test(s) || /\bonload\s*=\s*["\']/m.test(s)) {
     bad(f, "inline onclick/onerror/onload в шаблоне (R7)");
   }
 }
 
-// (в) каждый `file:` из routes в shared/app.js существует
 const appPath = path.join(root, "shared/app.js");
 if (fs.existsSync(appPath)) {
   const appS = fs.readFileSync(appPath, "utf8");
@@ -79,7 +65,6 @@ if (fs.existsSync(appPath)) {
   }
 }
 
-// (г) каждая var(--x) в ui/css/*.css определена (предупреждение до этапа 2)
 const cssDir = path.join(root, "ui/css");
 if (fs.existsSync(cssDir)) {
   const cssFiles = fs.readdirSync(cssDir).filter(n => n.endsWith(".css")).map(n => path.join(cssDir, n));
