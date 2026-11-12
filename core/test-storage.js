@@ -10,8 +10,7 @@ import { questionPoints } from "./scoring.js";
 const PUBLIC_TEST_FIELDS = [
   "id", "title", "description", "instructions", "category", "color",
   "authorId", "orgId", "status", "mode", "settings", "version",
-  "createdAt", "updatedAt", "publishedAt", "subjectId", "topicId",
-  "materialId", "requireMaterial"
+  "createdAt", "updatedAt", "publishedAt"
 ];
 
 function publicQuestion(question) {

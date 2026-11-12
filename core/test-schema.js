@@ -32,17 +32,11 @@ export function emptyTest() {
     version: 1,
     createdAt: null,
     updatedAt: null,
-    publishedAt: null,
-    subjectId: null,
-    topicId: null,
-    materialId: null,
-    requireMaterial: false
+    publishedAt: null
   };
 }
 
 // Единый источник правил для сохранения черновика и публикации.
-import { validateTestBinding } from "./test-binding.js";
-
 // publishing=true включает требования, без которых тест нельзя публиковать.
 export function validateTest(test, { publishing = false } = {}) {
   const errors = [];
@@ -51,9 +45,6 @@ export function validateTest(test, { publishing = false } = {}) {
   if (!test || typeof test !== "object") {
     return { errors: ["Некорректные данные теста"], warnings };
   }
-
-  const bindingErrors = validateTestBinding(test);
-  errors.push(...bindingErrors);
 
   const rawSettings = test.settings;
   let settings = {};

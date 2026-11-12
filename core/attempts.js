@@ -77,9 +77,6 @@ export async function startAttempt({ test, user, profile, guest = null, assignme
     attemptNo: Number.isInteger(attemptNo) && attemptNo > 0 ? attemptNo : 1,
     deadlineAt: deadline,
     testVersion: version,
-    subjectId: test.subjectId || null,
-    topicId: test.topicId || null,
-    testTitle: test.title || "",
     ...snapshot,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
@@ -202,13 +199,11 @@ export async function listMyAttemptsForTest(uid, testId) {
   return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byTimeDesc);
 }
 
-export async function listOrgAttempts(orgId, { groupIdFilter = null, subjectId = null, topicId = null, limit: maxLimit = null } = {}) {
-  const constraints = [where("orgId", "==", orgId)];
-  if (subjectId) constraints.push(where("subjectId", "==", subjectId));
-  if (topicId) constraints.push(where("topicId", "==", topicId));
-
+export async function listOrgAttempts(orgId, { groupIdFilter = null, limit: maxLimit = null } = {}) {
   if (!maxLimit) {
-    const snap = await getDocs(query(collection(db, "attempts"), ...constraints));
+    // Полная выборка — поведение по умолчанию (результаты, аналитика, админка).
+    const queryRef = query(collection(db, "attempts"), where("orgId", "==", orgId));
+    const snap = await getDocs(queryRef);
     let attempts = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byTimeDesc);
 
     if (groupIdFilter) {
@@ -218,9 +213,9 @@ export async function listOrgAttempts(orgId, { groupIdFilter = null, subjectId =
         attempts = attempts.filter(a => a.groupId === groupIdFilter);
       }
     }
+
     return attempts;
   }
-  // ... (оставляем логику с лимитом, но добавим фильтры в запрос)
 
   // Ограниченная выборка для обзорных экранов (домашняя страница):
   // сортировка и лимит на стороне Firestore (индекс orgId+submittedAt
@@ -229,13 +224,13 @@ export async function listOrgAttempts(orgId, { groupIdFilter = null, subjectId =
     const [finished, running] = await Promise.all([
       getDocs(query(
         collection(db, "attempts"),
-        ...constraints,
+        where("orgId", "==", orgId),
         orderBy("submittedAt", "desc"),
         limit(maxLimit)
       )),
       getDocs(query(
         collection(db, "attempts"),
-        ...constraints,
+        where("orgId", "==", orgId),
         where("status", "==", "in_progress"),
         limit(maxLimit)
       ))
@@ -255,7 +250,7 @@ export async function listOrgAttempts(orgId, { groupIdFilter = null, subjectId =
     return attempts.slice(0, maxLimit);
   } catch (e) {
     if (e?.code !== "failed-precondition") throw e;
-    const queryRef = query(collection(db, "attempts"), ...constraints);
+    const queryRef = query(collection(db, "attempts"), where("orgId", "==", orgId));
     const snap = await getDocs(queryRef);
     let attempts = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byTimeDesc);
 

@@ -1,250 +1,215 @@
 {
   "indexes": [
-    [
-      "tests",
-      "COLLECTION",
-      [
-        [
-          "orgId",
-          "ASCENDING"
-        ],
-        [
-          "status",
-          "ASCENDING"
-        ],
-        [
-          "updatedAt",
-          "DESCENDING"
-        ]
+    {
+      "collectionGroup": "tests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "orgId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "updatedAt",
+          "order": "DESCENDING"
+        }
       ]
-    ],
-    [
-      "subjects",
-      "COLLECTION",
-      [
-        [
-          "orgId",
-          "ASCENDING"
-        ],
-        [
-          "order",
-          "ASCENDING"
-        ]
+    },
+    {
+      "collectionGroup": "subjects",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "orgId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "order",
+          "order": "ASCENDING"
+        }
       ]
-    ],
-    [
-      "topics",
-      "COLLECTION",
-      [
-        [
-          "subjectId",
-          "ASCENDING"
-        ],
-        [
-          "orgId",
-          "ASCENDING"
-        ],
-        [
-          "order",
-          "ASCENDING"
-        ]
+    },
+    {
+      "collectionGroup": "topics",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "subjectId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "orgId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "order",
+          "order": "ASCENDING"
+        }
       ]
-    ],
-    [
-      "attempts",
-      "COLLECTION",
-      [
-        [
-          "orgId",
-          "ASCENDING"
-        ],
-        [
-          "submittedAt",
-          "DESCENDING"
-        ]
+    },
+    {
+      "collectionGroup": "attempts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "orgId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "submittedAt",
+          "order": "DESCENDING"
+        }
       ]
-    ],
-    [
-      "attempts",
-      "COLLECTION",
-      [
-        [
-          "userId",
-          "ASCENDING"
-        ],
-        [
-          "submittedAt",
-          "DESCENDING"
-        ]
+    },
+    {
+      "collectionGroup": "attempts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "userId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "submittedAt",
+          "order": "DESCENDING"
+        }
       ]
-    ],
-    [
-      "attempts",
-      "COLLECTION",
-      [
-        [
-          "testId",
-          "ASCENDING"
-        ],
-        [
-          "finishedAt",
-          "DESCENDING"
-        ]
+    },
+    {
+      "collectionGroup": "attempts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "testId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "finishedAt",
+          "order": "DESCENDING"
+        }
       ]
-    ],
-    [
-      "attempts",
-      "COLLECTION",
-      [
-        [
-          "userId",
-          "ASCENDING"
-        ],
-        [
-          "testId",
-          "ASCENDING"
-        ]
+    },
+    {
+      "collectionGroup": "attempts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "userId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "testId",
+          "order": "ASCENDING"
+        }
       ]
-    ],
-    [
-      "assignments",
-      "COLLECTION",
-      [
-        [
-          "groupId",
-          "ASCENDING"
-        ],
-        [
-          "status",
-          "ASCENDING"
-        ],
-        [
-          "orgId",
-          "ASCENDING"
-        ]
+    },
+    {
+      "collectionGroup": "assignments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "groupId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "orgId",
+          "order": "ASCENDING"
+        }
       ]
-    ],
-    [
-      "tests",
-      "COLLECTION",
-      [
-        [
-          "orgId",
-          "ASCENDING"
-        ],
-        [
-          "authorId",
-          "ASCENDING"
-        ],
-        [
-          "updatedAt",
-          "DESCENDING"
-        ]
+    },
+    {
+      "collectionGroup": "tests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "orgId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "authorId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "updatedAt",
+          "order": "DESCENDING"
+        }
       ]
-    ],
-    [
-      "tests",
-      "COLLECTION",
-      [
-        [
-          "orgId",
-          "ASCENDING"
-        ],
-        [
-          "updatedAt",
-          "DESCENDING"
-        ]
+    },
+    {
+      "collectionGroup": "tests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "orgId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "updatedAt",
+          "order": "DESCENDING"
+        }
       ]
-    ],
-    [
-      "tests",
-      "COLLECTION",
-      [
-        [
-          "orgId",
-          "ASCENDING"
-        ],
-        [
-          "authorId",
-          "ASCENDING"
-        ],
-        [
-          "status",
-          "ASCENDING"
-        ]
+    },
+    {
+      "collectionGroup": "tests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "orgId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "authorId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
       ]
-    ],
-    [
-      "tests",
-      "COLLECTION",
-      [
-        [
-          "orgId",
-          "ASCENDING"
-        ],
-        [
-          "status",
-          "ASCENDING"
-        ]
+    },
+    {
+      "collectionGroup": "tests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "orgId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
       ]
-    ],
-    [
-      "tests",
-      "COLLECTION",
-      [
-        [
-          "orgId",
-          "ASCENDING"
-        ],
-        [
-          "authorId",
-          "ASCENDING"
-        ],
-        [
-          "status",
-          "ASCENDING"
-        ],
-        [
-          "updatedAt",
-          "DESCENDING"
-        ]
+    },
+    {
+      "collectionGroup": "tests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "orgId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "authorId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "updatedAt",
+          "order": "DESCENDING"
+        }
       ]
-    ],
-    [
-      "attempts",
-      "COLLECTION",
-      [
-        [
-          "orgId",
-          "ASCENDING"
-        ],
-        [
-          "subjectId",
-          "ASCENDING"
-        ],
-        [
-          "submittedAt",
-          "DESCENDING"
-        ]
-      ]
-    ],
-    [
-      "attempts",
-      "COLLECTION",
-      [
-        [
-          "orgId",
-          "ASCENDING"
-        ],
-        [
-          "topicId",
-          "ASCENDING"
-        ],
-        [
-          "submittedAt",
-          "DESCENDING"
-        ]
-      ]
-    ]
-  ]
+    }
+  ],
+  "fieldOverrides": []
 }

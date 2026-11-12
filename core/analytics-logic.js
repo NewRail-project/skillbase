@@ -21,40 +21,6 @@ export function analyticsAttempt(attempt) {
   return ANALYTICS_STATUSES.includes(attempt?.status);
 }
 
-export function aggregateStudentStats(attempts) {
-  const completed = attempts.filter(a => a.status === "graded" && typeof a.percent === "number");
-  if (completed.length === 0) return { bestScore: 0, averageScore: 0, attemptsCount: 0, lastScore: 0 };
-
-  const scores = completed.map(a => a.percent);
-  const bestScore = Math.max(...scores);
-  const averageScore = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
-  const lastScore = completed.sort((a, b) => (b.finishedAt?.toMillis() || 0) - (a.finishedAt?.toMillis() || 0))[0].percent;
-
-  return { bestScore, averageScore, attemptsCount: completed.length, lastScore };
-}
-
-export function aggregateLeaderboard(attempts, { subjectId = null, topicId = null, groupId = null } = {}) {
-  let filtered = attempts.filter(a => a.status === "graded" && typeof a.percent === "number");
-  if (subjectId) filtered = filtered.filter(a => a.subjectId === subjectId);
-  if (topicId) filtered = filtered.filter(a => a.topicId === topicId);
-  if (groupId) filtered = filtered.filter(a => a.groupId === groupId);
-
-  const studentMap = new Map();
-  filtered.forEach(a => {
-    if (!studentMap.has(a.userId)) studentMap.set(a.userId, { scoreSum: 0, count: 0, name: a.userName || "Участник" });
-    const s = studentMap.get(a.userId);
-    s.scoreSum += a.percent;
-    s.count += 1;
-  });
-
-  return Array.from(studentMap.entries()).map(([userId, data]) => ({
-    userId,
-    name: data.name,
-    average: Math.round(data.scoreSum / data.count),
-    count: data.count
-  })).sort((a, b) => b.average - a.average || a.name.localeCompare(b.name));
-}
-
 // Нормализованные ключи вопросов уже на входе: keys от testKeys
 // ({ "0": { points, correct|answer, ... }, ... }).
 export function buildAnalytics(attempts, keys, { limit = ANALYTICS_LIMIT } = {}) {
