@@ -121,11 +121,13 @@ export function leaderList(rows, ctx = {}) {
 
 // Подпись карточки: пока она не изменилась, DOM-узел не трогаем
 // (аватар, анимации и фокус остаются на месте — нет мигания).
-function rowSignature(row, ctx) {
+// Аватар входит в подпись: дозагрузка профиля обновляет только свою карточку.
+export function rowSignature(row, ctx = {}) {
   return [
     row.uid, row.place, row.score ?? 0, row.correctCount ?? 0, row.streak ?? 0,
     row.percent ?? 0, row.answered ?? 0, row.finished ?? 0, row.status || "",
-    row.name || "", ctx.moves?.get(row.uid) || 0, ctx.me && row.uid === ctx.me ? 1 : 0
+    row.name || "", row.avatar || "", ctx.moves?.get(row.uid) || 0,
+    ctx.me && row.uid === ctx.me ? 1 : 0
   ].join("|");
 }
 

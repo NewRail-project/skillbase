@@ -15,7 +15,8 @@ import {
 import {
   questionTimeMs, answeredCount, myAnswerVerdict, buildJoinUrl, computeScores,
   streakFromReveals, verdictsFromTrail, streakTier, streakEvent, scoreBreakdown,
-  speedRatio, formatBreakdown, normalizePlayerTimes
+  speedRatio, formatBreakdown, normalizePlayerTimes,
+  roomRenderSignature, roomCrowdSignature
 } from "../../core/rooms-logic.js";
 import {
   CONN, ROLE_OBSERVER, ROLE_PLAYER, RATING_STATUS_LABEL,
@@ -69,6 +70,7 @@ let meterStreak = 0;       // серия, показанная над карто
 let pendingRect = null;    // позиции карточек до перерисовки (FLIP)
 const autoClosed = new Set();
 let lastSignature = null;
+let lastCrowdSig = null;  // подпись «толпы»: ответы/очки/состав участников
 let lastStepKey = null;   // «шаг» комнаты: смена вопроса/фазы/роли → плавный переход вида
 let lastBoardSig = null;
 let lastReactionSig = null;
@@ -82,11 +84,18 @@ let shownReactions = new Map();
 let lastRanks = null;
 let lastScores = null; // uid → прошлый счёт (count-up)
 let lastReactionTs = 0; // локальный троттлинг отправки реакций
-let profilesLoaded = false;
+let profilesRev = 0;       // версия загруженных профилей (аватары догружаются)
 // Обязанности ведущего автономного режима (раскрытие ответов, рейтинг).
 let dutyBusy = false;
 let lastScoreSig = "";
 let dutyErrorShown = false;
+// Ошибка подписки: тост показывается один раз на источник (room / own /
+// players / scores…); очищается при восстановлении (clearError).
+const shownErrors = new Set();
+// Подписки на смену темы/скина для перекраски QR (см. initRoomQR).
+// Одна пара на страницу: при пересборке вида старые отписываются.
+let qrThemeOff = null;
+let qrSkinOff = null;
 function reset() {
   unsubs.forEach(fn => { try { fn(); } catch (e) { /* уже отписаны */ } });
   unsubs = [];
@@ -108,6 +117,7 @@ function reset() {
   streakRef = null;
   autoClosed.clear();
   lastSignature = null;
+  lastCrowdSig = null;
   lastStepKey = null;
   lastBoardSig = null;
   lastReactionSig = null;
@@ -116,10 +126,15 @@ function reset() {
   shownReactions = new Map();
   prev = null;
   lastReactionTs = 0;
-  profilesLoaded = false;
+  profilesRev = 0;
   dutyBusy = false;
   lastScoreSig = "";
   dutyErrorShown = false;
+  try { qrThemeOff?.(); } catch (e) { /* уже отписаны */ }
+  try { qrSkinOff?.(); } catch (e) { /* уже отписаны */ }
+  qrThemeOff = null;
+  qrSkinOff = null;
+  shownErrors.clear();
   pageRef = null;
   leaderRef = null;
   statusRef = null;
@@ -128,6 +143,7 @@ function reset() {
     profiles: new Map(), test: null, keys: null, keysReady: false,
     hasMaterial: false,    // у теста есть учебный материал (кнопка «Прочитать»)
     receivedMs: 0, code: "", playersLoaded: false,
+    profilesDone: new Set(), // uid, для которых профиль уже запрашивался
     // Независимые источники состояния подключения:
     ownPlayer: null,       // собственный документ players/{uid}
     myAnswers: {}, myTimes: {},
@@ -286,39 +302,42 @@ function signature() {
   const revealId = li.legacyPhase === "closed" && li.qid !== ""
     ? (local.reveals?.[li.qid] ? "on" : "off")
     : "-";
-  const answers = (local.players || [])
-    .filter(p => roleOfPlayer(p) !== ROLE_OBSERVER)
-    .map(p => `${String(p.uid).slice(0, 6)}:${Object.keys(p.answers || {}).length}`)
-    .sort()
-    .join(",");
-  const ids = (local.players || []).map(p => String(p.uid).slice(0, 6)).sort().join(",");
-  const me = role();
-  // Игрок, который отвечает на вопрос: не перерисовываем из-за чужих
-  // данных — поле ввода не должно терять текст и фокус.
-  const typing = me === "player" && li.phase === "question" && myAnswer == null;
-  const crowd = typing ? "-" : [
-    String(local.players.length), `ids=${ids}`, `answers=${answers}`,
-    `scores=${(local.scores || []).map(s => `${String(s.uid).slice(0, 6)}:${s.score}:${s.finished ?? 0}`).sort().join(",")}`,
-    `reveals=${Object.keys(local.reveals || {}).length}`
-  ].join("~");
-  return [
-    room ? room.status : "no-room",
-    connState(),
-    `live=${li.lifecycle}:${li.position}:${li.phase}`,
-    String(room?.currentQuestionId ?? ""),
-    String(room?.phase ?? ""),
-    String(room?.qStartedMs ?? ""),
-    `reg=${room?.registrationOpen === false ? 0 : 1}`,
-    `clock=${local.clockReady ? 1 : 0}`,
-    `crowd=${crowd}`,
-    `reveal=${revealId}`,
-    `me=${myAnswer != null ? 1 : 0}`,
-    `role=${me}`,
-    `removed=${local.removed ? 1 : 0}`,
-    `test=${local.test ? 1 : 0}`,
-    `keys=${local.keysReady ? 1 : 0}`,
-    `mat=${local.hasMaterial ? 1 : 0}`
-  ].join("|");
+  // ПОЛНАЯ перерисовка вида — только по этим полям (шаг комнаты, мой ответ,
+  // роль, состояние подключения). «Толпа» (ответы и очки других участников,
+  // входы/выходы, счётчики) в подпись не входит: она обновляется точечно
+  // (updateRatingPanels, updateAnswered, updatePeople, updateLivePodiums,
+  // updateScreenBoard), поэтому чужой ответ не пересобирает экран и не
+  // сбивает поле ввода/прокрутку. Раньше crowd был частью подписи — каждый
+  // чужой ответ или очко вызывали rebuild всего .room-view.
+  return roomRenderSignature({
+    roomStatus: room ? room.status : "no-room",
+    conn: connState(),
+    life: li.lifecycle,
+    position: li.position,
+    phase: li.phase,
+    currentQuestionId: room?.currentQuestionId,
+    qStartedMs: room?.qStartedMs,
+    regOpen: room?.registrationOpen === false ? 0 : 1,
+    clockReady: local.clockReady,
+    revealOn: revealId,
+    myAnswered: myAnswer != null,
+    role: role(),
+    removed: local.removed,
+    testReady: Boolean(local.test),
+    keysReady: local.keysReady,
+    hasMaterial: local.hasMaterial
+  });
+}
+
+// Подпись «толпы»: ответы/очки/состав участников. Её изменение запускает
+// ТОЛЬКО локальные обновляторы, а не перерисовку вида. Версия профилей
+// входит сюда: дозагрузка аватара обновляет чипы и карточки точечно.
+function crowdSignature() {
+  return `${roomCrowdSignature({
+    players: local.players || [],
+    scores: local.scores || [],
+    reveals: local.reveals || {}
+  })}|p=${profilesRev}`;
 }
 
 // Полная длительность вопроса в мс (для кольца таймера) или 0, если не ограничен.
@@ -383,24 +402,35 @@ function soundToggle() {
   return btn;
 }
 
+// Возвращает true, если появились новые данные профилей (вызвавшая
+// сторона после этого wake() — запускает точечное обновление аватаров).
 async function loadProfiles(orgId) {
-  if (profilesLoaded || !local.room?.orgId && !orgId) return;
-  const uids = (local.players || []).map(p => p.uid);
-  if (!uids.length) return;
-  profilesLoaded = true;
+  const org = local.room?.orgId || orgId;
+  if (!org) return false;
+  // Грузим только ещё не запрошенные профили: участники, вошедшие позже,
+  // тоже получают аватары (раньше после первой загрузки флаг навсегда
+  // закрывал дозагрузку — новые участники оставались без аватаров).
+  const uids = (local.players || []).map(p => p.uid).filter(uid => !local.profilesDone?.has(uid));
+  if (!uids.length) return false;
   try {
-    const profiles = await loadPublicProfiles(uids, local.room?.orgId || orgId);
+    const profiles = await loadPublicProfiles(uids, org);
     profiles.forEach(p => local.profiles.set(p.id, p));
+    // Профиль могло не быть — не спрашиваем этот uid повторно.
+    uids.forEach(uid => local.profilesDone.add(uid));
+    // Аватары живут в карточках рейтинга и чипах участников: bump версии
+    // профилей проходит через crowd-гейт и запускает точечное обновление
+    // (без полной перерисовки вида).
+    profilesRev += 1;
+    return true;
   } catch (err) {
     console.error("Аватары участников:", err);
-    profilesLoaded = false;
+    return false;
   }
 }
 
 // Ошибка подписки: запоминаем по источнику (room / own / players /
 // scores…) и показываем тост один раз на источник. Ошибка списка
 // участников НЕ переводит клиента в connection_error.
-const shownErrors = new Set();
 function setError(source, error) {
   console.error(`Комната (${source}):`, error);
   local.errors[source] = error || { code: "error" };
@@ -569,7 +599,8 @@ export default async function RoomPage() {
       local.players = players;
       local.playersLoaded = true;
       clearError("players");
-      loadProfiles().catch(err => console.error(err));
+      loadProfiles().then(changed => { if (changed) wake(); })
+        .catch(err => console.error(err));
       wake();
       publishCounter();
     },
@@ -601,6 +632,7 @@ export default async function RoomPage() {
       onAnswers: ({ answers, times }) => {
         local.myAnswers = { ...answers };
         local.myTimes = times;
+        clearError("own");
         wake();
       },
       onError: error => { setError("own", error); wake(); }
@@ -612,6 +644,7 @@ export default async function RoomPage() {
     snapshot => {
       // uid — id документа (правила: scores/{uid}); поле в данных не доверяем.
       local.scores = snapshot.docs.map(item => ({ ...item.data(), uid: item.id }));
+      clearError("scores");
       wake();
     },
     error => { setError("scores", error); }
@@ -622,6 +655,7 @@ export default async function RoomPage() {
     snapshot => {
       local.reveals = {};
       snapshot.docs.forEach(item => { local.reveals[item.id] = item.data(); });
+      clearError("reveals");
       wake();
     },
     error => { setError("reveals", error); }
@@ -630,7 +664,7 @@ export default async function RoomPage() {
   // Реакции: свои шлём кнопками, чужие показываем всплывающими эмодзи.
   unsubs.push(subscribeReactions(
     code,
-    reactions => { local.reactions = reactions; wake(); },
+    reactions => { local.reactions = reactions; clearError("reactions"); wake(); },
     error => { setError("reactions", error); }
   ));
 
@@ -649,10 +683,17 @@ export default async function RoomPage() {
   runClockSync();
 
   // Возврат сети/вкладки: SDK сам возобновляет живые подписки; мёртвые
-  // (завершённые ошибкой) пересоздаются перезагрузкой страницы комнаты.
+  // (завершённые ошибкой) пересоздаются переинициализацией страницы.
+  // Полная переинициализация — ТОЛЬКО когда сломано само подключение
+  // (room или own). Вторичные ошибки (scores, reveals, reactions, players)
+  // SDK восстанавливает сам: их наличие — не причина пересобирать страницу.
+  // Раньше здесь проверялось Object.keys(local.errors).length — одна
+  // случайная ошибка оставалась в local.errors навсегда (у secondary
+  // источников не было clearError), и каждый возврат на вкладку или каждое
+  // событие online заново перезапускали всю страницу комнаты.
   onlineHandler = () => {
     if (document.visibilityState === "hidden") return;
-    if (Object.keys(local.errors).length || connState() === CONN.ERROR) {
+    if (connState() === CONN.ERROR) {
       router();
       return;
     }
@@ -809,6 +850,18 @@ function scheduleRender(page) {
   }
   fillStatusBarIfChanged();
   updateLeaderboard();
+  // «Толпа» (ответы и очки других участников, входы/выходы) обновляется
+  // точечно и только когда её подпись изменилась: полная перерисовка вида
+  // на толпу не реагирует (см. signature()).
+  const crowd = crowdSignature();
+  if (crowd !== lastCrowdSig) {
+    lastCrowdSig = crowd;
+    updateRatingPanels(target);
+    updateScreenBoard(target);
+    updateAnswered(target);
+    updatePeople(target);
+    updateLivePodiums(target);
+  }
   updateStreakMeter();
   updateReactionBar();
   showFloats();
@@ -1093,6 +1146,10 @@ function boardData() {
   const mine = role() === "player" ? myPlayer() : null;
   for (const row of rows) {
     row.verdicts = verdictsFromTrail(row.trail);
+    // Аватар из профиля богаче аватара из players-документа; строка рейтинга
+    // должна обновиться, когда профиль догрузился (см. rowSignature).
+    const profile = local.profiles.get(row.uid);
+    if (profile?.avatar) row.avatar = profile.avatar;
     if (mine && row.uid === mine.uid && revealIds.length) {
       const own = streakFromReveals(mine, local.reveals, revealIds);
       if (own.verdicts.length >= row.verdicts.length) {
@@ -1241,7 +1298,165 @@ function updateStreakMeter() {
   }
 }
 
-// ---------- Аватары ----------
+// ---------- Локальные обновляторы «толпы» ----------
+// Ответы, очки и состав участников меняются часто, но не требуют
+// пересборки вида: каждый блок обновляется точечно и только если
+// изменился его собственный ключ. Прокрутка, фокус и открытые
+// состояния при этом не затрагиваются.
+
+// Контейнер участников с точечным обновлением: kind — participants /
+// observers / players. Пустой список показывает подсказку data-people-empty.
+function peopleBox(kind, emptyText) {
+  return h("div", {
+    class: "live-people",
+    "data-people": kind,
+    "data-people-empty": emptyText || ""
+  });
+}
+
+function updatePeople(page) {
+  if (!page) return;
+  const players = local.players || [];
+  const participants = players.filter(p => roleOfPlayer(p) !== ROLE_OBSERVER);
+  const observers = players.filter(p => roleOfPlayer(p) === ROLE_OBSERVER);
+  const sets = { participants, observers, players };
+  page.querySelectorAll("[data-people]").forEach(el => {
+    const list = sets[el.dataset.people] || [];
+    // Подпись чипа включает аватар: догрузка профиля обновит только свой чип.
+    const chipSig = p => {
+      const profile = local.profiles.get(p.uid);
+      return `${p.name || "Участник"}|${profile?.avatar || p.avatar || ""}`;
+    };
+    const sig = list.map(p => `${p.uid}:${chipSig(p)}`).join(",");
+    if (el.dataset.sig === sig) return;
+    el.dataset.sig = sig;
+    // Точечная сборка: чипы остаются на месте, меняются только изменённые.
+    if (!list.length) {
+      el.textContent = "";
+      const hint = el.dataset.peopleEmpty;
+      if (hint) {
+        el.appendChild(h("p", { class: "form-hint people-empty-hint", style: "text-align:center;margin:0" }, hint));
+      }
+      return;
+    }
+    el.querySelectorAll(":scope > .people-empty-hint").forEach(node => node.remove());
+    const existing = new Map();
+    el.querySelectorAll(":scope > [data-uid]").forEach(node => existing.set(node.dataset.uid, node));
+    list.forEach((p, index) => {
+      const next = chipSig(p);
+      let chip = existing.get(p.uid);
+      existing.delete(p.uid);
+      if (!chip || chip.dataset.sig !== next) {
+        const fresh = h("span", { class: "chip live-chip", "data-uid": p.uid, "data-sig": next },
+          avatarChip(p), p.name || "Участник");
+        if (chip && chip.parentNode === el) el.replaceChild(fresh, chip);
+        else el.appendChild(fresh);
+        chip = fresh;
+      }
+      const at = el.children[index] || null;
+      if (at !== chip) el.insertBefore(chip, at);
+    });
+    existing.forEach(node => node.remove());
+  });
+  page.querySelectorAll("[data-people-count]").forEach(el => {
+    const value = String((sets[el.dataset.peopleCount] || []).length);
+    if (el.textContent !== value) el.textContent = value;
+  });
+}
+
+// Счётчики «ответили X из Y» на открытый вопрос (ведущий ручного и
+// автономного режима). Ответы чужих читает только ведущий (правила),
+// поэтому у наблюдателя счётчик остаётся 0 — как и раньше.
+function updateAnswered(page) {
+  if (!page) return;
+  const li = liveInfo();
+  const participants = (local.players || []).filter(p => roleOfPlayer(p) !== ROLE_OBSERVER);
+  const qid = li.auto ? li.qid : String(local.room?.currentQuestionId ?? "");
+  const answered = qid ? answeredCount(participants, qid) : 0;
+  const text = `${answered} из ${participants.length}`;
+  page.querySelectorAll("[data-answered]").forEach(el => {
+    if (el.textContent !== text) el.textContent = text;
+  });
+}
+
+// Рейтинговые панели автономного режима (внутри вида): список карточек
+// дозаполняется/переставляется точечно, заглушка и счётчик — по месту.
+function updateRatingPanels(page) {
+  if (!page) return;
+  const rows = ratingSource();
+  page.querySelectorAll(".live-rating[data-rating-limit]").forEach(panel => {
+    const limit = panel.dataset.ratingLimit ? Number(panel.dataset.ratingLimit) : null;
+    const list = limit ? rows.slice(0, limit) : rows;
+    const countText = `${rows.length} уч.`;
+    const countEl = panel.querySelector("[data-rating-count]");
+    if (countEl && countEl.textContent !== countText) countEl.textContent = countText;
+    const ol = panel.querySelector(".lb-list");
+    if (!list.length) {
+      if (ol) ol.remove();
+      if (!panel.querySelector(".rating-empty")) {
+        panel.appendChild(h("div", { class: "panel-body rating-empty" },
+          h("p", { class: "muted" }, "Участников пока нет — рейтинг появится после первых ответов.")));
+      }
+      return;
+    }
+    const empty = panel.querySelector(".rating-empty");
+    if (empty) empty.remove();
+    if (!ol) {
+      panel.appendChild(leaderListFor(list));
+      return;
+    }
+    // FLIP: позиции карточек до reconcile, плавный доезд после.
+    const oldTops = captureRects(panel);
+    syncBoardFrame();
+    reconcileLeaderList(ol, list, leaderCtx());
+    playFlip(panel, oldTops);
+  });
+}
+
+// Табло проектора: топ-8 карточек внутри вида, обновляется точечно.
+function updateScreenBoard(page) {
+  if (!page) return;
+  const el = page.querySelector("[data-screen-board]");
+  if (!el) return;
+  const rows = boardRows().slice(0, 8);
+  const sig = leaderSignature(rows);
+  if (el.dataset.sig === sig) return;
+  el.dataset.sig = sig;
+  const oldTops = captureRects(el);
+  el.textContent = "";
+  if (!rows.length) return;
+  syncBoardFrame();
+  el.appendChild(leaderListFor(rows, { board: true }));
+  playFlip(el, oldTops);
+}
+
+// Топ-3 наблюдателя в ручном режиме: перестраивается только при изменении
+// состава/очков тройки.
+function updateLivePodiums(page) {
+  if (!page) return;
+  const rows = boardRows().slice(0, 3);
+  const sig = rows.map(r => `${r.uid}:${r.place}:${r.score ?? 0}`).join(",");
+  page.querySelectorAll("[data-live-podium]").forEach(el => {
+    if (el.dataset.podSig === sig) return;
+    el.dataset.podSig = sig;
+    el.textContent = "";
+    if (!rows.length) return;
+    const medals = ["🥇", "🥈", "🥉"];
+    el.appendChild(h("div", { class: "room-live-podium" },
+      h("div", { class: "podium-grid" },
+        rows.map((row, index) => h("div", { class: `podium-item podium-${index + 1}` },
+          h("div", { class: "podium-medal" }, medals[index]),
+          avatarChip(row),
+          h("div", { class: "podium-info" },
+            h("div", { class: "podium-name" }, row.name || "Участник"),
+            h("div", { class: "podium-score" }, `${row.score ?? 0} б.`)
+          )
+        ))
+      )
+    ));
+  });
+}
+
 // ---------- QR-код комнаты ----------
 
 // Ссылка входа в комнату для участников: #join/<код> — ссылка
@@ -1293,7 +1508,11 @@ async function initRoomQR(room, root) {
   // Размер задаёт карточка ведущего (компактный 160 / крупный 280);
   // ссылка и генерация общие с режимом проектора.
   paintQR(qrWrapper, room.code, Number(qrWrapper.dataset.qrSize || 280));
-  // Смена темы или скина перекрашивает QR; после ухода со страницы — отписка.
+  // Смена темы или скина перекрашивает QR; после ухода со страницы — отписка
+  // (reset). При пересборке вида старые подписки снимаются до новых: без
+  // этого каждый rebuild карточки ведущего добавлял по две подписки.
+  try { qrThemeOff?.(); } catch (e) { /* уже отписаны */ }
+  try { qrSkinOff?.(); } catch (e) { /* уже отписаны */ }
   const repaintQR = () => {
     if (!qrWrapper.isConnected) {
       if (qrWrapper.dataset.seen) { offTheme(); offSkin(); }
@@ -1304,6 +1523,8 @@ async function initRoomQR(room, root) {
   };
   const offTheme = subscribeTheme(repaintQR);
   const offSkin = subscribeSkin(repaintQR);
+  qrThemeOff = offTheme;
+  qrSkinOff = offSkin;
 
   // Копирование ссылки.
   copyBtn.addEventListener('click', async () => {
@@ -1366,33 +1587,6 @@ function avatarChip(entry) {
 }
 
 // ---------- Подиум и конфетти ----------
-
-function livePodium() {
-  const room = local.room;
-  if (!room || room.status !== "active") return null;
-  
-  // Показываем топ-3 в реальном времени для наблюдателей
-  // или если в настройках включена таблица лидеров
-  const roleHere = role();
-  if (roleHere !== "observer" && room.showLeaderboard !== true) return null;
-
-  const rows = boardRows().slice(0, 3);
-  if (!rows.length) return null;
-
-  const medals = ["🥇", "🥈", "🥉"];
-  return h("div", { class: "room-live-podium" },
-    h("div", { class: "podium-grid" },
-      rows.map((row, index) => h("div", { class: `podium-item podium-${index + 1}` },
-        h("div", { class: "podium-medal" }, medals[index]),
-        avatarChip(row),
-        h("div", { class: "podium-info" },
-          h("div", { class: "podium-name" }, row.name || "Участник"),
-          h("div", { class: "podium-score" }, `${row.score ?? 0} б.`)
-        )
-      ))
-    )
-  );
-}
 
 // Финальная последовательность: Дуэль двух лидеров → подиум (3 → 2 → 1,
 // очки «набегают», конфетти на 1 месте) → Экспресс по станциям-вопросам.
@@ -1534,17 +1728,10 @@ function roomResults() {
   return finalSequence();
 }
 
-function playersListWidget(players) {
-  const activePlayers = (players || []).filter(p => !p.observer);
-  if (!activePlayers.length) {
-    return h("div", { class: "form-hint", style: "text-align:center;margin-top:0.75rem" }, "Участники пока не подключились");
-  }
-  return h("div", { class: "lobby-players-grid", style: "display:flex;flex-wrap:wrap;gap:var(--space-2);justify-content:center;margin-top:1rem" },
-    activePlayers.map(p => h("div", {
-      class: "chip",
-      style: "display:flex;align-items:center;gap:6px;padding:4px 10px;background:var(--surface-2);border-radius:16px"
-    }, avatarChip(p), h("span", {}, p.name || "Участник")))
-  );
+// Список участников в лобби (ручной режим): контейнер с точечным
+// обновлением — updatePeople пересобирает чипы только при смене состава.
+function playersListWidget() {
+  return peopleBox("players", "Участники пока не подключились");
 }
 
 // ---------- Вид ведущего ----------
@@ -1604,11 +1791,11 @@ function hostHeader(wrap, room) {
   const observersCount = local.players.length - playersCount;
   wrap.appendChild(h("div", { class: "quick-actions" },
     h("div", { class: "quick-action" },
-      h("b", {}, String(playersCount)),
+      h("b", { "data-people-count": "participants" }, String(playersCount)),
       h("span", {}, "участников")
     ),
     h("div", { class: "quick-action" },
-      h("b", {}, String(observersCount)),
+      h("b", { "data-people-count": "observers" }, String(observersCount)),
       h("span", {}, "наблюдателей")
     )
   ));
@@ -1635,8 +1822,10 @@ function hostView() {
       h("div", { class: "empty-state" },
         h("div", { class: "empty-state-icon", innerHTML: icons.clock }),
         h("h2", {}, lt("room.waitStart")),
-        h("p", { class: "muted" }, `Ведущий: ${room.hostName || "Преподаватель"} · Участников в лобби: ${playersCount} · Всего вопросов: ${room.questionCount || questions.length}.`),
-        playersListWidget(local.players),
+        h("p", { class: "muted" }, `Ведущий: ${room.hostName || "Преподаватель"} · Участников в лобби: `,
+          h("b", { "data-people-count": "participants" }, String(playersCount)),
+          ` · Всего вопросов: ${room.questionCount || questions.length}.`),
+        playersListWidget(),
         h("div", { class: "btn-row", style: "margin-top: 1.5rem; justify-content: center;" },
           h("button", {
             type: "button",
@@ -1660,7 +1849,7 @@ function hostView() {
       const controls = h("div", { class: "panel" },
         h("div", { class: "panel-head" },
           h("h2", {}, "Ответили"),
-          h("span", { class: "badge badge-neutral" }, `${counter} из ${playersCount}`)
+          h("span", { class: "badge badge-neutral", "data-answered": "1" }, `${counter} из ${playersCount}`)
         ),
         h("div", { class: "panel-body" },
           h("div", { class: "btn-row" },
@@ -1801,8 +1990,10 @@ function playerView() {
       h("div", { class: "empty-state" },
         h("div", { class: "empty-state-icon", innerHTML: icons.clock }),
         h("h2", {}, lt("room.waitStart")),
-        h("p", { class: "muted" }, `Ведущий: ${room.hostName || "Преподаватель"} · Участников в лобби: ${playersCount}. Скоро запустится первый вопрос.`),
-        playersListWidget(local.players),
+        h("p", { class: "muted" }, `Ведущий: ${room.hostName || "Преподаватель"} · Участников в лобби: `,
+          h("b", { "data-people-count": "participants" }, String(playersCount)),
+          ". Скоро запустится первый вопрос."),
+        playersListWidget(),
         h("div", { class: "btn-row", style: "margin-top: 1.25rem; justify-content: center;" },
           h("button", {
             type: "button",
@@ -2009,25 +2200,24 @@ function observerView() {
       h("div", { class: "empty-state" },
         h("div", { class: "empty-state-icon", innerHTML: icons.clock }),
         h("h2", {}, lt("room.waitStart")),
-        h("p", { class: "muted" }, `Ведущий: ${room.hostName || "Преподаватель"} · Участников в лобби: ${playersCount}. Вы в режиме наблюдателя.`),
-        playersListWidget(local.players)
+        h("p", { class: "muted" }, `Ведущий: ${room.hostName || "Преподаватель"} · Участников в лобби: `,
+          h("b", { "data-people-count": "participants" }, String(playersCount)),
+          ". Вы в режиме наблюдателя."),
+        playersListWidget()
       )
     );
     wrap.appendChild(observerLobby);
-    const podium = livePodium();
-    if (podium) wrap.appendChild(podium);
+    wrap.appendChild(h("div", { "data-live-podium": "1" }));
   } else if (reveal) {
     wrap.appendChild(revealPanel(reveal, question, { mine: null }));
-    const podium = livePodium();
-    if (podium) wrap.appendChild(podium);
+    wrap.appendChild(h("div", { "data-live-podium": "1" }));
   } else {
     wrap.appendChild(questionPanel(question, {}));
-    const podium = livePodium();
-    if (podium) wrap.appendChild(podium);
+    wrap.appendChild(h("div", { "data-live-podium": "1" }));
     wrap.appendChild(h("div", { class: "panel" },
       h("div", { class: "panel-head" },
         h("h2", {}, "Ответили"),
-        h("span", { class: "badge badge-neutral" },
+        h("span", { class: "badge badge-neutral", "data-answered": "1" },
           `${answeredCount(local.players.filter(p => !p.observer), currentId)} из ${playersCount}`)
       )
     ));
@@ -2124,11 +2314,10 @@ function screenView() {
   }
 
   // Табло: рейтинг крупными карточками в стиле вокзального табло.
-  const boardRowsList = boardRows();
-  if (boardRowsList.length && !finishedRoom) {
-    syncBoardFrame();
-    wrap.appendChild(h("div", { class: "screen-board-wrap" },
-      leaderListFor(boardRowsList.slice(0, 8), { board: true })));
+  // Контейнер с точечным обновлением: updateScreenBoard перерисовывает
+  // топ-8 только при изменении очков/мест, без пересборки вида.
+  if (!finishedRoom) {
+    wrap.appendChild(h("div", { class: "screen-board-wrap", "data-screen-board": "1" }));
   }
 
   // Комната активна, вопрос уже открыт: маленький QR под таблицей —
@@ -2149,20 +2338,17 @@ function screenView() {
 
 // Общий рейтинг карточками: место, аватар, ФИО, баллы, % верных, число
 // вопросов, статус; своя строка подсвечена, у серии — значок огня/молнии.
-function ratingPanel({ title = "Общий рейтинг", limit = null, rows = null } = {}) {
-  const all = rows || ratingSource();
-  const list = limit ? all.slice(0, limit) : all;
-  const panel = h("section", { class: "panel live-rating", "aria-label": title },
+// Содержимое собирает updateRatingPanels: рейтинг меняется при каждом
+// пересчёте очков, поэтому он точечный, без пересборки вида.
+function ratingPanel({ title = "Общий рейтинг", limit = null } = {}) {
+  return h("section", {
+    class: "panel live-rating",
+    "aria-label": title,
+    "data-rating-limit": limit ? String(limit) : ""
+  },
     h("div", { class: "panel-head" },
       h("h2", {}, title),
-      h("span", { class: "badge badge-neutral" }, `${all.length} уч.`)));
-  if (!list.length) {
-    panel.appendChild(h("div", { class: "panel-body" },
-      h("p", { class: "muted" }, "Участников пока нет — рейтинг появится после первых ответов.")));
-    return panel;
-  }
-  panel.appendChild(leaderListFor(list));
-  return panel;
+      h("span", { class: "badge badge-neutral", "data-rating-count": "1" }, "")));
 }
 
 function progressPanel(li, room) {
@@ -2185,10 +2371,8 @@ function progressPanel(li, room) {
       : null);
 }
 
-function peopleChips(list, emptyText) {
-  if (!list.length) return h("p", { class: "form-hint", style: "text-align:center" }, emptyText);
-  return h("div", { class: "live-people" },
-    list.map(p => h("span", { class: "chip live-chip" }, avatarChip(p), p.name || "Участник")));
+function peopleChips(kind, emptyText) {
+  return peopleBox(kind, emptyText);
 }
 
 function settingsSummary(room) {
@@ -2252,10 +2436,10 @@ function autoHostView() {
           regOpen ? "Регистрация открыта" : "Регистрация закрыта")),
       h("div", { class: "panel-body" },
         h("p", { class: "muted" }, settingsSummary(room)),
-        h("h3", {}, `Участники (${playersCount})`),
-        peopleChips(participants, "Пока никто не вошёл — покажите QR или код."),
-        h("h3", {}, `Наблюдатели (${observersCount})`),
-        peopleChips(observers, "Наблюдателей нет."),
+        h("h3", {}, "Участники (", h("span", { "data-people-count": "participants" }, String(playersCount)), ")"),
+        peopleChips("participants", "Пока никто не вошёл — покажите QR или код."),
+        h("h3", {}, "Наблюдатели (", h("span", { "data-people-count": "observers" }, String(observersCount)), ")"),
+        peopleChips("observers", "Наблюдателей нет."),
         h("div", { class: "btn-row", style: "margin-top:var(--space-3)" }, regBtn),
         startBtn,
         h("p", { class: "form-hint" },
@@ -2285,7 +2469,9 @@ function autoHostView() {
     wrap.appendChild(h("section", { class: "panel" },
       h("div", { class: "panel-head" },
         h("h2", {}, question?.text || "Вопрос"),
-        h("span", { class: "badge badge-neutral" }, `ответили ${answered} из ${playersCount}`)),
+        h("span", { class: "badge badge-neutral" },
+          "ответили ",
+          h("span", { "data-answered": "1" }, `${answered} из ${playersCount}`))),
       h("div", { class: "panel-body" },
         h("div", { class: "btn-row" }, finishBtn, regBtn),
         h("p", { class: "form-hint" },
@@ -2312,11 +2498,11 @@ function autoHostView() {
           h("div", { class: "quick-action" }, h("b", {}, String(sum.participants)), h("span", {}, "участников")),
           h("div", { class: "quick-action" }, h("b", {}, String(sum.averageScore)), h("span", {}, "средний балл")),
           h("div", { class: "quick-action" }, h("b", {}, `${sum.averagePercent}%`), h("span", {}, "верных в среднем"))),
-        sum.best ? h("p", { class: "muted" }, `Лучший результат: ${sum.best.name} — ${sum.best.score} б.`) : null,
+         sum.best ? h("p", { class: "muted" }, `Лучший результат: ${sum.best.name} — ${sum.best.score} б.`) : null,
         acc.length ? h("ol", { class: "live-accuracy" },
           acc.map(item => h("li", {},
             `Вопрос ${item.position + 1}: ${item.percent}% верно (ответили ${item.answered} из ${item.participants})`))) : null)));
-    wrap.appendChild(ratingPanel({ title: "Итоговый рейтинг", rows }));
+    wrap.appendChild(ratingPanel({ title: "Итоговый рейтинг" }));
   }
 
   if (active) {
@@ -2344,7 +2530,6 @@ function playerHead(room, label) {
 }
 
 function lobbyPanel(room, who) {
-  const participants = local.players.filter(p => roleOfPlayer(p) !== ROLE_OBSERVER);
   const text = who === "observer"
     ? "Вы подключены как наблюдатель. Рейтинг и ход теста появятся после старта."
     : "Вы подключены. Тест начнётся, когда ведущий нажмёт «" + tr("room.start") + "» — вопросы пойдут сами.";
@@ -2353,9 +2538,10 @@ function lobbyPanel(room, who) {
       h("div", { class: "empty-state-icon", innerHTML: icons.clock }),
       h("h2", {}, "Вы в комнате — ожидаем начала"),
       h("p", { class: "muted" }, text),
-      h("p", { class: "muted" }, `Ведущий: ${room.hostName || "Преподаватель"} · Участников: ${participants.length}`),
+      h("p", { class: "muted" }, "Ведущий: ", `${room.hostName || "Преподаватель"} · Участников: `,
+        h("b", { "data-people-count": "participants" }, "")),
       local.playersLoaded && !local.errors.players
-        ? peopleChips(participants, "")
+        ? peopleChips("participants", "")
         : h("p", { class: "form-hint" }, local.errors.players
           ? "Список участников недоступен, но вы подключены."
           : "Загружаем список участников…"),
@@ -2485,7 +2671,7 @@ function finishedPlayerView(wrap, room, li) {
       h("ol", { class: "live-accuracy" },
         results.map((r, i) => h("li", {}, `Вопрос ${i + 1}: ${formatBreakdown(r)}`)))));
   }
-  wrap.appendChild(ratingPanel({ title: "Итоговый рейтинг", rows }));
+  wrap.appendChild(ratingPanel({ title: "Итоговый рейтинг" }));
   const m = materialButton();
   if (m) wrap.appendChild(m);
   return wrap;
@@ -2499,8 +2685,10 @@ function autoObserverView() {
   const participants = local.players.filter(p => roleOfPlayer(p) !== ROLE_OBSERVER);
   const observers = local.players.length - participants.length;
   wrap.appendChild(h("div", { class: "quick-actions" },
-    h("div", { class: "quick-action" }, h("b", {}, String(participants.length)), h("span", {}, "участников")),
-    h("div", { class: "quick-action" }, h("b", {}, String(observers)), h("span", {}, "наблюдателей")),
+    h("div", { class: "quick-action" },
+      h("b", { "data-people-count": "participants" }, String(participants.length)), h("span", {}, "участников")),
+    h("div", { class: "quick-action" },
+      h("b", { "data-people-count": "observers" }, String(observers)), h("span", {}, "наблюдателей")),
     h("div", { class: "quick-action" },
       h("b", {}, `${Math.max(0, li.lifecycle === "waiting" ? 0 : li.position + (li.phase === "gap" || li.phase === "done" ? 1 : 0))}/${room.questionCount || 0}`),
       h("span", {}, "вопросов пройдено"))));

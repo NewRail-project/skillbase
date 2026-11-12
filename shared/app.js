@@ -82,7 +82,11 @@ const routes = {
   "admins":       { file: "ui/pages/admins.js",            title: "Администраторы",       auth: true, roles: ADMIN },
   "settings":     { file: "ui/pages/settings.js",          title: "Настройки",            auth: true },
   "admin":        { file: "ui/pages/admin-panel.js",       title: "Админ-панель",         auth: true, roles: STAFF },
-  "subjects":     { file: "ui/pages/subjects.js",          title: "Предметы и темы",      tkey: "title.subjects",    auth: true }
+  "subjects":     { file: "ui/pages/subjects.js",          title: "Предметы и темы",      tkey: "title.subjects",    auth: true },
+  // Библиотека материалов: единый каталог книг и PDF (этап 3).
+  "materials":    { file: "ui/pages/materials.js",         title: "Материалы",            tkey: "title.materials",   auth: true },
+  // Редактор самостоятельного материала: без id — новый материал.
+  "material-editor": { file: "ui/pages/material-editor.js", title: "Редактор материала", tkey: "title.materialEditor", auth: true, roles: STAFF }
 };
 
 let renderId = 0;

@@ -80,6 +80,61 @@ export function answeredCount(players, questionId, { includeObservers = false } 
     && p.answers?.[questionId] != null).length;
 }
 
+// ---------- Подписи перерисовки Live-комнаты ----------
+//
+// Два уровня синхронизации (page #room подписывается на снапшоты Firestore):
+//
+//   1. roomRenderSignature — подпись ПОЛНОЙ перерисовки вида. «Толпа»
+//      (ответы и очки других участников, входы/выходы) сюда НЕ входит:
+//      эти изменения обновляются точечно (рейтинг, счётчики, чипы),
+//      иначе чужой ответ пересобирал бы экран и сбивал ввод.
+//   2. roomCrowdSignature — подпись «толпы» для локальных обновлений.
+//      Меняется часто; на неё реагируют только точечные обновляторы.
+//
+// Обе функции чистые: page передаёт собранные данные, тесты в Node
+// проверяют контракт «одинаковые данные — нет перерисовки».
+
+export function roomRenderSignature({
+  roomStatus, conn, life, position, phase,
+  currentQuestionId, qStartedMs, regOpen, clockReady, revealOn,
+  myAnswered, role, removed, testReady, keysReady, hasMaterial
+} = {}) {
+  return [
+    roomStatus ?? "no-room",
+    conn ?? "",
+    `live=${life}:${position}:${phase}`,
+    String(currentQuestionId ?? ""),
+    String(phase ?? ""),
+    String(qStartedMs ?? ""),
+    `reg=${regOpen ? 0 : 1}`,
+    `clock=${clockReady ? 1 : 0}`,
+    `reveal=${revealOn}`,
+    `me=${myAnswered ? 1 : 0}`,
+    `role=${role ?? ""}`,
+    `removed=${removed ? 1 : 0}`,
+    `test=${testReady ? 1 : 0}`,
+    `keys=${keysReady ? 1 : 0}`,
+    `mat=${hasMaterial ? 1 : 0}`
+  ].join("|");
+}
+
+export function roomCrowdSignature({ players = [], scores = [], reveals = {} } = {}) {
+  const isPlayer = p => !(p.role === "observer" || p.observer === true);
+  const answers = players.filter(isPlayer)
+    .map(p => `${String(p.uid).slice(0, 6)}:${Object.keys(p.answers || {}).length}`)
+    .sort().join(",");
+  const ids = players.map(p => String(p.uid).slice(0, 6)).sort().join(",");
+  return [
+    String(players.length),
+    `ids=${ids}`,
+    `answers=${answers}`,
+    `scores=${scores
+      .map(s => `${String(s.uid).slice(0, 6)}:${s.score}:${s.finished ?? 0}`)
+      .sort().join(",")}`,
+    `reveals=${Object.keys(reveals || {}).length}`
+  ].join("~");
+}
+
 // ---------- Очки: база, серия, бонус за скорость ----------
 // Очки пересчитываются с нуля по answers/times при каждом закрытии
 // вопроса; функция чистая, потому остаётся идемпотентной.

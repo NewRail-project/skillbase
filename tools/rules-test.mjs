@@ -2732,6 +2732,303 @@ function testCases() {
             },
             functionMocks: profileMocks("student2", "student")
         },
+        // ---------- Этап 3: статусы материалов ----------
+        // Книги тестов не имеют поля status — они по-прежнему читаются
+        // студентами; самостоятельный материал обязан быть published.
+        {
+            name: "Материалы: студент читает опубликованный самостоятельный материал",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/materials/m-1`,
+                method: "get"
+            },
+            resource: {
+                data: { orgId: ORG, authorId: "teacher1", pageCount: 3, status: "published" }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/activeAttempts/student1` }],
+                    result: { value: false }
+                }
+            ]
+        },
+        {
+            name: "Материалы: студент не читает черновик",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/materials/m-1`,
+                method: "get"
+            },
+            resource: {
+                data: { orgId: ORG, authorId: "teacher1", pageCount: 3, status: "draft" }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/activeAttempts/student1` }],
+                    result: { value: false }
+                }
+            ]
+        },
+        {
+            name: "Материалы: студент не читает материал в архиве",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/materials/m-1`,
+                method: "get"
+            },
+            resource: {
+                data: { orgId: ORG, authorId: "teacher1", pageCount: 3, status: "archived" }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/activeAttempts/student1` }],
+                    result: { value: false }
+                }
+            ]
+        },
+        {
+            name: "Материалы: студент не читает страницу черновика",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/materials/m-1/pages/0`,
+                method: "get"
+            },
+            resource: { data: { blocks: [] } },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/materials/m-1` }],
+                    result: { value: { data: { orgId: ORG, authorId: "teacher1", pageCount: 3, status: "draft" } } }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/activeAttempts/student1` }],
+                    result: { value: false }
+                }
+            ]
+        },
+        {
+            name: "Материалы: студент читает страницу опубликованного материала",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/materials/m-1/pages/0`,
+                method: "get"
+            },
+            resource: { data: { blocks: [] } },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/materials/m-1` }],
+                    result: { value: { data: { orgId: ORG, authorId: "teacher1", pageCount: 3, status: "published" } } }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/activeAttempts/student1` }],
+                    result: { value: false }
+                }
+            ]
+        },
+        {
+            name: "Материалы: студент не пишет материал",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/materials/m-1`,
+                method: "create",
+                resource: {
+                    data: { orgId: ORG, authorId: "student1", pageCount: 1, status: "published" }
+                }
+            },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Материалы: автор пишет карточку с привязкой к предмету и теме",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/materials/m-1`,
+                method: "create",
+                resource: {
+                    data: {
+                        orgId: ORG, authorId: "teacher1", pageCount: 1,
+                        status: "draft", subjectId: "s1", topicId: "t1",
+                        order: 3, title: "Инструктаж"
+                    }
+                }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Материалы: патч снимает привязку (null в subjectId) разрешён",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/materials/m-1`,
+                method: "update",
+                resource: {
+                    data: { orgId: ORG, authorId: "teacher1", pageCount: 1, subjectId: null, topicId: null, order: 0 }
+                }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Материалы: недопустимый статус правилами отклоняется",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/materials/m-1`,
+                method: "create",
+                resource: {
+                    data: { orgId: ORG, authorId: "teacher1", pageCount: 1, status: "hidden" }
+                }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Материалы: subjectId числом правилами отклоняется",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/materials/m-1`,
+                method: "create",
+                resource: {
+                    data: { orgId: ORG, authorId: "teacher1", pageCount: 1, subjectId: 42 }
+                }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Материалы: не-автор не изменяет материал",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher2" },
+                path: `${DB}/materials/m-1`,
+                method: "update",
+                resource: {
+                    data: { orgId: ORG, authorId: "teacher1", pageCount: 1, status: "published" }
+                }
+            },
+            functionMocks: profileMocks("teacher2", "teacher")
+        },
+        // ---------- Этап 3: PDF-вложения (materials/{id}/files/{n}) ----------
+        {
+            name: "Материалы: сотрудник пишет кусочек PDF опубликованного материала",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/materials/m-1/files/0`,
+                method: "create",
+                resource: { data: { data: "JVBERi0xLjQ=" } }
+            },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/materials/m-1` }],
+                    result: { value: { data: { orgId: ORG, authorId: "teacher1", pageCount: 1, status: "published" } } }
+                }
+            ]
+        },
+        {
+            name: "Материалы: студент читает кусочек PDF опубликованного материала",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/materials/m-1/files/0`,
+                method: "get"
+            },
+            resource: { data: { data: "JVBERi0xLjQ=" } },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/materials/m-1` }],
+                    result: { value: { data: { orgId: ORG, authorId: "teacher1", pageCount: 1, status: "published" } } }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/activeAttempts/student1` }],
+                    result: { value: false }
+                }
+            ]
+        },
+        {
+            name: "Материалы: студент не читает PDF черновика",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/materials/m-1/files/0`,
+                method: "get"
+            },
+            resource: { data: { data: "JVBERi0xLjQ=" } },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/materials/m-1` }],
+                    result: { value: { data: { orgId: ORG, authorId: "teacher1", pageCount: 1, status: "draft" } } }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/activeAttempts/student1` }],
+                    result: { value: false }
+                }
+            ]
+        },
+        {
+            name: "Материалы: студент не пишет PDF",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/materials/m-1/files/0`,
+                method: "create",
+                resource: { data: { data: "JVBERi0xLjQ=" } }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/materials/m-1` }],
+                    result: { value: { data: { orgId: ORG, authorId: "teacher1", pageCount: 1, status: "published" } } }
+                }
+            ]
+        },
+        {
+            name: "Материалы: PDF чужой организации не читается",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/materials/m-1/files/0`,
+                method: "get"
+            },
+            resource: { data: { data: "JVBERi0xLjQ=" } },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/materials/m-1` }],
+                    result: { value: { data: { orgId: "other-org", authorId: "teacher1", pageCount: 1, status: "published" } } }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/activeAttempts/student1` }],
+                    result: { value: false }
+                }
+            ]
+        },
         {
             name: "Материалы: попытка по training без прочтения запрещена",
             expectation: "DENY",

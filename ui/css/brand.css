@@ -1222,3 +1222,62 @@ body.sidebar-open { overflow: hidden; }
 .live-bad { color: var(--signal); }
 .live-accuracy { padding-left: 1.2rem; display: grid; gap: 2px; font-size: .9rem; }
 @media (max-width: 380px) { .live-rating-row { grid-template-columns: 1.6rem auto 1fr auto; padding: var(--space-2); } }
+
+/* ---------- Этап 3: библиотека материалов ---------- */
+/* Подзаголовок главы (уровень 2) в читалке. */
+.book-sub { font-size: 1.08em; margin-top: 1.2em; }
+.book-sub::after { display: none; }
+
+/* Оглавление в читалке: список глав с номерами страниц. */
+.reader-toc {
+  position: absolute; top: 0; right: 0; z-index: 7;
+  width: min(20rem, 84vw); max-height: 70vh; overflow: auto;
+  background: var(--rd-page); border: 1px solid var(--rd-line); border-radius: 14px;
+  box-shadow: 0 18px 40px -18px rgba(40, 28, 8, .45);
+  padding: 10px; display: grid; gap: 2px;
+}
+.reader-toc[hidden] { display: none; }
+.reader-toc-title {
+  font-family: 'Inter', system-ui, sans-serif; font-size: .7rem; font-weight: 700;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--rd-muted);
+  padding: 6px 10px 8px;
+}
+.reader-toc-row {
+  display: flex; justify-content: space-between; gap: 10px; align-items: baseline;
+  min-height: 44px; padding: 6px 10px; border: 0; border-radius: 10px; cursor: pointer;
+  background: transparent; color: var(--rd-text);
+  font-family: 'Lora', Georgia, serif; font-size: .95em; text-align: left;
+}
+.reader-toc-row:hover { background: var(--rd-note-bg); }
+.reader-toc-row:focus-visible { outline: 3px solid var(--rd-accent); outline-offset: -3px; }
+.reader-toc-name { min-width: 0; }
+.reader-toc-page { color: var(--rd-muted); font-size: .85em; flex: none; }
+
+/* Редактор материала: страница книги как в читалке, блоки — зоны касания. */
+.mat-page-canvas { min-height: 8rem; }
+.mat-block-slot {
+  position: relative; border-radius: 10px; cursor: pointer; padding: 2px 6px;
+  outline: 1px dashed transparent; outline-offset: 4px; transition: outline-color .15s ease;
+}
+.mat-block-slot:hover, .mat-block-slot:focus-visible {
+  outline-color: var(--accent, var(--rd-accent));
+}
+.mat-block-tag {
+  font-family: 'Inter', system-ui, sans-serif; font-size: .66rem; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--text-2, #6F6450);
+  opacity: 0; transition: opacity .15s ease; margin-bottom: 2px;
+}
+.mat-block-slot:hover .mat-block-tag, .mat-block-slot:focus-visible .mat-block-tag { opacity: 1; }
+.mat-adder { width: 100%; border-style: dashed; opacity: .55; }
+.mat-adder:hover, .mat-adder:focus-visible { opacity: 1; }
+.mat-block-edit {
+  margin: 10px 0; padding: 12px; border: 1px solid var(--line, var(--rd-line));
+  border-radius: 12px; background: var(--surface, #fff);
+  display: grid; gap: 10px;
+}
+.mat-chooser { max-width: 22rem; }
+.mat-chooser-list { display: grid; gap: 8px; }
+.mat-card { display: grid; gap: 8px; align-content: start; }
+.filter-row { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; }
+.filter-row input[type="search"] { grid-column: 1 / -1; }
+@media (max-width: 640px) { .filter-row { grid-template-columns: 1fr; } }

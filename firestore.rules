@@ -343,12 +343,16 @@ service cloud.firestore {
       // Отсутствующая книга: resource.data пуст, orgId сверить не с чем.
       // Чтение вернёт «материала нет» (UI предложит создать его), а не
       // отказ. Существующие книги чужой организации по-прежнему закрыты.
+      // Студентам доступны только опубликованные материалы: у книг из
+      // редактора тестов поля status нет — оно считается опубликованным;
+      // черновик (draft) и архив (archived) видит только персонал.
       allow read: if (resource == null)
         || isStaffOf(resource.data.orgId)
         || (
           hasProfile()
           && role() == "student"
           && myOrg() == resource.data.orgId
+          && resource.data.get("status", "published") == "published"
           && !exists(/databases/$(database)/documents/activeAttempts/$(request.auth.uid))
         );
 
@@ -356,7 +360,20 @@ service cloud.firestore {
         && request.resource.data.orgId == myOrg()
         && request.resource.data.authorId == request.auth.uid
         && request.resource.data.pageCount is int
-        && request.resource.data.pageCount >= 1;
+        && request.resource.data.pageCount >= 1
+        // Карточка самостоятельного материала: статус, привязка к
+        // предмету/теме и порядок — типизированные поля, чужие значения
+        // в правила не проходят даже через клиент API.
+        && (!("status" in request.resource.data)
+          || request.resource.data.status in ["draft", "published", "archived"])
+        && (!("subjectId" in request.resource.data)
+          || request.resource.data.subjectId is string
+          || request.resource.data.subjectId == null)
+        && (!("topicId" in request.resource.data)
+          || request.resource.data.topicId is string
+          || request.resource.data.topicId == null)
+        && (!("order" in request.resource.data)
+          || request.resource.data.order is int);
 
       allow delete: if isStaffOf(resource.data.orgId);
 
@@ -368,6 +385,10 @@ service cloud.firestore {
             isStaff()
             || (
               role() == "student"
+              // Черновик/архив студенту не отдаётся и постранично.
+              && get(
+                /databases/$(database)/documents/materials/$(testId)
+              ).data.get("status", "published") == "published"
               && !exists(
                 /databases/$(database)/documents/activeAttempts/$(request.auth.uid)
               )
@@ -380,6 +401,40 @@ service cloud.firestore {
           && get(
             /databases/$(database)/documents/materials/$(testId)
           ).data.orgId == myOrg();
+
+        allow delete: if isStaff()
+          && get(
+            /databases/$(database)/documents/materials/$(testId)
+          ).data.orgId == myOrg();
+      }
+
+      // PDF-вложение самостоятельного материала: кусочки base64 без
+      // исполняемого содержимого. Читают студенты только опубликованного
+      // материала и вне активной попытки (как страницы книги).
+      match /files/{n} {
+        allow read: if get(
+            /databases/$(database)/documents/materials/$(testId)
+          ).data.orgId == myOrg()
+          && (
+            isStaff()
+            || (
+              role() == "student"
+              && get(
+                /databases/$(database)/documents/materials/$(testId)
+              ).data.get("status", "published") == "published"
+              && !exists(
+                /databases/$(database)/documents/activeAttempts/$(request.auth.uid)
+              )
+            )
+          );
+
+        allow create, update: if isStaff()
+          && get(
+            /databases/$(database)/documents/materials/$(testId)
+          ).data.orgId == myOrg()
+          && get(
+            /databases/$(database)/documents/materials/$(testId)
+          ).data.authorId == request.auth.uid;
 
         allow delete: if isStaff()
           && get(

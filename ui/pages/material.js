@@ -10,6 +10,12 @@ import { h } from "../../shared/dom.js";
 import { State } from "../../core/auth.js";
 import { loadMaterial, loadMaterialProgress, saveMaterialProgress } from "../../core/materials.js";
 import { materialProgress } from "../../core/material-logic.js";
+import {
+  deriveChapters, hasToc
+} from "../../core/material-library-logic.js";
+import {
+  pdfBlob, loadLibraryPdf
+} from "../../core/material-library.js";
 import { setHashGuard, leaveWithHash } from "../../shared/app.js";
 import { t as tr, lt } from "../../core/i18n.js";
 
@@ -23,6 +29,16 @@ const REDUCED = window.matchMedia
 let exit = null;
 
 const PREFS_KEY = "sb-reader";
+
+// localStorage может быть недоступен (приватный режим) — все обращения
+// через безопасные обёртки.
+function storageGet(key) {
+  try { return window.localStorage.getItem(key); } catch (_) { return null; }
+}
+
+function storageSet(key, value) {
+  try { window.localStorage.setItem(key, value); } catch (_) { /* нет storage */ }
+}
 const SIZE_MIN = 15, SIZE_MAX = 28, SIZE_STEP = 1;
 
 function loadPrefs() {
@@ -41,7 +57,10 @@ function savePrefs(prefs) {
 function blockEl(block) {
   switch (block?.type) {
     case "heading":
-      return h("h2", { class: "book-h" }, block.text || "");
+      // level 2 — подзаголовок (глава — по умолчанию, как и раньше).
+      return block.level === 2
+        ? h("h3", { class: "book-h book-sub" }, block.text || "")
+        : h("h2", { class: "book-h" }, block.text || "");
     case "paragraph":
       return h("p", { class: "book-p" }, block.text || "");
     case "list":
@@ -82,16 +101,30 @@ export default async function MaterialPage() {
   const previewMode = routeParts[1] === "preview";
   // Код комнаты (чтение из лобби): «К тесту» возвращает в комнату.
   const roomCode = routeParts[2] ? decodeURIComponent(routeParts[2]).toUpperCase() : "";
-  const backHash = previewMode ? `#create-test/${testId}` : (roomCode ? `#room/${roomCode}` : `#quiz/${testId}`);
+  // Самостоятельный материал (этап 3): возврат в каталог материалов,
+  // а не к несуществующему тесту. Редактор открывает предпросмотр как
+  // #material/<id>/preview/materials — «К редактору» вернёт в каталог.
+  const fromLibrary = freeMode ? !roomCode : previewMode && routeParts[2] === "materials";
+  const backHash = fromLibrary ? "#materials"
+    : previewMode ? `#create-test/${testId}`
+      : (roomCode ? `#room/${roomCode}` : `#quiz/${testId}`);
   const prefs = loadPrefs();
   page.dataset.rd = prefs.mode;
   page.style.setProperty("--rd-size", `${prefs.size}px`);
 
   let material = null;
   let progress = { lastPage: 0, completed: false };
+  const isStudent = State.profile?.role === "student";
+  const lastPageKey = `sb-reader-last:${testId}`;
   try {
     material = await loadMaterial(testId);
     progress = await loadMaterialProgress(State.user.uid, testId);
+    if (!isStudent && !progress.lastPage) {
+      // Прогресс Firestore пишут только студенты (правила). Персоналу
+      // последняя страница запоминается на устройстве.
+      const local = Number(storageGet(lastPageKey));
+      if (Number.isInteger(local) && local >= 0) progress = { lastPage: local, completed: false };
+    }
   } catch (err) {
     // Нет доступа — материал закрыт правилом (идёт попытка?):
     page.appendChild(h("div", { class: "reader-stage" },
@@ -164,11 +197,73 @@ export default async function MaterialPage() {
     savePrefs(prefs);
   });
   applySize(0);
-  const bar = h("div", { class: "reader-bar" }, title, h("div", { class: "reader-tools" }, sizeDown, sizeUp, modeBtn));
+
+  // ---------- Оглавление книги ----------
+  const toc = hasToc(material.pages) ? deriveChapters(material.pages) : null;
+  const tocBtn = h("button", {
+    type: "button", class: "reader-tool", "aria-label": "Оглавление", "aria-expanded": "false"
+  }, "☰");
+  if (!toc) tocBtn.style.display = "none";
+  const tocPanel = h("div", { class: "reader-toc", hidden: "hidden" },
+    h("div", { class: "reader-toc-title" }, "Оглавление"));
+  if (toc) {
+    toc.forEach(chapter => {
+      const row = h("button", {
+        type: "button", class: "reader-toc-row",
+        onclick: () => {
+          index = chapter.page;
+          paintPage();
+          tocPanel.hidden = true;
+          tocBtn.setAttribute("aria-expanded", "false");
+        }
+      }, h("span", { class: "reader-toc-name" }, chapter.title),
+        h("span", { class: "reader-toc-page" }, String(chapter.page + 1)));
+      tocPanel.appendChild(row);
+    });
+  }
+  tocBtn.addEventListener("click", () => {
+    const open = tocPanel.hidden;
+    tocPanel.hidden = !open;
+    tocBtn.setAttribute("aria-expanded", String(open));
+  });
+
+  // ---------- PDF-вложение ----------
+  const pdfBtn = material.pdfName
+    ? h("button", { type: "button", class: "reader-tool", "aria-label": "Открыть PDF" }, "PDF")
+    : null;
+  if (pdfBtn) {
+    pdfBtn.addEventListener("click", async () => {
+      pdfBtn.disabled = true;
+      try {
+        const pdf = await loadLibraryPdf(testId);
+        if (!pdf) throw new Error("PDF не найден.");
+        const url = URL.createObjectURL(pdfBlob(pdf.base64));
+        // Открыть системным просмотрщиком устройства / скачать.
+        // blob: URL не проходит белый список href у h() — создаём
+        // ссылку напрямую (это собственный объектный URL, не данные).
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = pdf.name;
+        link.rel = "noopener";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      } catch (err) {
+        console.error("PDF:", err);
+      } finally {
+        pdfBtn.disabled = false;
+      }
+    });
+  }
+
+  const toolsChildren = [sizeDown, sizeUp, modeBtn, tocBtn, pdfBtn].filter(Boolean);
+  const bar = h("div", { class: "reader-bar" }, title, h("div", { class: "reader-tools" }, toolsChildren));
   const pageNumEl = h("div", { class: "reader-page-num" });
   const stage = h("div", { class: "reader-stage" });
   const book = h("article", { class: "book" });
   stage.appendChild(book);
+  stage.appendChild(tocPanel);
 
   const prevBtn = h("button", { type: "button", class: "reader-arrow left", "aria-label": "Предыдущая страница" }, "←");
   const nextBtn = h("button", { type: "button", class: "reader-arrow right", "aria-label": "Следующая страница" }, "→");
@@ -199,7 +294,7 @@ export default async function MaterialPage() {
     // Кнопка выхода: в обязательном режиме только на последней странице,
     // в добровольном (#material/<id>/free) — всегда.
     exitRow.textContent = "";
-    const backLabel = previewMode ? "К редактору" : "К тесту";
+    const backLabel = fromLibrary ? "К списку материалов" : previewMode ? "К редактору" : "К тесту";
     if ((freeMode || previewMode) && !isLast) {
       exitRow.appendChild(h("button", {
         type: "button", class: "btn secondary",
@@ -217,12 +312,18 @@ export default async function MaterialPage() {
     }
 
     // Прогресс: последняя страница и флаг completed — materialProgress.
+    // Студентам — в Firestore (правила materialProgress), прочим —
+    // локально, чтобы «запоминание последней страницы» работало у всех.
     const state = materialProgress(material.pages, index);
     if ((!freeMode && !previewMode) || state.completed) {
       if (!previewMode) {
-        saveMaterialProgress(State.user.uid, testId, state).catch(err => {
-          console.error("Не удалось сохранить прогресс:", err);
-        });
+        if (isStudent) {
+          saveMaterialProgress(State.user.uid, testId, state).catch(err => {
+            console.error("Не удалось сохранить прогресс:", err);
+          });
+        } else {
+          storageSet(lastPageKey, String(state.lastPage));
+        }
       }
     }
   }
@@ -295,6 +396,9 @@ export default async function MaterialPage() {
 }
 
 function exitBtn(hash) {
+  const label = hash.startsWith("#create-test") ? "К редактору"
+    : hash === "#materials" ? "К списку материалов"
+      : "К тесту";
   return h("a", {
     class: "btn secondary",
     onclick: () => {
@@ -302,7 +406,7 @@ function exitBtn(hash) {
       document.body.classList.remove("reading-mode");
       window.location.hash = hash;
     }
-  }, hash.startsWith("#create-test") ? "К редактору" : "К тесту");
+  }, label);
 }
 
 export function cleanup() {
