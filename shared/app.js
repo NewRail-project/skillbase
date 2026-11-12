@@ -82,7 +82,7 @@ const routes = {
   "admins":       { file: "ui/pages/admins.js",            title: "Администраторы",       auth: true, roles: ADMIN },
   "settings":     { file: "ui/pages/settings.js",          title: "Настройки",            auth: true },
   "admin":        { file: "ui/pages/admin-panel.js",       title: "Админ-панель",         auth: true, roles: STAFF },
-  "subjects":     { file: "ui/pages/subjects.js",          title: "Предметы и темы",      auth: true, roles: STAFF }
+  "subjects":     { file: "ui/pages/subjects.js",          title: "Предметы и темы",      tkey: "title.subjects",    auth: true }
 };
 
 let renderId = 0;
