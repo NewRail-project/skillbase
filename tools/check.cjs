@@ -24,7 +24,6 @@ let problems = 0;
 const bad = (f, msg) => { console.log("✗", rel(f) + ":", msg); problems++; };
 
 for (const f of files) {
-  if (rel(f).startsWith("skillbase-master")) continue;
   const s = fs.readFileSync(f, "utf8");
   if (/from\s+['"]react|useState\(|useEffect\(|unpkg\.com/.test(s)) bad(f, "остатки React/unpkg");
   for (const m of s.matchAll(/import\s+([^"';]+?)\s+from\s+['"]([^'"]+)['"]/g)) {

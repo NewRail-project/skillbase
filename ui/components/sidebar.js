@@ -20,9 +20,9 @@ const GROUPS = [
 { id: "results", label: lt("nav.results"), icon: icons.chart, route: "#results", auth: true, roles: ["teacher", "admin"] },
       { id: "analytics", label: lt("nav.analytics"), icon: icons.chart, route: "#analytics", auth: true, roles: ["teacher", "admin"] },
       // Предметы
-      { id: "subjects", label: "Предметы", icon: icons.book, route: "#subjects", auth: true },
-      { id: "materials", label: "Материалы", icon: icons.download, route: "#materials", auth: true },
-      { id: "leaderboard", label: lt("nav.leaderboard"), icon: icons.chart, route: "#leaderboard", auth: true },
+      { id: "subjects", label: lt("nav.subjects"), icon: icons.book, route: "#subjects", auth: true },
+      { id: "materials", label: lt("nav.materials"), icon: icons.download, route: "#materials", auth: true },
+      { id: "leaderboard", label: lt("nav.leaderboard"), icon: icons.chart, route: "#leaderboard", auth: true, roles: ["teacher", "admin"] },
     ]
   },
   {

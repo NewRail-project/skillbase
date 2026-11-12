@@ -2,8 +2,21 @@
 // Создают SVG DOM-элементы без использования парсеров.
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-const ALLOWED_TAGS = ['svg', 'path', 'polyline', 'rect', 'line', 'circle', 'defs', 'linearGradient', 'stop', 'radialGradient', 'ellipse', 'g'];
-const ALLOWED_ATTRS = ['viewBox', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'd', 'x', 'y', 'width', 'height', 'rx', 'ry', 'cx', 'cy', 'r', 'points', 'x1', 'y1', 'x2', 'y2', 'aria-hidden', 'focusable', 'class', 'opacity', 'id', 'offset', 'stop-color', 'stop-opacity', 'preserveAspectRatio'];
+// Строгий формат иконок shared/icons.js: только эти теги и атрибуты.
+// Всё остальное (script, foreignObject, on*-обработчики, style, href и
+// любые неизвестные имена) отвергается с понятной ошибкой.
+const ICON_TAGS = ['svg', 'path', 'polyline', 'rect', 'line', 'circle'];
+const ICON_ATTRS = ['viewBox', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'd', 'x', 'y', 'width', 'height', 'rx', 'ry', 'cx', 'cy', 'r', 'points', 'x1', 'y1', 'x2', 'y2'];
+
+function failIcon(reason) {
+  throw new Error(`createIcon: некорректная иконка — ${reason}`);
+}
+
+// attr="value" в двойных кавычках; имена включают camelCase (viewBox).
+const ATTR_RE = /([A-Za-z][A-Za-z0-9-]*)="([^"]*)"/g;
+// Открывающий тег: имя, атрибуты (значения в кавычках учитываются), возможный "/".
+const TAG_RE = /<([A-Za-z][A-Za-z0-9]*)((?:"[^"]*"|[^">])*?)(\/?)>/g;
+const SVG_ROOT_RE = /^<svg((?:"[^"]*"|[^">])*)>([\s\S]*)<\/svg>$/;
 
 export function createSVGElement(tag, attrs = {}) {
   const el = document.createElementNS(SVG_NS, tag);
@@ -22,35 +35,44 @@ export function createSVG(tag, attrs = {}, children = []) {
 }
 
 export function createIcon(iconData) {
-  const match = iconData.match(/^<svg([^>]*)>([\s\S]*)<\/svg>$/);
-  if (!match) throw new Error('Invalid icon format: must be <svg>...</svg>');
+  if (typeof iconData !== "string") failIcon("иконка должна быть строкой");
+  const match = iconData.trim().match(SVG_ROOT_RE);
+  if (!match) failIcon("ожидается строка вида <svg ...>...</svg>");
 
   const svg = createSVGElement('svg');
-  const attrRegex = /([a-z-]+)="([^"]*)"/g;
+  applyIconAttrs(match[1], svg);
 
-  let attr;
-  while ((attr = attrRegex.exec(match[1])) !== null) {
-    if (!ALLOWED_ATTRS.includes(attr[1])) throw new Error(`Forbidden attribute: ${attr[1]}`);
-    svg.setAttribute(attr[1], attr[2]);
-  }
+  const inner = match[2];
+  TAG_RE.lastIndex = 0;
+  let m, last = 0;
+  while ((m = TAG_RE.exec(inner)) !== null) {
+    // Текст между тегами не должен содержать разметку: закрывающие теги
+    // детей, текстовые узлы с "<" — всё это отклонение от формата иконок.
+    if (/[<>]/.test(inner.slice(last, m.index))) failIcon("лишняя разметка внутри <svg>");
+    last = m.index + m[0].length;
 
-  const childRegex = /<([a-z]+)([^/>]*)(\/?)>/g;
-  let childMatch;
-  while ((childMatch = childRegex.exec(match[2])) !== null) {
-    const tag = childMatch[1];
-    if (!ALLOWED_TAGS.includes(tag)) throw new Error(`Forbidden tag: ${tag}`);
-
+    const tag = m[1];
+    if (!ICON_TAGS.includes(tag)) failIcon(`недопустимый тег «${tag}»`);
     const el = createSVGElement(tag);
-    const attrsStr = childMatch[2];
-    let attr;
-    while ((attr = attrRegex.exec(attrsStr)) !== null) {
-      if (!ALLOWED_ATTRS.includes(attr[1])) throw new Error(`Forbidden attribute: ${attr[1]}`);
-      el.setAttribute(attr[1], attr[2]);
-    }
+    applyIconAttrs(m[2], el);
     svg.appendChild(el);
   }
+  if (/[<>]/.test(inner.slice(last))) failIcon("лишняя разметка внутри <svg>");
 
   return svg;
+}
+
+// Разбирает строку атрибутов и переносит её на элемент. Строгий формат:
+// только разрешённые имена, только attr="value"; всё прочее — ошибка.
+function applyIconAttrs(src, el) {
+  ATTR_RE.lastIndex = 0;
+  let m;
+  while ((m = ATTR_RE.exec(src)) !== null) {
+    if (!ICON_ATTRS.includes(m[1])) failIcon(`недопустимый атрибут «${m[1]}»`);
+    el.setAttribute(m[1], m[2]);
+  }
+  const rest = src.replace(/([A-Za-z][A-Za-z0-9-]*)="[^"]*"/g, "").trim();
+  if (rest) failIcon(`некорректные атрибуты «${rest}»`);
 }
 
 export function createRailScene() {

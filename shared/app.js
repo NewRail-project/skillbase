@@ -86,6 +86,9 @@ const routes = {
   "subjects":     { file: "ui/pages/subjects.js",          title: "Предметы и темы",      tkey: "title.subjects",    auth: true },
   // Библиотека материалов: единый каталог книг и PDF (этап 3).
   "materials":    { file: "ui/pages/materials.js",         title: "Материалы",            tkey: "title.materials",   auth: true },
+  // Рейтинг: агрегат попыток организации (staff). Страница существовала,
+  // но не была подключена к маршрутизатору — ссылка в меню вела на 404.
+  "leaderboard":  { file: "ui/pages/leaderboard.js",        title: "Рейтинг",              tkey: "title.leaderboard", auth: true, roles: STAFF },
   // Редактор самостоятельного материала: без id — новый материал.
   "material-editor": { file: "ui/pages/material-editor.js", title: "Редактор материала", tkey: "title.materialEditor", auth: true, roles: STAFF }
 };
