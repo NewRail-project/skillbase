@@ -17,11 +17,9 @@ const GROUPS = [
       { id: "about", label: "О проекте", icon: icons.home, route: "#about" },
       { id: "assignments", label: lt("nav.assignments"), icon: icons.clipboard, route: "#assignments", auth: true },
       { id: "tests", label: lt("nav.tests"), icon: icons.book, route: "#tests", auth: true },
-      { id: "subjects", label: lt("nav.subjects"), icon: icons.copy, route: "#subjects", auth: true },
-      { id: "materials", label: lt("nav.materials"), icon: icons.book, route: "#materials", auth: true },
-      { id: "join", label: lt("nav.join"), icon: icons.qr, route: "#join", auth: true },
-      { id: "create-test", label: lt("nav.create"), icon: icons.plus, route: "#create-test", auth: true, roles: ["teacher", "admin"] },
-      { id: "results", label: lt("nav.results"), icon: icons.chart, route: "#results", auth: true, roles: ["teacher", "admin"] }
+{ id: "results", label: lt("nav.results"), icon: icons.chart, route: "#results", auth: true, roles: ["teacher", "admin"] },
+      { id: "analytics", label: lt("nav.analytics"), icon: icons.chart, route: "#analytics", auth: true, roles: ["teacher", "admin"] },
+      { id: "leaderboard", label: lt("nav.leaderboard"), icon: icons.chart, route: "#leaderboard", auth: true, roles: ["teacher", "admin"] },
     ]
   },
   {

@@ -5,6 +5,8 @@ import { avatarPreset, avatarSvg, DEFAULT_AVATAR_VALUE } from "../../shared/avat
 import { avatarPicker } from "../components/avatar.js";
 import { needsFullName } from "../../core/registration.js";
 import { listMyAttempts } from "../../core/attempts.js";
+import { getSubjects, getTopics } from "../../core/subjects.js";
+import { computeStudentProgress } from "../../core/progress.js";
 import { icons } from "../../shared/icons.js";
 import { getThemeMode, setThemeMode, subscribeTheme } from "../../shared/theme.js";
 import { toast } from "../../ui/components/toast.js";
@@ -306,6 +308,90 @@ function attemptsBlock(profile) {
   return wrap;
 }
 
+function learningProgressBlock(profile) {
+  const block = h("div", { class: "panel" },
+    h("div", { class: "section-title" }, h("h2", {}, "Прогресс обучения")),
+    h("div", { id: "learning-progress-body" }, h("div", { class: "skeleton-line", style: "height:64px" }))
+  );
+  const body = block.querySelector("#learning-progress-body");
+
+  (async () => {
+    try {
+      const [attempts, subjects, topics] = await Promise.all([
+        listMyAttempts(profile.uid),
+        getSubjects(),
+        getTopics()
+      ]);
+      const res = computeStudentProgress(attempts, subjects, topics, new Map());
+
+      body.replaceChildren();
+
+      // Достижения
+      if (res.achievements.length) {
+        const achWrap = h("div", { style: "margin-bottom:16px" },
+          h("h3", { style: "margin:0 0 8px;font-size:1rem" }, "Достижения"),
+          h("div", { class: "btn-row", style: "gap:8px;flex-wrap:wrap" },
+            ...res.achievements.map(a => h("div", {
+              class: "chip",
+              style: "display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:var(--surface-sunken)"
+            },
+              h("span", { style: "font-size:1.2rem" }, a.icon),
+              h("span", {}, a.title)
+            ))
+          )
+        );
+        body.appendChild(achWrap);
+      }
+
+      // Прогресс по предметам
+      if (res.subjectsProgress.length) {
+        const subWrap = h("div", { style: "margin-bottom:16px" },
+          h("h3", { style: "margin:0 0 8px;font-size:1rem" }, "Успеваемость по предметам"),
+          h("div", { class: "list" },
+            ...res.subjectsProgress.map(s => h("div", { class: "list-row" },
+              h("div", { class: "list-row-main" },
+                h("div", { class: "list-row-title" }, s.title),
+                h("div", { class: "list-row-sub" }, `Попыток: ${s.attemptsCount}`)
+              ),
+              h("div", { class: "list-row-end" },
+                s.averageScore !== null
+                  ? h("span", { class: `badge ${s.averageScore >= 60 ? "badge-success" : "badge-warning"}` }, `${s.averageScore}%`)
+                  : h("span", { class: "muted" }, "Нет данных")
+              )
+            ))
+          )
+        );
+        body.appendChild(subWrap);
+      }
+
+      // Слабые темы
+      if (res.weakTopics.length) {
+        const weakWrap = h("div", {},
+          h("h3", { style: "margin:0 0 8px;font-size:1rem;color:var(--danger)" }, "Темы, требующие повторения"),
+          h("div", { class: "list" },
+            ...res.weakTopics.map(w => h("div", { class: "list-row" },
+              h("div", { class: "list-row-main" },
+                h("div", { class: "list-row-title" }, w.title)
+              ),
+              h("div", { class: "list-row-end" },
+                h("span", { class: "badge badge-danger" }, `${w.averageScore}%`)
+              )
+            ))
+          )
+        );
+        body.appendChild(weakWrap);
+      } else if (!res.subjectsProgress.length && !res.achievements.length) {
+        body.appendChild(h("p", { class: "muted" }, "Пройдите тесты, чтобы увидеть статистику обучения и достижения."));
+      }
+    } catch (e) {
+      console.error("Ошибка загрузки прогресса:", e);
+      body.replaceChildren(h("p", { class: "muted" }, "Не удалось загрузить прогресс обучения."));
+    }
+  })();
+
+  return block;
+}
+
 function statsBlock(profile) {
   const grid = h("div", { class: "stat-grid" });
   const block = h("div", { class: "panel" },
@@ -508,6 +594,7 @@ function renderReady(profile, avatarUrl) {
     header,
     needsFullName(profile) ? missingNameBlock(profile) : null,
     statsBlock(profile),
+    learningProgressBlock(profile),
     h("div", { class: "split" },
       editForm(profile),
       h("div", { class: "stack" },
