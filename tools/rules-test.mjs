@@ -114,7 +114,7 @@ function projectId() {
 }
 
 // Снимок попытки для кейсов с гейтингом материалов.
-function attemptDoc() {
+function attemptDoc(overrides = {}) {
     return {
         userId: "student1",
         userEmail: "student1@example.com",
@@ -127,7 +127,8 @@ function attemptDoc() {
         attemptNo: 1,
         deadlineAt: null,
         userName: "Test User",
-        groupId: "default-group"
+        groupId: "default-group",
+        ...overrides
     };
 }
 
@@ -948,6 +949,32 @@ function subjectCases() {
             existingDoc: topicDoc(),
             newDoc: topicDoc({ status: "archived", updatedAt: "2026-01-02T00:00:00Z" }),
             functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Темы: преподаватель меняет порядок темы (order)",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/topics/t1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: topicDoc(),
+            newDoc: topicDoc({ order: 3, updatedAt: "2026-01-02T00:00:00Z" }),
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Темы: студент не меняет порядок темы",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/topics/t1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: topicDoc(),
+            newDoc: topicDoc({ order: 5 }),
+            functionMocks: profileMocks("student1", "student")
         },
         {
             name: "Темы: нельзя сменить предмет темы",
@@ -1838,6 +1865,256 @@ function testCases() {
             ]
         },
         {
+            name: "Попытки: отправка с подменным временем отправки — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/attempts/a-ok`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: attemptDoc({ assignmentId: "", status: "in_progress" }),
+            // Правило требует submittedAt/finishedAt == request.time; в тестах
+            // Rules API request.time не задаётся, фиксированное значение его
+            // не совпадает — защита от fabricated-времени и повторных отправок.
+            newDoc: attemptDoc({
+                assignmentId: "",
+                status: "submitted", submittedAt: ISO, finishedAt: ISO,
+                answers: { "0": "A" }, updatedAt: ISO
+            })
+        },
+        {
+            name: "Попытки: студент сохраняет ответы незавершённой попытки",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/attempts/a-ok`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: attemptDoc({ assignmentId: "", status: "in_progress" }),
+            newDoc: attemptDoc({
+                assignmentId: "", status: "in_progress",
+                answers: { "0": "A" }, updatedAt: ISO
+            })
+        },
+        {
+            name: "Попытки: повторная отправка после submitted — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/attempts/a-ok`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: attemptDoc({ assignmentId: "", status: "submitted", submittedAt: ISO, finishedAt: ISO }),
+            newDoc: attemptDoc({
+                assignmentId: "", status: "submitted",
+                submittedAt: ISO, finishedAt: ISO,
+                answers: { "0": "B" }, updatedAt: ISO
+            })
+        },
+        {
+            name: "Попытки: студент не пишет оценку при создании",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/attempts/a-score`,
+                method: "create",
+                resource: {
+                    data: {
+                        ...attemptDoc({ assignmentId: "" }),
+                        score: 10, total: 10, percent: 100
+                    }
+                }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: { data: { status: "published", orgId: ORG } } }
+                }
+            ]
+        },
+        {
+            name: "Попытки: снимок предмета и темы сохраняется в попытке",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/attempts/a-snap`,
+                method: "create",
+                resource: {
+                    data: {
+                        ...attemptDoc({ assignmentId: "" }),
+                        subjectId: "s1",
+                        topicId: "t-topic"
+                    }
+                }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: { data: { status: "published", orgId: ORG } } }
+                }
+            ]
+        },
+        {
+            name: "Попытки: преподаватель оценивает отправленную попытку",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/attempts/a-ok`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: attemptDoc({ assignmentId: "", status: "submitted", submittedAt: ISO, finishedAt: ISO }),
+            newDoc: attemptDoc({
+                assignmentId: "", status: "graded",
+                score: 4, total: 5, percent: 80,
+                review: { "0": true },
+                submittedAt: ISO, finishedAt: ISO, gradedAt: ISO, gradedBy: "teacher1",
+                updatedAt: ISO
+            }),
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Попытки: оценка больше суммы баллов — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/attempts/a-ok`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: attemptDoc({ assignmentId: "", status: "submitted", submittedAt: ISO, finishedAt: ISO }),
+            newDoc: attemptDoc({
+                assignmentId: "", status: "graded",
+                score: 9, total: 5, percent: 180,
+                submittedAt: ISO, finishedAt: ISO, gradedAt: ISO, gradedBy: "teacher1",
+                updatedAt: ISO
+            }),
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Попытки: студент не может оценивать попытку",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/attempts/a-ok`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: attemptDoc({ assignmentId: "", status: "submitted", submittedAt: ISO, finishedAt: ISO }),
+            newDoc: attemptDoc({
+                assignmentId: "", status: "graded",
+                score: 5, total: 5, percent: 100,
+                submittedAt: ISO, finishedAt: ISO, gradedAt: ISO, gradedBy: "student1",
+                updatedAt: ISO
+            }),
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Материалы: training с привязанным materialId — гейт по materialId (не прочитан)",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/attempts/att-t1`,
+                method: "create",
+                resource: {
+                    data: attemptDoc()
+                }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/assignments/a1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/assignments/a1` }],
+                    result: {
+                        value: {
+                            data: { status: "active", groupId: "default-group", orgId: ORG, kind: "training", deadline: null }
+                        }
+                    }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: { data: { status: "published", orgId: ORG, materialId: "m-lib" } } }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/materialProgress/student1_m-lib` }],
+                    result: { value: { data: { completed: false } } }
+                }
+            ]
+        },
+        {
+            name: "Материалы: training с привязанным materialId — прочитан привязанный материал",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/attempts/att-t1`,
+                method: "create",
+                resource: {
+                    data: attemptDoc()
+                }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/assignments/a1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/assignments/a1` }],
+                    result: {
+                        value: {
+                            data: { status: "active", groupId: "default-group", orgId: ORG, kind: "training", deadline: null }
+                        }
+                    }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: true }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: { data: { status: "published", orgId: ORG, materialId: "m-lib" } } }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/materialProgress/student1_m-lib` }],
+                    result: { value: { data: { completed: true } } }
+                }
+            ]
+        },
+        {
             name: "Гость создаёт маркер активной попытки",
             expectation: "ALLOW",
             request: {
@@ -2041,6 +2318,131 @@ function testCases() {
                 ...profileMocks("student1", "student"),
                 ...roomMocks("3"),
                 ...playerMock("student1", false)
+            ]
+        },
+        {
+            name: "Комнаты: второй независимый участник отвечает на тот же вопрос",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student2" },
+                path: `${DB}/rooms/r1/players/student2/answers/3`,
+                method: "create",
+                resource: {
+                    data: { answer: "C", at: "2026-01-01T00:00:01Z" }
+                },
+                time: "2026-01-01T00:00:01Z"
+            },
+            functionMocks: [
+                ...profileMocks("student2", "student"),
+                ...roomMocks("3"),
+                ...playerMock("student2", false)
+            ]
+        },
+        {
+            name: "Комнаты: участник не читает ответы другого участника",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/players/student2/answers/3`,
+                method: "get"
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...roomMocks("3"),
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/rooms/r1/players/student1` }],
+                    result: { value: true }
+                }
+            ]
+        },
+        {
+            name: "Комнаты: ведущий читает ответы участника",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/rooms/r1/players/student1/answers/3`,
+                method: "get"
+            },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                ...roomMocks("3")
+            ]
+        },
+        {
+            name: "Комнаты: наблюдатель читает таблицу очков",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student2" },
+                path: `${DB}/rooms/r1/scores/student1`,
+                method: "get"
+            },
+            functionMocks: [
+                ...profileMocks("student2", "student"),
+                ...roomMocks("3"),
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/rooms/r1/players/student2` }],
+                    result: { value: true }
+                }
+            ]
+        },
+        {
+            name: "Комнаты: reveal нельзя переписать даже ведущему",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/rooms/r1/reveals/3`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: { qid: "3", reveal: { correct: [0] }, points: 1 },
+            newDoc: { qid: "3", reveal: { correct: [1] }, points: 5 },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                ...roomMocks("3")
+            ]
+        },
+        {
+            name: "Комнаты: гость входит наблюдателем (свой players-документ)",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "guest1", token: { firebase: { sign_in_provider: "anonymous" } } },
+                path: `${DB}/rooms/r1/players/guest1`,
+                method: "create",
+                resource: {
+                    data: {
+                        uid: "guest1", playerId: "guest1",
+                        name: "Гость Петров", avatar: "preset:fox",
+                        observer: true, role: "observer", joinedAt: ISO
+                    }
+                }
+            },
+            functionMocks: [
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/users/guest1` }],
+                    result: { value: false }
+                },
+                ...roomMocks("", "idle")
+            ]
+        },
+        {
+            name: "Комнаты: гость-наблюдатель не пишет observers-документ (нужен профиль)",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "guest1", token: { firebase: { sign_in_provider: "anonymous" } } },
+                path: `${DB}/rooms/r1/observers/guest1`,
+                method: "create",
+                resource: { data: { uid: "guest1", updatedAt: ISO } }
+            },
+            functionMocks: [
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/users/guest1` }],
+                    result: { value: false }
+                },
+                ...roomMocks("", "idle")
             ]
         },
         {
@@ -2713,6 +3115,25 @@ function testCases() {
                         lastPage: 2, completed: true, updatedAt: ISO
                     }
                 }
+            },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Материалы: студент продолжает чтение — обновляет свой прогресс",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/materialProgress/student1_t1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: {
+                uid: "student1", testId: "t1",
+                lastPage: 0, completed: false, updatedAt: ISO
+            },
+            newDoc: {
+                uid: "student1", testId: "t1",
+                lastPage: 3, completed: false, updatedAt: "2026-01-02T00:00:00Z"
             },
             functionMocks: profileMocks("student1", "student")
         },

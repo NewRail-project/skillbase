@@ -13,10 +13,12 @@ import {
   subjectWriteAccessError,
   subjectReadAccessError,
   TITLE_MAX,
-  DESCRIPTION_MAX
+  DESCRIPTION_MAX,
+  createReferenceCache
 } from "../core/subjects-logic.js";
 
 // ---------- Предметы: создание ----------
+
 
 test("предмет: корректное создание проходит и нормализуется", () => {
   const check = validateSubjectData(
@@ -283,4 +285,35 @@ test("доступ на чтение: студентам можно, гостя�
     subjectReadAccessError({ uid: "u1" }, { orgId: "default-org", role: "student" }),
     null
   );
+});
+
+// ---------- Кэш справочников ----------
+
+test("createReferenceCache: отдаёт значение до TTL и протухает после", () => {
+  const cache = createReferenceCache(1000);
+  const value = [{ id: "s1", title: "Математика" }];
+  cache.set("subjects:org1", value);
+  assert.equal(cache.get("subjects:org1"), value);
+
+  // TTL=0: любое значение считается протухшим сразу.
+  const instant = createReferenceCache(0);
+  instant.set("k", "v");
+  assert.equal(instant.get("k"), undefined);
+});
+
+test("createReferenceCache: разные ключи изолированы, отсутствующий — undefined", () => {
+  const cache = createReferenceCache();
+  cache.set("topics:org1:s1", [1, 2]);
+  assert.deepEqual(cache.get("topics:org1:s1"), [1, 2]);
+  assert.equal(cache.get("topics:org1:s2"), undefined);
+  assert.equal(cache.get("subjects:org1"), undefined);
+});
+
+test("createReferenceCache: clear() сбрасывает весь кэш", () => {
+  const cache = createReferenceCache();
+  cache.set("a", 1);
+  cache.set("b", 2);
+  cache.clear();
+  assert.equal(cache.get("a"), undefined);
+  assert.equal(cache.get("b"), undefined);
 });

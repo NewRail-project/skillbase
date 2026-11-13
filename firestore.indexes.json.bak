@@ -1,0 +1,21 @@
+{
+  "indexes": [[json-table:v1 columns=["collectionGroup","queryScope","fields"] rows=20]],
+["tests","COLLECTION",[{"fieldPath":"orgId","order":"ASCENDING"},{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"updatedAt","order":"DESCENDING"}]]
+["subjects","COLLECTION",[{"fieldPath":"orgId","order":"ASCENDING"},{"fieldPath":"order","order":"ASCENDING"}]]
+["topics","COLLECTION",[{"fieldPath":"subjectId","order":"ASCENDING"},{"fieldPath":"orgId","order":"ASCENDING"},{"fieldPath":"order","order":"ASCENDIG"}]]
+["attempts","COLLECTION",[{"fieldPath":"orgId","order":"ASCENDING"},{"fieldPath":"submittedAt","order":"DESCENDING"}]]
+["attempts","COLLECTION",[{"fieldPath":"userId","order":"ASCENDING"},{"fieldPath":"submittedAt","order":"DESCENDING"}]]
+["attempts","COLLECTION",[{"fieldPath":"testId","order":"ASCENDING"},{"fieldPath":"finishedAt","order":"DESCENDING"}]]
+["attempts","COLLECTION",[{"fieldPath":"userId","order":"ASCENDING"},{"fieldPath":"testId","order":"ASCENDING"}]]
+["assignments","COLLECTION",[{"fieldPath":"groupId","order":"ASCENDING"},{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"orgId","order":"ASCENDING"}]]
+["tests","COLLECTION",[{"fieldPath":"orgId","order":"ASCENDING"},{"fieldPath":"authorId","order":"ASCENDING"},{"fieldPath":"updatedAt","order":"DESCENDING"}]]
+["tests","COLLECTION",[{"fieldPath":"orgId","order":"ASCENDING"},{"fieldPath":"updatedAt","order":"DESCENDING"}]]
+["tests","COLLECTION",[{"fieldPath":"orgId","order":"ASCENDING"},{"fieldPath":"authorId","order":"ASCENDING"},{"fieldPath":"status","order":"ASCENDING"}]]
+["tests","COLLECTION",[{"fieldPath":"orgId","order":"ASCENDING"},{"fieldPath":"status","order":"ASCENDING"}]]
+["tests","COLLECTION",[{"fieldPath":"orgId","order":"ASCENDING"},{"fieldPath":"authorId","order":"ASCENDING"},{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"updatedAt","order":"DESCENDING"}]]
+["attempts","COLLECTION",[{"fieldPath":"orgId","order":"ASCENDING"},{"fieldPath":"subjectId","order":"ASCENDING"},{"fieldPath":"submittedAt","order":"DESCENDING"}]]
+["attempts","COLLECTION",[{"fieldPath":"orgId","order":"ASCENDING"},{"fieldPath":"topicId","order":"ASCENDING"},{"fieldPath":"submittedAt","order":"DESCENDING"}]]
+
+[[/json-table]],
+  "fieldOverrides": []
+}

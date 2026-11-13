@@ -312,18 +312,20 @@ export default async function MaterialPage() {
     }
 
     // Прогресс: последняя страница и флаг completed — materialProgress.
-    // Студентам — в Firestore (правила materialProgress), прочим —
+    // Студентам — в Firestore при каждом перелистывании (правила
+    // materialProgress разрешают свой прогресс): и в обязательном режиме,
+    // и в добровольном (#material/<id>/free) — вернувшись, студент
+    // продолжает с места остановки, а не с первой страницы. Персоналу —
     // локально, чтобы «запоминание последней страницы» работало у всех.
+    // Предпросмотр ничего не пишет.
     const state = materialProgress(material.pages, index);
-    if ((!freeMode && !previewMode) || state.completed) {
-      if (!previewMode) {
-        if (isStudent) {
-          saveMaterialProgress(State.user.uid, testId, state).catch(err => {
-            console.error("Не удалось сохранить прогресс:", err);
-          });
-        } else {
-          storageSet(lastPageKey, String(state.lastPage));
-        }
+    if (!previewMode) {
+      if (isStudent) {
+        saveMaterialProgress(State.user.uid, testId, state).catch(err => {
+          console.error("Не удалось сохранить прогресс:", err);
+        });
+      } else {
+        storageSet(lastPageKey, String(state.lastPage));
       }
     }
   }

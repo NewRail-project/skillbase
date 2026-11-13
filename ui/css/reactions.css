@@ -6,6 +6,8 @@
   font-size: 1.5rem;
   transition: transform 0.1s ease;
   padding: var(--space-1);
+  min-width: var(--tap); min-height: var(--tap);
+  display: inline-flex; align-items: center; justify-content: center;
 }
 
 .reaction-btn:hover {

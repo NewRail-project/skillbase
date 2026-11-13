@@ -579,8 +579,8 @@ function renderStaffHome(page, profile) {
           class: "btn-icon danger-text",
           title: t("tests.deleteTitle"),
           onclick: onDelete,
-          style: "margin-left:var(--space-2);padding:0;min-height:0;border:0;background:transparent"
-        }, h("span", { style: "font-size:1.2em" }, "×"));
+          style: "margin-left:var(--space-2);padding:0;min-width:var(--tap);min-height:var(--tap);display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent"
+        }, h("span", { style: "font-size:1.5em" }, "×"));
 
         return row({
           dot: test.status === "published" ? "ok" : "muted",

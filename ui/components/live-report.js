@@ -2,7 +2,7 @@
 // журнал оценок (ФИО по алфавиту) и подробный отчёт.
 // Компоненты чистые: получают готовые данные и возвращают DOM-узлы.
 import { h } from "../../shared/dom.js";
-import { GRADE_STATUS } from "../../core/pair-grade.js";
+import { GRADE_STATUS, journalAverage } from "../../core/pair-grade.js";
 
 const LEVEL_LABEL = {
   strong: "Хорошо усвоил",
@@ -66,6 +66,9 @@ function stat(value, label) {
 // Журнал: ФИО по алфавиту + оценка за пару. Формулу показываем в подсказке.
 export function journalPanel(journal, { grades = [] } = {}) {
   const byUid = new Map(grades.map(g => [g.uid, g]));
+  // Средний балл по журналу: только выставленные оценки; «Не участвовал»
+  // в среднее не входит.
+  const average = journalAverage(grades);
   const body = journal.length
     ? h("table", { class: "live-table journal-table" },
       h("thead", {}, h("tr", {}, h("th", {}, "ФИО"), h("th", { class: "num" }, "Оценка за пару"))),
@@ -77,7 +80,12 @@ export function journalPanel(journal, { grades = [] } = {}) {
         return h("tr", { "data-uid": row.uid || "", title: why },
           h("td", {}, row.name),
           h("td", { class: `num${row.status === GRADE_STATUS.ABSENT ? " muted" : ""}` }, row.label));
-      })))
+      }),
+      average != null
+        ? h("tr", { class: "journal-average-row" },
+            h("td", {}, "Средний балл по журналу"),
+            h("td", { class: "num" }, String(average)))
+        : null))
     : h("p", { class: "muted" }, "Пока нет участников.");
   return h("section", { class: "panel live-journal", "aria-label": "Оценки для журнала" },
     h("div", { class: "panel-head" }, h("h2", {}, "Оценки для журнала")),

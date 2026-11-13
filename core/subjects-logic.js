@@ -19,6 +19,32 @@ export const SUBJECT_STATUSES = [STATUS_ACTIVE, STATUS_ARCHIVED];
 export const TITLE_MAX = 120;
 export const DESCRIPTION_MAX = 600;
 
+// Кэш справочников (subjects/topics) на время сессии: на мобильном интернете
+// каждая перерисовка страницы перечитывала маленькие коллекции заново.
+// TTL защищает от устаревания: через ttlMs значение считается протухшим.
+// Запись (create/update/move) сбрасывает весь кэш. Чистая функция —
+// тестируется в Node.
+export function createReferenceCache(ttlMs = 60000) {
+  const entries = new Map(); // key -> { value, at }
+  return {
+    get(key) {
+      const entry = entries.get(key);
+      if (!entry) return undefined;
+      if (Date.now() - entry.at >= ttlMs) {
+        entries.delete(key);
+        return undefined;
+      }
+      return entry.value;
+    },
+    set(key, value) {
+      entries.set(key, { value, at: Date.now() });
+    },
+    clear() {
+      entries.clear();
+    }
+  };
+}
+
 // Разрешённые к передаче поля. Системные поля (orgId, createdBy, createdAt,
 // а у темы и subjectId) выставляет API, поэтому в данных от вызывающего
 // они запрещены и при создании, и при изменении.

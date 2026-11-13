@@ -1,6 +1,31 @@
 // Никакого DOM — проверяется юнит-тестами в Node.
 // Firebase импорты убраны для совместимости с тестами.
 
+// Время попытки для сортировки по хронологии (Timestamp | ms | ISO).
+function attemptTimeMs(value) {
+  if (value == null) return 0;
+  if (typeof value === "number") return value;
+  if (typeof value.toMillis === "function") return value.toMillis();
+  if (typeof value.seconds === "number") return value.seconds * 1000;
+  const t = new Date(value).getTime();
+  return Number.isNaN(t) ? 0 : t;
+}
+
+// Динамика результатов: хронологический ряд процентов завершённых попыток
+// и сдвиг последнего результата относительно предыдущего. Незавершённые
+// попытки и попытки без процента в динамику не попадают.
+export function resultDynamics(attempts) {
+  const completed = (attempts || [])
+    .filter(a => a.status === "graded" && typeof a.percent === "number")
+    .sort((a, b) => attemptTimeMs(a.finishedAt) - attemptTimeMs(b.finishedAt));
+  const series = completed.map(a => a.percent);
+  if (!series.length) return { series, delta: null, direction: "none" };
+  if (series.length === 1) return { series, delta: null, direction: "single" };
+  const delta = series[series.length - 1] - series[series.length - 2];
+  const direction = delta > 0 ? "up" : delta < 0 ? "down" : "flat";
+  return { series, delta, direction };
+}
+
 export function computeStudentProgress(attempts, subjects = [], topics = [], materialProgressMap = new Map()) {
   const completedAttempts = (attempts || []).filter(a => a.status === "graded" && typeof a.percent === "number");
 
@@ -44,22 +69,29 @@ export function computeStudentProgress(attempts, subjects = [], topics = [], mat
     };
   });
 
-  // 3. Слабые темы (тестирование со средним баллом < 60)
+  // 3. Прогресс по темам и слабые темы (средний балл < 60 — требует повторения)
+  // Название темы берём из справочника тем; старые попытки без topicId
+  // в темах не участвуют, но остаются в общей статистике тестов.
+  const topicTitle = new Map(topics.map(t => [t.id, t.title || t.id]));
   const topicStats = new Map();
   completedAttempts.forEach(a => {
     const tId = a.topicId;
     if (!tId) return;
-    if (!topicStats.has(tId)) topicStats.set(tId, { scores: [], title: a.testTitle || tId });
+    if (!topicStats.has(tId)) topicStats.set(tId, { scores: [], title: topicTitle.get(tId) || a.testTitle || tId });
     topicStats.get(tId).scores.push(a.percent);
   });
 
+  const topicsProgress = [];
   const weakTopics = [];
   topicStats.forEach((data, topicId) => {
     const avg = Math.round(data.scores.reduce((a, b) => a + b, 0) / data.scores.length);
-    if (avg < 60) {
-      weakTopics.push({ topicId, title: data.title, averageScore: avg });
-    }
+    const row = { topicId, title: data.title, averageScore: avg, attemptsCount: data.scores.length };
+    topicsProgress.push(row);
+    if (avg < 60) weakTopics.push({ topicId, title: data.title, averageScore: avg });
   });
+  topicsProgress.sort((a, b) =>
+    a.averageScore - b.averageScore || String(a.title).localeCompare(String(b.title), "ru", { sensitivity: "base" }));
+  weakTopics.sort((a, b) => a.averageScore - b.averageScore || String(a.title).localeCompare(String(b.title), "ru", { sensitivity: "base" }));
 
   // 4. Достижения (Achievements)
   const achievements = [];
@@ -107,13 +139,18 @@ export function computeStudentProgress(attempts, subjects = [], topics = [], mat
     }
   }
 
+  // Динамика результатов — по всем завершённым попыткам по хронологии.
+  const dynamics = resultDynamics(attempts);
+
   return {
     totalAttempts,
     gradedAttempts,
     bestScore,
     averageScore,
     subjectsProgress,
+    topicsProgress,
     weakTopics,
+    dynamics,
     studiedMaterialsCount,
     achievements
   };

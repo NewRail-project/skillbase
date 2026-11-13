@@ -1,6 +1,6 @@
 import {
   db, collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc, query, where,
-  serverTimestamp, Timestamp, writeBatch, orderBy, limit, getCountFromServer
+  serverTimestamp, Timestamp, writeBatch, orderBy, limit, getCountFromServer, onSnapshot
 } from "../shared/firebase.js";
 import { isCorrect, normalizeKeys, sanitizeAnswers, scoreAttempt } from "./scoring.js";
 import { State } from "./auth.js";
@@ -202,10 +202,13 @@ export async function listMyAttemptsForTest(uid, testId) {
   return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byTimeDesc);
 }
 
-export async function listOrgAttempts(orgId, { groupIdFilter = null, subjectId = null, topicId = null, limit: maxLimit = null } = {}) {
+export async function listOrgAttempts(orgId, { groupIdFilter = null, subjectId = null, topicId = null, testId = null, limit: maxLimit = null } = {}) {
   const constraints = [where("orgId", "==", orgId)];
   if (subjectId) constraints.push(where("subjectId", "==", subjectId));
   if (topicId) constraints.push(where("topicId", "==", topicId));
+  // Фильтр по тесту — равенство по одному полю, составной индекс не нужен.
+  // Экономит чтение: истории теста не нужны попытки остальных тестов org-а.
+  if (testId) constraints.push(where("testId", "==", testId));
 
   if (!maxLimit) {
     const snap = await getDocs(query(collection(db, "attempts"), ...constraints));
@@ -269,6 +272,30 @@ export async function listOrgAttempts(orgId, { groupIdFilter = null, subjectId =
 
     return attempts;
   }
+}
+
+// Живая подписка на попытки организации — зеркало listOrgAttempts
+// (тот же запрос без orderBy: составной индекс не требуется). Нужна
+// рейтингу и журналам: новые результаты появляются без перезагрузки
+// страницы. Возвращает функцию отписки.
+export function subscribeOrgAttempts(orgId, {
+  onAttempts, onError, groupIdFilter = null, subjectId = null, topicId = null
+} = {}) {
+  const constraints = [where("orgId", "==", orgId)];
+  if (subjectId) constraints.push(where("subjectId", "==", subjectId));
+  if (topicId) constraints.push(where("topicId", "==", topicId));
+  return onSnapshot(
+    query(collection(db, "attempts"), ...constraints),
+    snap => {
+      let attempts = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(byTimeDesc);
+      if (groupIdFilter) {
+        const ids = Array.isArray(groupIdFilter) ? groupIdFilter : [groupIdFilter];
+        attempts = attempts.filter(a => ids.includes(a.groupId));
+      }
+      if (onAttempts) onAttempts(attempts);
+    },
+    error => { console.error("Подписка на попытки:", error); if (onError) onError(error); }
+  );
 }
 
 // Точное число попыток организации без чтения документов.

@@ -82,8 +82,11 @@ const routes = {
   "users":        { file: "ui/pages/users.js",             title: "Пользователи",         tkey: "title.users",       auth: true, roles: STAFF },
   "admins":       { file: "ui/pages/admins.js",            title: "Администраторы",       auth: true, roles: ADMIN },
   "settings":     { file: "ui/pages/settings.js",          title: "Настройки",            auth: true },
-  "admin":        { file: "ui/pages/admin-panel.js",       title: "Админ-панель",         auth: true, roles: STAFF },
+  "admin":        { file: "ui/pages/admin-panel.js",       title: "Админ-панель",         auth: true, roles: ADMIN },
   "subjects":     { file: "ui/pages/subjects.js",          title: "Предметы и темы",      tkey: "title.subjects",    auth: true },
+  // Отдельная страница темы: материалы и тесты темы. #subjects/<id>
+  // обслуживается той же страницей subjects.js по State.routeParam.
+  "topic":        { file: "ui/pages/topic.js",             title: "Тема",                 tkey: "title.topic",       auth: true },
   // Библиотека материалов: единый каталог книг и PDF (этап 3).
   "materials":    { file: "ui/pages/materials.js",         title: "Материалы",            tkey: "title.materials",   auth: true },
   // Рейтинг: агрегат попыток организации (staff). Страница существовала,

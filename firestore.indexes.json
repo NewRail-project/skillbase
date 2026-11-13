@@ -245,6 +245,20 @@
           "DESCENDING"
         ]
       ]
+    ],
+    [
+      "materials",
+      "COLLECTION",
+      [
+        [
+          "orgId",
+          "ASCENDING"
+        ],
+        [
+          "updatedAt",
+          "DESCENDING"
+        ]
+      ]
     ]
   ]
 }

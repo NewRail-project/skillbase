@@ -98,6 +98,18 @@ export function journalRows(grades) {
     }));
 }
 
+// Средний балл по журналу: только выставленные оценки (независимо от
+// статуса graded/zero), «Не участвовал» в среднее не входит. Оценка —
+// та же формула знаний (pairGradeValue), скорость и место не влияют.
+// Пустой журнал → null (показывать среднее нечего).
+export function journalAverage(grades) {
+  const values = (grades || [])
+    .map(row => row.grade)
+    .filter(v => typeof v === "number");
+  if (!values.length) return null;
+  return Math.round(values.reduce((sum, v) => sum + v, 0) / values.length);
+}
+
 // Ручная правка оценки: хранится отдельной записью, с причиной и автором.
 // Возвращает запись для записи в журнал изменений либо ошибку.
 export function buildGradeOverride({ uid, from, to, reason, authorUid, at = Date.now() } = {}) {

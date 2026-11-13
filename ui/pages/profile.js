@@ -250,7 +250,7 @@ function themeControl() {
   return group;
 }
 
-function attemptsBlock(profile) {
+function attemptsBlock(profile, attemptsPromise) {
   const wrap = h("div", { class: "panel" },
     h("div", { class: "section-title" },
       h("h2", {}, lt("prof.history")),
@@ -265,7 +265,7 @@ function attemptsBlock(profile) {
   (async () => {
     let attempts = [];
     try {
-      attempts = await listMyAttempts(profile.uid);
+      attempts = await attemptsPromise;
     } catch (e) {
       console.error("Не удалось загрузить попытки:", e);
       body.replaceChildren(h("p", { class: "muted" },
@@ -308,7 +308,7 @@ function attemptsBlock(profile) {
   return wrap;
 }
 
-function learningProgressBlock(profile) {
+function learningProgressBlock(profile, attemptsPromise) {
   const block = h("div", { class: "panel" },
     h("div", { class: "section-title" }, h("h2", {}, "Прогресс обучения")),
     h("div", { id: "learning-progress-body" }, h("div", { class: "skeleton-line", style: "height:64px" }))
@@ -318,13 +318,33 @@ function learningProgressBlock(profile) {
   (async () => {
     try {
       const [attempts, subjects, topics] = await Promise.all([
-        listMyAttempts(profile.uid),
+        attemptsPromise,
         getSubjects(),
         getTopics()
       ]);
       const res = computeStudentProgress(attempts, subjects, topics, new Map());
 
       body.replaceChildren();
+
+      // Сводка: завершённые тесты, лучший результат, динамика последних
+      // результатов (хронология всех завершённых попыток).
+      const d = res.dynamics;
+      const dynamicsLabel = d.direction === "up" ? `рост +${d.delta}%`
+        : d.direction === "down" ? `снижение ${d.delta}%`
+        : d.direction === "flat" ? "без изменений"
+        : d.direction === "single" ? "один результат"
+        : "";
+      const tail = d.series.slice(-5).join(" → ");
+      body.appendChild(h("div", { class: "quick-actions", style: "margin-bottom:16px" },
+        h("div", { class: "quick-action" },
+          h("b", {}, String(res.gradedAttempts)), h("span", {}, "завершено тестов")),
+        h("div", { class: "quick-action" },
+          h("b", {}, `${res.bestScore}%`), h("span", {}, "лучший результат")),
+        d.direction !== "none"
+          ? h("div", { class: "quick-action" },
+              h("b", {}, dynamicsLabel), h("span", {}, tail ? `последние: ${tail}` : "динамика"))
+          : null
+      ));
 
       // Достижения
       if (res.achievements.length) {
@@ -364,17 +384,20 @@ function learningProgressBlock(profile) {
         body.appendChild(subWrap);
       }
 
-      // Слабые темы
-      if (res.weakTopics.length) {
+      // Прогресс по темам: все темы с попытками, слабые (<60%) — с меткой
+      // «требует повторения». Прогресс по предметам — выше.
+      if (res.topicsProgress.length) {
         const weakWrap = h("div", {},
-          h("h3", { style: "margin:0 0 8px;font-size:1rem;color:var(--danger)" }, "Темы, требующие повторения"),
+          h("h3", { style: "margin:0 0 8px;font-size:1rem" }, "Прогресс по темам"),
           h("div", { class: "list" },
-            ...res.weakTopics.map(w => h("div", { class: "list-row" },
+            ...res.topicsProgress.map(w => h("div", { class: "list-row" },
               h("div", { class: "list-row-main" },
-                h("div", { class: "list-row-title" }, w.title)
+                h("div", { class: "list-row-title" }, w.title),
+                h("div", { class: "list-row-sub" }, `Попыток: ${w.attemptsCount}`)
               ),
               h("div", { class: "list-row-end" },
-                h("span", { class: "badge badge-danger" }, `${w.averageScore}%`)
+                h("span", { class: `badge ${w.averageScore >= 60 ? "badge-success" : "badge-danger"}` },
+                  `${w.averageScore}%${w.averageScore < 60 ? " · повторить" : ""}`)
               )
             ))
           )
@@ -392,7 +415,7 @@ function learningProgressBlock(profile) {
   return block;
 }
 
-function statsBlock(profile) {
+function statsBlock(profile, attemptsPromise) {
   const grid = h("div", { class: "stat-grid" });
   const block = h("div", { class: "panel" },
     h("div", { class: "section-title" }, h("h2", {}, lt("prof.stats"))),
@@ -402,7 +425,7 @@ function statsBlock(profile) {
   (async () => {
     let attempts = [];
     try {
-      attempts = await listMyAttempts(profile.uid);
+      attempts = await attemptsPromise;
     } catch (e) {
       console.error("Статистика недоступна:", e);
       grid.replaceChildren(h("p", { class: "muted" }, "Данные статистики недоступны."));
@@ -535,6 +558,9 @@ function avatarDialog(profile) {
 }
 
 function renderReady(profile, avatarUrl) {
+  // Один запрос попыток на всю страницу: три блока (статистика, прогресс,
+  // история) раньше делали по отдельному запросу каждый.
+  const attemptsPromise = listMyAttempts(profile.uid);
   const name = displayName(profile, { viewerIsStaff: true, uid: profile.uid });
 
   const header = h("section", { class: "profile-hero" },
@@ -593,12 +619,12 @@ function renderReady(profile, avatarUrl) {
   return h("div", { class: "page" },
     header,
     needsFullName(profile) ? missingNameBlock(profile) : null,
-    statsBlock(profile),
-    learningProgressBlock(profile),
+    statsBlock(profile, attemptsPromise),
+    learningProgressBlock(profile, attemptsPromise),
     h("div", { class: "split" },
       editForm(profile),
       h("div", { class: "stack" },
-        attemptsBlock(profile),
+        attemptsBlock(profile, attemptsPromise),
         appearance
       )
     )

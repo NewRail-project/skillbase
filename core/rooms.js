@@ -59,10 +59,10 @@ export async function createRoom({ test, profile, allowObservers = false, mode =
   const liveMode = mode === LIVE_MODE_MANUAL ? LIVE_MODE_MANUAL : LIVE_MODE_AUTO;
   const auto = liveMode === LIVE_MODE_AUTO ? buildAutoSettings({ test, options }) : null;
 
-  // Защита от двойного создания при быстром нажатии
-  let creating = false;
-  if (creating) return;
-  creating = true;
+  // Защита от двойного создания при быстром нажатии живёт на странице
+  // запуска (ui/pages/launch.js: флаг creatingRoom + блокировка кнопки).
+  // Раньше здесь была мёртвая проверка локальной переменной — она ничего
+  // не защищала и вводила в заблуждение.
 
   for (let attempt = 0; attempt < 5; attempt++) {
     const code = generateRoomCode();
@@ -79,6 +79,10 @@ export async function createRoom({ test, profile, allowObservers = false, mode =
         // Регистрация открыта, пока ведущий её не закроет; закрытая
         // регистрация запрещает новые players/{uid} (правила).
         registrationOpen: true,
+        // Разрешение сотрудникам входить участником (правила читают это
+        // поле: staff без флага входит только наблюдателем). Раньше
+        // параметр принимался и молча терялся.
+        allowObservers: allowObservers === true,
         // Единое состояние: waiting → in_progress → completed.
         liveState: "waiting",
         // Ёмкость комнаты (MVP по умолчанию 100) + счётчик участников,

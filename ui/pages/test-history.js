@@ -31,7 +31,7 @@ export default async function TestHistoryPage() {
     test = review?.test || null;
     if (!test) throw new Error("Тест не найден.");
     keysCache.set(null, review.keys);
-    attempts = (await listOrgAttempts(State.profile.orgId)).filter(a => a.testId === testId);
+    attempts = (await listOrgAttempts(State.profile.orgId, { testId })).filter(a => a.testId === testId);
   } catch (err) {
     console.error("История теста:", err);
     body.replaceChildren(h("p", { class: "form-error" }, err?.message || "Не удалось загрузить историю теста."));

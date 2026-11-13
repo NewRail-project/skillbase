@@ -11,6 +11,7 @@ import {
   listMyAttemptsForTest
 } from "../../core/attempts.js";
 import { getAssignment, getStudentAssignments } from "../../core/assign.js";
+import { materialForTest } from "../../core/test-binding.js";
 import { effectiveSettings } from "../../core/settings.js";
 import { materialCompleted, hasMaterial } from "../../core/materials.js";
 import { isDeadlinePassed, attemptDeadlineMs as calcAttemptDeadlineMs } from "../../core/timing.js";
@@ -296,10 +297,13 @@ export default async function QuizPage() {
   // прочтения материала-книги (materialProgress.completed == true).
   let needMaterialRead = false;
   // Тест из темы с обязательной теорией (test.requireMaterial) закрыт для
-  // ученика до прочтения книги так же, как обучающее задание.
+  // ученика до прочтения книги так же, как обучающее задание. Гейт смотрит
+  // на тот же материал, что и правила Firestore (attemptMaterialId):
+  // привязанный test.materialId, иначе книга самого теста.
+  const gateMaterialId = materialForTest(test);
   if (!staff && (assignment?.kind === "training" || test.requireMaterial === true)) {
     try {
-      needMaterialRead = !(await materialCompleted(State.user.uid, test.id));
+      needMaterialRead = !(await materialCompleted(State.user.uid, gateMaterialId));
     } catch (_) {
       needMaterialRead = true;
     }
@@ -310,7 +314,7 @@ export default async function QuizPage() {
   // книги; чтение идёт в готовой читалке (#material/<id>/free).
   let canReadMaterial = false;
   if (!needMaterialRead) {
-    canReadMaterial = await hasMaterial(test.id);
+    canReadMaterial = await hasMaterial(gateMaterialId);
   }
 
   if (!staff) {
@@ -980,7 +984,7 @@ export default async function QuizPage() {
         const button = h("button", {
           type: "button",
           class: "btn " + (index === current.index ? "primary" : "secondary"),
-          style: "min-width:38px;min-height:38px;padding:0 8px",
+          style: "min-width:var(--tap);min-height:var(--tap);padding:0 var(--space-2)",
           "aria-label": `Вопрос ${index + 1}`,
           "aria-current": index === current.index ? "step" : "false"
         }, String(index + 1));

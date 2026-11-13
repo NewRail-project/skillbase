@@ -9,9 +9,9 @@
 import { h } from "../../shared/dom.js";
 import { State, isStaff } from "../../core/auth.js";
 import {
-  getSubjects, getTopics,
+  getSubjects, getTopics, getSubject,
   createSubject, updateSubject,
-  createTopic, updateTopic
+  createTopic, updateTopic, moveTopic
 } from "../../core/subjects.js";
 import {
   TITLE_MAX, DESCRIPTION_MAX,
@@ -145,6 +145,10 @@ export default async function SubjectsPage() {
   const page = h("div", { class: "page" });
   const staff = isStaff();
 
+  // #subjects — все предметы; #subjects/<id> — один предмет со списком тем
+  // (страница предмета из сценария «предмет → темы»).
+  const routeSubjectId = (State.routeParam || "").split("/")[0];
+
   const state = {
     subjects: [],
     topics: new Map(),   // subjectId -> массив тем
@@ -152,7 +156,8 @@ export default async function SubjectsPage() {
     content: new Map(),  // topicId -> { loading, error, materials, tests }
     catalog: null,       // { materials, tests } — читается один раз для всех тем
     loading: true,
-    error: null
+    error: null,
+    notFound: false
   };
 
   const listBox = h("div", { id: "subjects-list" });
@@ -184,13 +189,27 @@ export default async function SubjectsPage() {
   async function load() {
     state.loading = true;
     state.error = null;
+    state.notFound = false;
     draw();
     try {
-      state.subjects = await getSubjects();
-      // Темы читаются по предметам; организации небольшие (старт — два
-      // предмета), поэтому последовательных запросов немного.
-      for (const subject of state.subjects) {
+      if (routeSubjectId) {
+        // Страница предмета: читаем один документ вместо всего списка.
+        const subject = await getSubject(routeSubjectId);
+        if (!subject || (!staff && subject.status === STATUS_ARCHIVED)) {
+          state.loading = false;
+          state.notFound = true;
+          draw();
+          return;
+        }
+        state.subjects = [subject];
         state.topics.set(subject.id, await getTopics(subject.id));
+      } else {
+        state.subjects = await getSubjects();
+        // Темы читаются по предметам; организации небольшие (старт — два
+        // предмета), поэтому последовательных запросов немного.
+        for (const subject of state.subjects) {
+          state.topics.set(subject.id, await getTopics(subject.id));
+        }
       }
       state.loading = false;
       draw();
@@ -213,6 +232,19 @@ export default async function SubjectsPage() {
       return;
     }
 
+    // Прямая ссылка #subjects/<id> на несуществующий или архивный предмет:
+    // студенту архивный не показываем (он «не существует»).
+    if (state.notFound) {
+      listBox.append(h("section", { class: "panel" },
+        h("div", { class: "empty-state" },
+          h("div", { class: "empty-state-icon", innerHTML: icons.book }),
+          h("h2", {}, "Предмет не найден"),
+          h("p", { class: "muted" }, "Предмет не существует или скрыт из списков."),
+          h("a", { class: "btn secondary", href: "#subjects" }, "К списку предметов")
+        )));
+      return;
+    }
+
     if (state.error) {
       listBox.append(h("section", { class: "panel" },
         h("div", { class: "empty-state" },
@@ -229,6 +261,17 @@ export default async function SubjectsPage() {
     const archived = staff
       ? state.subjects.filter(s => s.status === STATUS_ARCHIVED)
       : [];
+
+    // Режим страницы предмета: назад к списку + панель этого предмета.
+    if (routeSubjectId && active.length) {
+      listBox.append(
+        h("p", { class: "muted" },
+          h("a", { href: "#subjects" }, "← Все предметы")),
+        h("div", { class: "list" }, subjectPanel(active[0], { single: true }))
+      );
+      if (archived.length) drawArchive(archived);
+      return;
+    }
 
     if (!active.length && !archived.length) {
       listBox.append(h("section", { class: "panel" },
@@ -264,32 +307,34 @@ export default async function SubjectsPage() {
 
     // Архив показывается только сотрудникам: студенты активные данные и так
     // не видят, а сотруднику нужен способ найти и вернуть скрытое.
-    if (archived.length) {
-      listBox.append(h("section", { class: "panel" },
-        h("div", { class: "section-title" },
-          h("h2", {}, "Архив"),
-          h("span", { class: "muted" }, "Скрыто от студентов")
-        ),
-        h("div", { class: "list" },
-          ...archived.map(subject => h("div", { class: "list-row" },
-            h("div", { class: "list-row-main" },
-              h("div", { class: "list-row-title", style: "color:var(--text-2)" }, subject.title),
-              h("div", { class: "list-row-sub" }, subject.description || "Без описания")
-            ),
-            h("div", { class: "list-row-end" },
-              h("button", {
-                type: "button",
-                class: "btn secondary",
-                onclick: () => toggleArchive("subject", subject)
-              }, "Вернуть")
-            )
-          ))
-        )
-      ));
-    }
+    if (archived.length) drawArchive(archived);
   }
 
-  function subjectPanel(subject) {
+  function drawArchive(archived) {
+    listBox.append(h("section", { class: "panel" },
+      h("div", { class: "section-title" },
+        h("h2", {}, "Архив"),
+        h("span", { class: "muted" }, "Скрыто от студентов")
+      ),
+      h("div", { class: "list" },
+        ...archived.map(subject => h("div", { class: "list-row" },
+          h("div", { class: "list-row-main" },
+            h("div", { class: "list-row-title", style: "color:var(--text-2)" }, subject.title),
+            h("div", { class: "list-row-sub" }, subject.description || "Без описания")
+          ),
+          h("div", { class: "list-row-end" },
+            h("button", {
+              type: "button",
+              class: "btn secondary",
+              onclick: () => toggleArchive("subject", subject)
+            }, "Вернуть")
+          )
+        ))
+      )
+    ));
+  }
+
+  function subjectPanel(subject, { single = false } = {}) {
     const topics = (state.topics.get(subject.id) || []);
     const visibleTopics = staff ? topics : topics.filter(t => t.status !== STATUS_ARCHIVED);
 
@@ -311,15 +356,21 @@ export default async function SubjectsPage() {
       }, "В архив")
     ) : null;
 
+    // Заголовок предмета — ссылка на его страницу (страница списка ссылку
+    // не дублирует: там это текущий адрес).
+    const title = single
+      ? h("h2", {}, subject.title)
+      : h("h2", {}, h("a", { href: `#subjects/${encode(subject.id)}` }, subject.title));
+
     return h("section", { class: "panel" },
       h("div", { class: "section-title" },
-        h("h2", {}, subject.title),
+        title,
         h("span", { class: "muted" }, topicCountLabel(visibleTopics.length, staff))
       ),
       subject.description ? h("p", { class: "muted", style: "margin-top:0" }, subject.description) : null,
       visibleTopics.length
         ? h("div", { class: "list" },
-          ...visibleTopics.map(topic => topicRow(subject, topic)))
+          ...visibleTopics.map((topic, index) => topicRow(subject, topic, index)))
         : null,
       actions
     );
@@ -405,10 +456,23 @@ export default async function SubjectsPage() {
     return h("div", { class: "topic-content" }, theory, tests);
   }
 
-  function topicRow(subject, topic) {
+  function topicRow(subject, topic, index = 0) {
     const archived = topic.status === STATUS_ARCHIVED;
     const isOpen = state.open.has(topic.id);
     const end = h("div", { class: "list-row-end" },
+      // Порядок тем: только сотрудники, по одной позиции за нажатие.
+      staff ? h("button", {
+        type: "button",
+        class: "btn secondary",
+        "aria-label": `Переместить тему выше: ${topic.title}`,
+        onclick: () => reorderTopic(subject, topic, -1)
+      }, "↑") : null,
+      staff ? h("button", {
+        type: "button",
+        class: "btn secondary",
+        "aria-label": `Переместить тему ниже: ${topic.title}`,
+        onclick: () => reorderTopic(subject, topic, 1)
+      }, "↓") : null,
       h("button", {
         type: "button",
         class: "btn primary",
@@ -427,12 +491,19 @@ export default async function SubjectsPage() {
       }, archived ? "Вернуть" : "В архив") : null
     );
 
+    // Понятный порядок: номер в списке + кликабельный заголовок, ведущий
+    // на отдельную страницу темы (материалы и тесты темы).
+    const titleLink = h("a", {
+      class: "list-row-title",
+      href: `#topic/${encode(topic.id)}`
+    }, `${index + 1}. ${topic.title}`);
+
     return h("div", { class: "topic-item" },
       h("div", { class: "list-row" },
         h("div", { class: "list-row-main" },
           h("div", archived
-            ? { class: "list-row-title", style: "color:var(--text-2)" }
-            : { class: "list-row-title" }, topic.title),
+            ? { class: "list-row-title-wrap", style: "color:var(--text-2)" }
+            : { class: "list-row-title-wrap" }, titleLink),
           h("div", { class: "list-row-sub" },
             archived ? "В архиве — скрыта от студентов" : (topic.description || ""))
         ),
@@ -440,6 +511,19 @@ export default async function SubjectsPage() {
       ),
       isOpen ? topicContent(subject, topic) : null
     );
+  }
+
+  async function reorderTopic(subject, topic, delta) {
+    try {
+      await moveTopic(topic.id, delta);
+      // Перечитываем список предмета: порядок могли поменять местами с
+      // соседней темой (в том числе архивной).
+      state.topics.set(subject.id, await getTopics(subject.id));
+      draw();
+    } catch (err) {
+      console.error("Порядок тем:", err);
+      toast(err?.message || "Не удалось изменить порядок. Попробуйте ещё раз.", "error");
+    }
   }
 
   // ---------- Операции ----------

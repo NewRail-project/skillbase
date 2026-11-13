@@ -432,7 +432,7 @@ main#app {
   align-items: center;
   gap: var(--space-2);
 }
-.filter-bar input[type="search"] { max-width: 320px; }
+.filter-bar input[type="search"] { max-width: min(320px, 100%); }
 .chip {
   display: inline-flex;
   align-items: center;
@@ -839,7 +839,7 @@ body.sidebar-open { overflow: hidden; }
 }
 .reader-tools { display: inline-flex; gap: 6px; flex: none; }
 .reader-tool {
-  min-width: 40px; height: 40px; padding: 0 10px; border-radius: 12px; cursor: pointer;
+  min-width: var(--tap); min-height: var(--tap); padding: 0 10px; border-radius: 12px; cursor: pointer;
   border: 1px solid var(--rd-line); background: var(--rd-page); color: var(--rd-text);
   font: 600 .9rem/1 'Lora', Georgia, serif;
 }

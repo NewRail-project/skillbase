@@ -14,7 +14,7 @@ const GROUPS = [
     label: lt("nav.section.learn"),
     items: [
       { id: "home", label: lt("nav.home"), icon: icons.home, route: "#/" },
-      { id: "about", label: "О проекте", icon: icons.home, route: "#about" },
+      { id: "about", label: lt("nav.about"), icon: icons.home, route: "#about" },
       { id: "assignments", label: lt("nav.assignments"), icon: icons.clipboard, route: "#assignments", auth: true },
       { id: "tests", label: lt("nav.tests"), icon: icons.book, route: "#tests", auth: true },
 { id: "results", label: lt("nav.results"), icon: icons.chart, route: "#results", auth: true, roles: ["teacher", "admin"] },
@@ -29,10 +29,10 @@ const GROUPS = [
     label: lt("nav.section.account"),
     items: [
       { id: "profile", label: lt("nav.profile"), icon: icons.users, route: "#profile", auth: true },
-      { id: "settings", label: "Настройки", icon: icons.settings, route: "#settings", auth: true },
+      { id: "settings", label: lt("nav.settings"), icon: icons.settings, route: "#settings", auth: true },
       { id: "users", label: lt("nav.users"), icon: icons.users, route: "#users", auth: true, roles: ["teacher", "admin"] },
-      { id: "admins", label: "Администраторы", icon: icons.check, route: "#admins", auth: true, roles: ["admin"] },
-      { id: "admin", label: "Админ-панель", icon: icons.settings, route: "#admin", auth: true, roles: ["admin"] }
+      { id: "admins", label: lt("nav.admins"), icon: icons.check, route: "#admins", auth: true, roles: ["admin"] },
+      { id: "admin", label: lt("nav.admin"), icon: icons.settings, route: "#admin", auth: true, roles: ["admin"] }
     ]
   }
 ];

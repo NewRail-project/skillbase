@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  pairGradeValue, gradePlayer, gradeRoster, journalRows,
+  pairGradeValue, gradePlayer, gradeRoster, journalRows, journalAverage,
   buildGradeOverride, applyOverrides, GRADE_STATUS
 } from "../core/pair-grade.js";
 import { buildLiveReport } from "../core/live-report.js";
+import { pickAttemptPerStudent, attemptsToPlayers } from "../core/test-history-logic.js";
 
 const keys = Array.from({ length: 10 }, () => ({ type: "single", points: 1, correct: [0] }));
 const answersOf = (right, answeredAll = true) => {
@@ -66,6 +67,59 @@ test("журнал: по алфавиту, отсутствующие — «Не
   assert.deepEqual(journal.map(r => r.name), ["Абдрахманов А.", "Иванов В.", "Толеуов Д."]);
   assert.equal(journal[1].label, "Не участвовал");
   assert.equal(journal[1].grade, null);
+});
+
+test("журнал: средний балл — только выставленные оценки, без «Не участвовал»", () => {
+  const rows = gradeRoster({
+    players: [
+      { uid: "1", name: "А", answers: answersOf(8) },  // 82
+      { uid: "2", name: "Б", answers: answersOf(10) }, // 100
+      { uid: "3", name: "В", answers: {} }             // 0 (был, не отвечал)
+    ],
+    keysByPos: keys,
+    absent: [{ uid: "9", name: "Г" }]                  // в среднее не входит
+  });
+  // (82 + 100 + 0) / 3 = 60.67 → 61. «Не участвовал» не входит в среднее.
+  assert.equal(journalAverage(rows), 61);
+  // Пустой журнал — среднего нет.
+  assert.equal(journalAverage([]), null);
+  assert.equal(journalAverage([{ grade: null }, { grade: undefined }]), null);
+});
+
+test("журнал: несколько попыток одного ученика не задваиваются", () => {
+  // ПicksAttemptPerStudent отбирает одну попытку на ученика — журнал не
+  // содержит одного участника дважды, среднее считается по людям.
+  const attempts = [
+    { userId: "u1", userName: "Иванов И.", status: "submitted", percent: 40,
+      answers: {}, testVersion: null, submittedAt: { toMillis: () => 1 } },
+    { userId: "u1", userName: "Иванов И.", status: "graded", percent: 90,
+      answers: answersOf(9), testVersion: null, submittedAt: { toMillis: () => 2 } }
+  ];
+  const picked = pickAttemptPerStudent(attempts);
+  assert.equal(picked.length, 1);
+  assert.equal(picked[0].percent, 90);
+  const players = attemptsToPlayers(picked);
+  const rows = gradeRoster({ players, keysByPos: keys });
+  assert.equal(rows.length, 1);
+  assert.equal(journalAverage(rows), 91); // 90 × 9/10 + 10 × 10/10 = 91
+});
+
+test("ручная правка: история сохраняется — автор, причина, from/to и рассчитанная оценка", () => {
+  const rows = gradeRoster({
+    players: [{ uid: "u1", name: "Иванов И.", answers: answersOf(8) }],
+    keysByPos: keys
+  });
+  const override = buildGradeOverride({
+    uid: "u1", from: 82, to: 75, reason: "Апелляция: вопрос 3 неоднозначен", authorUid: "teacher1", at: 5
+  });
+  assert.equal(override.error, undefined);
+  assert.equal(override.override.authorUid, "teacher1");
+  assert.equal(override.override.reason, "Апелляция: вопрос 3 неоднозначен");
+  assert.equal(override.override.from, 82);
+  const applied = applyOverrides(rows, [override.override]);
+  assert.equal(applied[0].grade, 75);
+  assert.equal(applied[0].calculated, 82); // расчёт не потерян
+  assert.equal(applied[0].override.at, 5); // запись правки сохранена
 });
 
 test("ручная правка требует причину, автора и диапазон; фиксируется отдельно", () => {

@@ -101,19 +101,25 @@ export async function loadPublicProfiles(uids, orgId) {
 
   // Читаем документы по одному: правило publicProfiles проверяет orgId,
   // а list-запрос с documentId(in) + orgId требует дополнительной осторожности
-  // с индексами. getDoc оценивается по каждому документу.
-  for (let i = 0; i < unique.length; i += 20) {
-    const chunk = unique.slice(i, i + 20);
-    const snaps = await Promise.all(chunk.map(uid =>
-      getDoc(doc(db, "publicProfiles", uid)).catch(() => null)
-    ));
+  // с индексами. getDoc оценивается по каждому документу. Чанки (по 20 id)
+  // запускаются одновременно — на мобильном интернете это в разы быстрее
+  // последовательных раундов; количество и размер чтений не меняются.
+  const chunkSnaps = await Promise.all(
+    Array.from({ length: Math.ceil(unique.length / 20) }, (_, i) => {
+      const chunk = unique.slice(i * 20, (i + 1) * 20);
+      return Promise.all(chunk.map(uid =>
+        getDoc(doc(db, "publicProfiles", uid)).catch(() => null)
+      ));
+    })
+  );
+  chunkSnaps.forEach(snaps => {
     snaps.forEach(snap => {
       if (!snap?.exists()) return;
       const data = snap.data();
       if (orgId && data.orgId !== orgId) return;
       results.push({ id: snap.id, ...data });
     });
-  }
+  });
 
   return results;
 }

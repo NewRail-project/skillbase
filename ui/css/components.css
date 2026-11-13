@@ -278,7 +278,7 @@ input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; min-hei
 }
 .modal-close {
   position: absolute; top: var(--space-2); right: var(--space-2);
-  min-height: 36px; width: 36px; padding: 0; font-size: 1.5rem; line-height: 1;
+  min-height: var(--tap); width: var(--tap); padding: 0; font-size: 1.5rem; line-height: 1;
   background: transparent; border: 0;
 }
 
@@ -301,7 +301,7 @@ input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; min-hei
 
 /* ---------- Переключатель скина ---------- */
 .skin-switch { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-ctl, 10px); overflow: hidden; background: var(--surface); }
-.skin-switch-btn { font: inherit; font-size: .75rem; font-weight: 600; padding: 6px 9px; min-height: 36px; border: 0; background: transparent; color: var(--text-2); cursor: pointer; }
+.skin-switch-btn { font: inherit; font-size: .75rem; font-weight: 600; padding: 6px 9px; min-height: var(--tap); border: 0; background: transparent; color: var(--text-2); cursor: pointer; }
 .skin-switch-btn + .skin-switch-btn { border-left: 1px solid var(--border); }
 .skin-switch-btn:hover { background: var(--elevated); color: var(--text); }
 .skin-switch-btn.active { background: var(--accent); color: var(--on-accent); }
@@ -360,6 +360,11 @@ input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; min-hei
 }
 /* Узкий телефон: скин-переключатель Education уступает место переключателю режима. */
 @media (max-width: 480px) { html[data-mode="education"] .skin-switch-top { display: none; } }
+
+/* Заголовок темы — ссылка на отдельную страницу темы. */
+.list-row-title-wrap { min-width: 0; }
+a.list-row-title { color: inherit; text-decoration: none; }
+a.list-row-title:hover { text-decoration: underline; }
 
 /* ---- Предмет → тема: теория и тесты внутри темы ---- */
 .topic-item { border-bottom: 1px solid var(--border, rgba(127,127,127,.25)); }

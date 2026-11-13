@@ -21,6 +21,7 @@ import { getGuestName } from "../../core/guest.js";
 import { saveReturnTo } from "../../shared/return-to.js";
 import { avatarPicker } from "../components/avatar.js";
 import { toast } from "../components/toast.js";
+import { loading } from "../components/loading.js";
 import { t as tr, lt } from "../../core/i18n.js";
 
 const ROLE_LABEL = { [ROLE_PLAYER]: "Участник", [ROLE_OBSERVER]: "Наблюдатель" };
@@ -51,6 +52,9 @@ export default async function JoinPage() {
   const page = h("div", { class: "page" });
   // Тема хранится на устройстве (localStorage), поэтому доступна и гостю.
   page.appendChild(h("div", { class: "auth-corner" }, skinSwitch(), themeToggle({ withLabel: true })));
+  // Пока проверяем членство и читаем комнату, экран не пустой.
+  const joinLoader = loading();
+  page.appendChild(joinLoader);
   const codeRaw = (State.routeParam || "").split("/")[0] || "";
   const codeFromRoute = normalizeRoomCode(codeRaw) || "";
   const signedIn = Boolean(State.user);
@@ -88,6 +92,9 @@ export default async function JoinPage() {
       console.warn("Чтение комнаты:", err?.code || err);
     }
   }
+
+  // Данные проверены — убираем индикатор и показываем форму входа.
+  joinLoader.remove();
 
   const displayCodeInput = h("input", {
     id: "room-code-input",
