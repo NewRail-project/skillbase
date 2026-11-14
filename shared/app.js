@@ -92,6 +92,9 @@ const routes = {
   // Рейтинг: агрегат попыток организации (staff). Страница существовала,
   // но не была подключена к маршрутизатору — ссылка в меню вела на 404.
   "leaderboard":  { file: "ui/pages/leaderboard.js",        title: "Рейтинг",              tkey: "title.leaderboard", auth: true, roles: STAFF },
+  // История завершённых Live-комнат: #room-history — список,
+  // #room-history/<код> — повторный просмотр сохранённого отчёта.
+  "room-history": { file: "ui/pages/room-history.js",       title: "История Live",         tkey: "title.roomHistory", auth: true, roles: STAFF },
   // Редактор самостоятельного материала: без id — новый материал.
   "material-editor": { file: "ui/pages/material-editor.js", title: "Редактор материала", tkey: "title.materialEditor", auth: true, roles: STAFF }
 };

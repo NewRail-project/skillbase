@@ -10,8 +10,17 @@ import {
   subscribeRoom, subscribeOwnState, openQuestion, closeQuestion, saveAnswer,
   closeRoom, questionDurationSec, sendReaction, subscribeReactions,
   getMyRoomRole, startAutoTest, finishAutoTest, setRegistrationOpen,
-  revealAutoQuestion, writeScoreBoard, syncServerClock
+  revealAutoQuestion, writeScoreBoard, syncServerClock,
+  subscribeDuels, ensureDuelsDoc, updateDuelsDoc, saveDuelAnswer, readDuelAnswers,
+  saveRoomHistory
 } from "../../core/rooms.js";
+import { buildRoomHistorySnapshot } from "../../core/room-history.js";
+import {
+  tieGroups, buildDuelsDoc, withGroup, applyDuelPlaces, duelGroupsChanged,
+  pendingUidsFor, openDuelRound, applyRound, stopGroup, settleGroup,
+  validateDecision, applyDecision
+} from "../../core/duel-logic.js";
+import { isCorrect, normalizeKeys } from "../../core/scoring.js";
 import {
   questionTimeMs, answeredCount, myAnswerVerdict, buildJoinUrl, computeScores,
   streakFromReveals, verdictsFromTrail, streakTier, streakEvent, scoreBreakdown,
@@ -52,7 +61,11 @@ import { subscribeTheme, subscribeSkin } from "../../shared/theme.js";
 import { t as tr, lt } from "../../core/i18n.js";
 import { buildLiveReport } from "../../core/live-report.js";
 import { gradeRoster, journalRows } from "../../core/pair-grade.js";
-import { journalPanel, reportPanel } from "../components/live-report.js";
+import {
+  journalPanel, reportPanel, reportSection, overviewPanel,
+  studentsPanel, recommendationsPanel
+} from "../components/live-report.js";
+import { getSubject, getTopic } from "../../core/subjects.js";
 
 let unsubs = [];
 let autoTimer = null;   // автозакрытие у ведущего (ручной режим)
@@ -78,9 +91,15 @@ let lastStepKey = null;   // «шаг» комнаты: смена вопрос�
 let lastBoardSig = null;
 let lastReactionSig = null;
 const ratingNodes = new Map(); // рейтинг живёт между перерисовками вида: карточки не пересоздаются
-let finalDock = null;     // блок отчёта и журнала: обновляется на месте
+let finalDock = null;     // единый итоговый экран с вкладками: обновляется на месте
 let finalDockSig = "";
-let reportOpen = false;   // подробный отчёт раскрыт: состояние переживает перерисовку вида
+let finalTab = "overview";        // активная вкладка итогового экрана
+let finalTabPanes = new Map();    // id вкладки → узел (кэш на текущую подпись данных)
+let finalMeta = { subject: "", topic: "" }; // предмет/тема теста для вкладки «Обзор»
+let duelEnsureBusy = false;        // автоматическое создание документа дуэлей — один поток
+let historySaveBusy = false;       // сохранение снимка истории — один поток
+let historySavedCode = null;       // код комнаты, снимок которой уже сохранён
+const duelAnswerKnown = new Map(); // ответId → true (свой ответ на раунд уже принят)
 let local = null;
 
 // Обратный замеченный предыдущее «событийное» состояние комнаты.
@@ -128,10 +147,14 @@ function reset() {
   lastStepKey = null;
   lastBoardSig = null;
   lastReactionSig = null;
-  reportOpen = false;
   ratingNodes.clear();
   finalDock = null;
   finalDockSig = "";
+  finalTab = "overview";
+  finalTabPanes.clear();
+  finalMeta = { subject: "", topic: "" };
+  historySaveBusy = false;
+  historySavedCode = null;
   lastRanks = null;
   lastScores = null;
   shownReactions = new Map();
@@ -141,6 +164,9 @@ function reset() {
   dutyBusy = false;
   lastScoreSig = "";
   dutyErrorShown = false;
+  duelEnsureBusy = false;
+  duelWriteBusy = false;
+  duelAnswerKnown.clear();
   try { qrThemeOff?.(); } catch (e) { /* уже отписаны */ }
   try { qrSkinOff?.(); } catch (e) { /* уже отписаны */ }
   qrThemeOff = null;
@@ -163,6 +189,7 @@ function reset() {
     removed: false,
     timedOut: false,
     errors: {},            // room / own / players — ошибки подписок
+    duels: null,           // rooms/{code}/duels/final — состояние дуэлей за места
     offsetMs: 0,           // смещение часов устройства до сервера
     clockReady: false
   };
@@ -320,6 +347,9 @@ function signature() {
   // updateScreenBoard), поэтому чужой ответ не пересобирает экран и не
   // сбивает поле ввода/прокрутку. Раньше crowd был частью подписи — каждый
   // чужой ответ или очко вызывали rebuild всего .room-view.
+  // Подпись дуэлей для пересборки вида: ведущий реагирует на весь
+  // документ, участник — только на свою группу (чужие группы и очки
+  // раундов не сбивают его поле ответа) и на факт полного разрешения.
   return roomRenderSignature({
     roomStatus: room ? room.status : "no-room",
     conn: connState(),
@@ -337,7 +367,20 @@ function signature() {
     testReady: Boolean(local.test),
     keysReady: local.keysReady,
     hasMaterial: local.hasMaterial
-  });
+  }) + `|duel=${duelViewSig()}`;
+}
+
+// Подпись дуэлей для пересборки вида: ведущий реагирует на весь документ,
+// участник — на свою группу и на факт полного разрешения ничьих.
+function duelViewSig() {
+  const doc = local.duels;
+  if (!doc) return "";
+  if (role() === "host") return duelSig();
+  const uid = State.user?.uid;
+  const mine = (doc.groups || []).find(g => (g.uids || []).includes(uid));
+  const resolvedCount = (doc.groups || []).filter(g => g.status === "resolved").length;
+  if (!mine) return `${doc.status}|${resolvedCount}`;
+  return `${doc.status}|${resolvedCount}|${mine.id}:${mine.status}:${mine.currentQid ?? "-"}:${(mine.rounds || []).length}:${(mine.order || []).join(".")}`;
 }
 
 // Подпись «толпы»: ответы/очки/состав участников. Её изменение запускает
@@ -348,7 +391,19 @@ function crowdSignature() {
     players: local.players || [],
     scores: local.scores || [],
     reveals: local.reveals || {}
-  })}|p=${profilesRev}`;
+  })}|p=${profilesRev}|d=${duelSig()}`;
+}
+
+// Подпись состояния дуэлей за места: состав групп, статусы, открытый
+// раунд, история раундов и порядок. Входит в stepKey (полная пересборка
+// вида при смене раунда/статуса) и в crowdSignature (точечное обновление
+// рейтинговых панелей).
+function duelSig() {
+  const doc = local.duels;
+  if (!doc) return "";
+  return `${doc.status || ""}|${(doc.groups || []).map(g =>
+    `${g.id}:${g.status}:${g.currentQid ?? "-"}:${(g.rounds || []).length}:${(g.order || []).join(".")}`
+  ).join(",")}`;
 }
 
 // Полная длительность вопроса в мс (для кольца таймера) или 0, если не ограничен.
@@ -521,6 +576,9 @@ export default async function RoomPage() {
     local.test = testDoc;
     local.keys = keys;
     local.keysReady = true;
+    // Предмет/тема для вкладки «Обзор»: только у ведущего (имена из
+    // справочников организации), не блокирует отрисовку.
+    if (isHost && testDoc) resolveFinalMeta(testDoc);
   } catch (err) {
     console.error("Комната:", err);
     page.appendChild(connectionErrorPanel(err));
@@ -677,6 +735,14 @@ export default async function RoomPage() {
     code,
     reactions => { local.reactions = reactions; clearError("reactions"); wake(); },
     error => { setError("reactions", error); }
+  ));
+
+  // Дуэли за места: состояние ведущего читают все в комнате (финальный
+  // рейтинг с уникальными местами нужен каждому).
+  unsubs.push(subscribeDuels(
+    code,
+    doc => { local.duels = doc; clearError("duels"); wake(); },
+    error => { setError("duels", error); wake(); }
   ));
 
   // ---------- 4. Синхронизация часов и восстановление связи ----------
@@ -859,6 +925,11 @@ function scheduleRender(page) {
     if (target) renderPage(target);
     manageAutoClose();
   }
+  // Дуэли: создание документа и слежение за составом групп — по снапшотам
+  // очков и состоянию комнаты; охраняется флагом и проверками внутри.
+  manageDuels();
+  // История: снимок итогового отчёта при завершении — тоже один поток.
+  manageHistorySave();
   fillStatusBarIfChanged();
   updateLeaderboard();
   // «Толпа» (ответы и очки других участников, входы/выходы) обновляется
@@ -899,7 +970,8 @@ function stepKey() {
     local.room ? local.room.status : "no-room",
     connState(), role() || "-", local.removed ? 1 : 0,
     li.lifecycle, li.position, li.phase, li.qid, revealed,
-    local.room?.registrationOpen === false ? 0 : 1
+    local.room?.registrationOpen === false ? 0 : 1,
+    duelViewSig()
   ].join("|");
 }
 
@@ -1183,11 +1255,24 @@ function boardData() {
 
 // Рейтинг для ручного режима: пока нет ни одного документа очков — пусто.
 function boardRows() {
-  return (local.scores || []).length ? boardData() : [];
+  return (local.scores || []).length ? ratingSource() : [];
 }
 
+// Единый источник строк рейтинга. Пока тест идёт — общие места
+// (ratingRows: 1, 1, 3). На итоговом экране (тест завершён или комната
+// закрыта) места разрешаются дуэлями за места: порядок из документа
+// duels/final, без повторов; неразрешённые группы остаются с общими
+// местами и пометкой «ожидается решение». Очки строки не меняются —
+// дуэль не трогает баллы основного теста.
 function ratingSource() {
-  return boardData();
+  const rows = boardData();
+  const room = local.room;
+  const li = liveInfo();
+  const done = room?.status === "closed"
+    || li.lifecycle === "completed"
+    || li.lifecycle === "closed";
+  if (!done) return rows;
+  return applyDuelPlaces(rows, local.duels);
 }
 
 // Кадр рейтинга: что было до последнего изменения (для count-up, значков
@@ -1617,7 +1702,7 @@ function finalWasSeen() { try { return sessionStorage.getItem(finalSeenKey()) ==
 function markFinalSeen() { try { sessionStorage.setItem(finalSeenKey(), "1"); } catch { /* нет storage */ } }
 
 function finalSequence({ projector = false } = {}) {
-  const rows = boardData();
+  const rows = ratingSource();
   if (!rows.length) return null;
   const sig = `${local.code}|${projector ? 1 : 0}`;
   if (final && final.sig === sig) { final.refresh(rows); return final.node; }
@@ -1915,6 +2000,8 @@ function hostView() {
 
   const results = roomResults();
   if (results) wrap.appendChild(results);
+  const duels = duelsPanel();
+  if (duels) wrap.appendChild(duels);
 
   return wrap;
 }
@@ -1969,6 +2056,329 @@ function manageAutoClose() {
   }
 }
 
+// ---------- Дуэли за места (ведущий) ----------
+// Равные (score, correctCount) в итоговом рейтинге разрешаются дуэльной
+// серией: раунд = вопрос из банка теста, участники отвечают заново.
+// Состояние — rooms/{code}/duels/final, ответы — в answers-подколлекции.
+// Чистая логика состояний — core/duel-logic.js.
+
+// Одно действие ведущего за раз: двойное нажатие не должно закрыть
+// один раунд дважды и задвоить счёт серии.
+let duelWriteBusy = false;
+
+// Размер банка вопросов дуэли: столько же, сколько вопросов в тесте.
+function duelBankSize() {
+  return local.room?.questionCount || (local.test?.questions || []).length || 0;
+}
+
+// Ключи теста в виде карты "индекс вопроса" → ключ (вердикты раундов
+// считает ведущий; у участников ключей нет — им они и не нужны).
+function duelKeys() {
+  return normalizeKeys(local.keys?.items ?? local.keys);
+}
+
+// Ничья не разрешается сама: как только тест завершён и появились группы
+// с равным результатом, ведущий создаёт документ дуэлей (однократно —
+// ensureDuelsDoc не затирает существующие раунды и решения). Если очки
+// после завершения теста догнались и состав групп изменился — документ
+// пересобирается с сохранением уже сыгранных раундов и решений.
+function manageDuels() {
+  if (duelEnsureBusy) return;
+  const room = local.room;
+  if (!room || role() !== "host") return;
+  const done = room.status === "closed"
+    || liveInfo().lifecycle === "completed"
+    || liveInfo().lifecycle === "closed";
+  if (!done) return;
+  const groups = tieGroups(boardData());
+  if (!groups.length) return;
+  duelEnsureBusy = true;
+  (async () => {
+    try {
+      if (!local.duels) {
+        await ensureDuelsDoc(local.code, buildDuelsDoc({
+          rows: boardData(),
+          questionCount: duelBankSize()
+        }));
+      } else if (duelGroupsChanged(local.duels, groups)) {
+        await updateDuelsDoc(local.code, buildDuelsDoc({
+          rows: boardData(),
+          existing: local.duels,
+          questionCount: duelBankSize()
+        }));
+      }
+    } catch (err) {
+      console.error("Дуэли:", err);
+    } finally {
+      duelEnsureBusy = false;
+    }
+  })();
+}
+
+// Пишет обновлённое состояние документа и перерисовывает вид сразу.
+// Пока запись идёт, новые действия ведущего не стартуют: состояние
+// документа обновит снапшот.
+async function writeDuels(payload) {
+  if (duelWriteBusy) return;
+  duelWriteBusy = true;
+  try {
+    await updateDuelsDoc(local.code, payload);
+  } finally {
+    duelWriteBusy = false;
+  }
+  lastSignature = null;
+  scheduleRender(null);
+}
+
+// Свежая группа из снапшота (кнопка несёт снимок группы на момент рендера).
+function freshDuelGroup(group) {
+  return (local.duels?.groups || []).find(g => g?.id === group?.id) || group;
+}
+
+async function duelOpenRound(group) {
+  const fresh = freshDuelGroup(group);
+  if (fresh.currentQid != null) return; // раунд уже открыт
+  const next = openDuelRound(fresh, duelBankSize());
+  if (!next) {
+    toast("Вопросы дуэли закончились — используйте решение преподавателя.", "info");
+    return;
+  }
+  try {
+    await writeDuels(withGroup(local.duels, fresh.id, next, boardData()));
+  } catch (err) {
+    console.error("Раунд дуэли:", err);
+    toast("Не удалось открыть раунд (нет сети?)", "error");
+  }
+}
+
+// Закрытие раунда: ответы раунда читаются из Firestore, вердикты считает
+// ведущий по ключам теста; участник без ответа — пропуск (null).
+async function duelCloseRound(group) {
+  const fresh = freshDuelGroup(group);
+  if (fresh.currentQid == null) return; // раунд уже закрыт
+  if (!local.keysReady) {
+    toast("Ключи теста не загружены: закрыть раунд нельзя.", "error");
+    return;
+  }
+  try {
+    const answers = await readDuelAnswers(local.code);
+    const keys = duelKeys();
+    const prefix = `${fresh.id}__${fresh.currentRound}__`;
+    const verdicts = {};
+    for (const uid of fresh.uids) {
+      const answer = answers[`${prefix}${uid}`];
+      const key = keys[String(fresh.currentQid)] || null;
+      verdicts[uid] = answer == null ? null : isCorrect(key, answer);
+    }
+    const played = applyRound(fresh, fresh.currentQid, verdicts);
+    await writeDuels(withGroup(local.duels, fresh.id, settleGroup(played, duelBankSize()), boardData()));
+  } catch (err) {
+    console.error("Закрытие раунда дуэли:", err);
+    toast("Не удалось закрыть раунд (нет сети?)", "error");
+  }
+}
+
+// Остановка серии: участник не может продолжить. Победителя не назначаем.
+async function duelStop(group) {
+  const fresh = freshDuelGroup(group);
+  if (fresh.status === "resolved") return;
+  const stopped = stopGroup(fresh);
+  try {
+    await writeDuels(withGroup(local.duels, fresh.id, settleGroup(stopped, duelBankSize()), boardData()));
+  } catch (err) {
+    console.error("Остановка дуэли:", err);
+    toast("Не удалось остановить дуэль (нет сети?)", "error");
+  }
+}
+
+// Явное решение преподавателя: порядок неразрешённых участников,
+// причина и автор сохраняются в документе — победитель не назначается
+// скрытым правилом.
+async function duelDecide(group, order, reason) {
+  const fresh = freshDuelGroup(group);
+  if (fresh.status === "resolved") return;
+  const check = validateDecision({
+    pendingUids: pendingUidsFor(fresh, duelBankSize()),
+    order,
+    reason,
+    authorUid: State.user?.uid
+  });
+  if (check.error) { toast(check.error, "error"); return; }
+  const decided = applyDecision(fresh, {
+    order,
+    reason,
+    authorUid: State.user?.uid,
+    authorName: local.room?.hostName || "",
+    at: Date.now()
+  }, duelBankSize());
+  try {
+    await writeDuels(withGroup(local.duels, fresh.id, decided, boardData()));
+    toast("Решение сохранено", "success");
+  } catch (err) {
+    console.error("Решение по дуэли:", err);
+    toast("Не удалось сохранить решение (нет сети?)", "error");
+  }
+}
+
+// История раунда строкой: «Раунд 2 · вопрос 3 — победа: Имя» / «— ничья».
+function duelRoundText(group, round) {
+  const winner = round.winner ? group.names?.[round.winner] || "участник" : null;
+  return `Раунд ${round.n} · вопрос ${Number(round.qid) + 1} — ${winner ? `победа: ${winner}` : "ничья"}`;
+}
+
+// Панель разрешения ничьих: список групп, очки серий, история раундов,
+// кнопки проведения раундов и форма решения преподавателя для pending.
+function duelsPanel() {
+  if (role() !== "host") return null;
+  const doc = local.duels;
+  if (!doc) return null;
+  const bankSize = duelBankSize();
+
+  const groupBlock = (group, index) => {
+    const title = `Дуэль ${index + 1}`;
+    const body = h("div", { class: "panel-body" });
+    const names = group.uids
+      .map(uid => `${group.names?.[uid] || "Участник"} — ${group.tally?.[uid] || 0}`);
+    body.appendChild(h("p", { class: "muted" },
+      group.status === "pending"
+        ? `Победителя не назначаем автоматически. Участники: ${names.join("; ")}.`
+        : `Участники: ${names.join("; ")}.`));
+    if (group.stoppedReason) {
+      body.appendChild(h("p", { class: "form-error" }, `Серия остановлена: ${group.stoppedReason}`));
+    }
+    if ((group.rounds || []).length) {
+      body.appendChild(h("ul", { class: "live-accuracy" },
+        group.rounds.map(round => h("li", {}, duelRoundText(group, round)))));
+    }
+
+    if (group.status === "resolved") {
+      const orderNames = (group.order || [])
+        .map(uid => group.names?.[uid] || uid).join(" → ");
+      body.appendChild(h("p", { class: "form-hint" },
+        group.decision
+          ? `Порядок по решению преподавателя: ${orderNames}. Причина: ${group.decision.reason}`
+          : `Порядок по дуэли: ${orderNames}.`));
+      return h("section", { class: "panel" },
+        h("div", { class: "panel-head" },
+          h("h3", {}, title),
+          h("span", { class: "badge badge-success" }, "разрешена")),
+        body);
+    }
+
+    if (group.status === "running" && group.currentQid != null) {
+      const question = (local.test?.questions || [])[Number(group.currentQid)];
+      body.appendChild(h("div", { class: "btn-row" },
+        h("button", {
+          type: "button", class: "btn primary",
+          onclick: () => duelCloseRound(group)
+        }, "Закрыть раунд"),
+        h("button", {
+          type: "button", class: "btn secondary",
+          onclick: () => duelStop(group)
+        }, "Остановить серию")));
+      body.appendChild(h("p", { class: "form-hint" },
+        `Раунд ${group.currentRound}: ${question?.text || `вопрос ${Number(group.currentQid) + 1}`} — вопрос видят участники дуэли. Без ответа раунд засчитывается как пропуск.`));
+      return h("section", { class: "panel" },
+        h("div", { class: "panel-head" },
+          h("h3", {}, title),
+          h("span", { class: "badge badge-neutral" }, `раунд ${group.currentRound}`)),
+        body);
+    }
+
+    // running без открытого раунда или pending: кнопки продолжения и
+    // форма решения.
+    const canContinue = group.status === "running" && bankSize - (group.usedQids || []).length > 0;
+    body.appendChild(h("div", { class: "btn-row" },
+      canContinue
+        ? h("button", {
+            type: "button", class: "btn primary",
+            onclick: () => duelOpenRound(group)
+          }, "Показать раунд")
+        : null,
+      group.status === "running"
+        ? h("button", {
+            type: "button", class: "btn secondary",
+            onclick: () => duelStop(group)
+          }, "Остановить серию")
+        : null));
+
+    if (canContinue) {
+      body.appendChild(h("p", { class: "form-hint" },
+        `Осталось вопросов в банке: ${bankSize - group.usedQids.length}. Раунды можно прекратить в любой момент и решить порядок явно.`));
+    }
+
+    // Решение преподавателя доступно в любой момент: до исчерпания
+    // банка, после него или после остановки серии.
+    const pending = pendingUidsFor(group, bankSize);
+    if (pending.length) {
+      body.appendChild(duelDecisionForm(group, pending));
+    }
+    return h("section", { class: "panel" },
+      h("div", { class: "panel-head" },
+        h("h3", {}, title),
+        h("span", {
+          class: `badge ${group.status === "pending" ? "badge-danger" : "badge-neutral"}`
+        }, group.status === "pending" ? "требуется решение" : "идёт")),
+      body);
+  };
+
+  const groups = (doc.groups || []).map(groupBlock);
+  return h("section", { class: "panel duels-panel" },
+    h("div", { class: "panel-head" },
+      h("h2", {}, "Разрешение ничьих"),
+      h("span", {
+        class: `badge ${doc.status === "resolved" ? "badge-success" : "badge-neutral"}`
+      }, doc.status === "resolved" ? "места распределены"
+        : doc.status === "pending" ? "есть неразрешённые" : "идут дуэли")),
+    h("div", { class: "panel-body" },
+      h("p", { class: "muted" },
+        doc.status === "resolved"
+          ? "Все ничьи разрешены: итоговые места уникальны."
+          : "Раунд — вопрос из теста, на который участники дуэли отвечают заново. Если вопросы закончились или участник не может продолжить, порядок принимает преподаватель явно.")),
+    ...groups);
+}
+
+// Форма решения преподавателя: по селекту места на каждого
+// неразрешённого участника + причина.
+function duelDecisionForm(group, pendingUids) {
+  const selects = new Map();
+  const reasonInput = h("input", {
+    class: "form-control", type: "text",
+    placeholder: "Причина: например, дополнительное задание проведено"
+  });
+  const errLine = h("p", { class: "form-error", hidden: true });
+  const form = h("div", { class: "duel-decision" },
+    h("p", { class: "form-hint" },
+      "Порядок не определён дуэлью. Назначьте места явно — решение сохранится с причиной и автором."),
+    pendingUids.map(uid => {
+      const select = h("select", { class: "form-control", "aria-label": `Место для ${group.names?.[uid] || uid}` },
+        pendingUids.map((_, i) => h("option", { value: String(i + 1) }, `${i + 1} место`)));
+      selects.set(uid, select);
+      return h("label", { class: "field" },
+        h("span", { class: "muted" }, group.names?.[uid] || "Участник"), select);
+    }),
+    h("label", { class: "field" },
+      h("span", { class: "muted" }, "Причина"), reasonInput),
+    errLine,
+    h("div", { class: "btn-row" },
+      h("button", {
+        type: "button", class: "btn primary",
+        onclick: () => {
+          const order = [...pendingUids].sort((a, b) =>
+            Number(selects.get(a).value) - Number(selects.get(b).value));
+          const ranks = pendingUids.map(uid => Number(selects.get(uid).value));
+          if (new Set(ranks).size !== pendingUids.length) {
+            errLine.textContent = "Каждому участнику — своё место: значения не должны повторяться.";
+            errLine.hidden = false;
+            return;
+          }
+          errLine.hidden = true;
+          duelDecide(group, order, reasonInput.value);
+        }
+      }, "Записать решение")));
+  return form;
+}
+
 // ---------- Вид участника ----------
 
 function playerView() {
@@ -2000,6 +2410,8 @@ function playerView() {
     ));
     const results = roomResults();
     if (results) wrap.appendChild(results);
+    const duelWidget = duelPlayerWidget();
+    if (duelWidget) wrap.appendChild(duelWidget);
     return wrap;
   }
 
@@ -2436,36 +2848,224 @@ function liveReportInput() {
   return { players, keysByPos, questions, positions };
 }
 
-// Блок «подробный отчёт + журнал» — один постоянный узел. Новые ответы
-// и очки меняют только его содержимое и только при реальном изменении данных;
-// раскрытый отчёт и прокрутка сохраняются.
+// ---------- Единый итоговый экран Live с вкладками ----------
+// Один постоянный узел (переживает перерисовку вида, как рейтинг).
+// Вкладки переключают готовые панели без пересборки страницы и без
+// повторной загрузки комнаты: смена вкладки двигает кэшированный узел,
+// данные пересчитываются только при реальном изменении ответов/дуэлей
+// (подпись finalDockSig). Активная вкладка сохраняется между кадрами.
+const FINAL_TABS = [
+  { id: "overview", label: "Обзор" },
+  { id: "rating", label: "Рейтинг" },
+  { id: "stats", label: "Статистика" },
+  { id: "students", label: "Участники" },
+  { id: "journal", label: "Журнал" },
+  { id: "recs", label: "Рекомендации" }
+];
+
 function finalDockNode() {
   if (!finalDock) {
-    finalDock = h("div", { class: "final-dock" },
-      h("div", { "data-final-report": "1" }),
-      h("div", { "data-final-journal": "1" }));
+    const tablist = h("div", { class: "final-tabs", role: "tablist", "aria-label": "Вкладки итогов" },
+      FINAL_TABS.map(t => h("button", {
+        type: "button", class: "final-tab", role: "tab",
+        "data-tab": t.id,
+        "aria-controls": `final-pane-${t.id}`,
+        onclick: () => { finalTab = t.id; renderFinalTab(); }
+      }, t.label)));
+    // Клавиатура: ← и → переключают вкладки, как требуют табы ARIA.
+    tablist.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault();
+      const ids = FINAL_TABS.map(t => t.id);
+      const idx = Math.max(0, ids.indexOf(finalTab));
+      const next = e.key === "ArrowRight" ? (idx + 1) % ids.length : (idx - 1 + ids.length) % ids.length;
+      finalTab = ids[next];
+      renderFinalTab();
+      finalDock.querySelector(`[data-tab="${finalTab}"]`)?.focus();
+    });
+    finalDock = h("section", { class: "panel live-final", "aria-label": "Итоги Live" },
+      tablist,
+      h("div", { class: "final-pane", role: "tabpanel", "data-final-pane": "1" }));
     finalDockSig = "";
   }
   updateFinalDock();
   return finalDock;
 }
 
+// Данные итогового экрана: оценки и отчёт строятся один раз на изменение.
+function finalData() {
+  const input = liveReportInput();
+  const grades = gradeRoster(input);
+  return { input, grades, report: buildLiveReport(input) };
+}
+
+// ---------- История завершённых комнат (снимок итогов) ----------
+// При завершении комнаты ведущий один раз сохраняет снимок отчёта в
+// roomHistory/{код}. Идемпотентность: код = id документа (второй документ
+// невозможен), клиент пишет только если документа ещё нет; повторная
+// отправка события завершения (возврат на страницу, перезагрузка) не
+// создаёт дубликат и не меняет уже сохранённый снимок — «exists»
+// считается успехом. Ошибки сети не глушатся: попытка повторится на
+// следующем кадре scheduleRender.
+function manageHistorySave() {
+  if (historySaveBusy || historySavedCode === local.code) return;
+  const room = local.room;
+  if (!room || role() !== "host" || !local.keysReady) return;
+  const done = room.status === "closed"
+    || liveInfo().lifecycle === "completed"
+    || liveInfo().lifecycle === "closed";
+  if (!done) return;
+  historySaveBusy = true;
+  (async () => {
+    const { input, grades, report } = finalData();
+    const snapshot = buildRoomHistorySnapshot({
+      room,
+      test: local.test,
+      players: local.players,
+      scores: local.scores,
+      duels: local.duels,
+      keysByPos: input.keysByPos,
+      questions: input.questions,
+      positions: input.positions,
+      grades,
+      report,
+      meta: finalMeta
+    });
+    const result = await saveRoomHistory(snapshot);
+    if (result.saved || result.reason === "exists") {
+      historySavedCode = room.code;
+    }
+  })().catch(err => {
+    console.error("История Live-комнат:", err);
+  }).finally(() => {
+    historySaveBusy = false;
+  });
+}
+
+// Панель вкладки. Каждый случай собирается из существующих модулей:
+// готовые графики/таблицы не переписываются. Рейтинг и дуэли — живые
+// узлы (обновляются сами), отчёт и журнал — по данным итога.
+function buildFinalPane(id, { grades, report } = {}) {
+  const room = local.room;
+  switch (id) {
+    case "overview":
+      return overviewPanel({
+        title: room?.testTitle || "Итоги Live",
+        subject: finalMeta.subject,
+        topic: finalMeta.topic,
+        finishedLabel: finalFinishedLabel(room),
+        participants: local.players.filter(p => roleOfPlayer(p) !== ROLE_OBSERVER).length,
+        observers: local.players.filter(p => roleOfPlayer(p) === ROLE_OBSERVER).length,
+        group: report?.group,
+        verdict: report?.verdict
+      });
+    case "rating": {
+      const stack = h("div", { class: "final-pane-stack" });
+      stack.appendChild(ratingPanel({ title: "Полный рейтинг участников" }));
+      const duels = duelsPanel();
+      if (duels) stack.appendChild(duels);
+      return stack;
+    }
+    case "stats":
+      return reportSection(report, { title: "Статистика", sections: ["group", "questions"] });
+    case "students":
+      return studentsPanel(report, grades);
+    case "journal":
+      return journalPanel(journalRows(grades), {
+        grades,
+        export: {
+          title: room?.testTitle || "",
+          dateMs: finalFinishedMs(room)
+        }
+      });
+    case "recs":
+      return recommendationsPanel(report);
+    default:
+      return h("div", { class: "muted" }, "Вкладка недоступна.");
+  }
+}
+
+// Дата завершения: метка досрочного/автоматического конца или закрытия
+// комнаты. Нет метки — «—», дату не выдумываем.
+function finalFinishedMs(room) {
+  return toMs(room?.autoEndedAt) || toMs(room?.closedAt) || toMs(room?.updatedAt) || null;
+}
+
+function finalFinishedLabel(room) {
+  const ms = finalFinishedMs(room);
+  if (!ms) return "—";
+  return new Date(ms).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" });
+}
+
+// Показ активной вкладки: панель берётся из кэша, переключение не
+// пересобирает её; aria-атрибуты синхронизируются с ARIA-табами.
+function renderFinalTab() {
+  if (!finalDock || !local.keysReady) return;
+  for (const btn of finalDock.querySelectorAll(".final-tab")) {
+    const active = btn.dataset.tab === finalTab;
+    btn.classList.toggle("active", active);
+    if (active) btn.setAttribute("aria-selected", "true");
+    else btn.setAttribute("aria-selected", "false");
+    btn.tabIndex = active ? 0 : -1;
+  }
+  const paneHost = finalDock.querySelector("[data-final-pane]");
+  if (!paneHost) return;
+  let pane = finalTabPanes.get(finalTab);
+  if (!pane) {
+    pane = buildFinalPane(finalTab, finalData());
+    finalTabPanes.set(finalTab, pane);
+  }
+  pane.id = `final-pane-${finalTab}`;
+  pane.setAttribute("aria-labelledby", `final-tab-${finalTab}`);
+  paneHost.replaceChildren(pane);
+}
+
 function updateFinalDock() {
   if (!finalDock || !local.keysReady) return;
   const input = liveReportInput();
+  // Подпись данных: ответы и проведённые вопросы, дуэли (панель в
+  // вкладке «Рейтинг»), предмет/тема (подгружаются асинхронно), название.
   const sig = [
     input.positions.join(","),
-    input.players.map(p => `${p.uid}:${p.role || ""}:${JSON.stringify(p.answers || {})}`).sort().join("|")
+    input.players.map(p => `${p.uid}:${p.role || ""}:${JSON.stringify(p.answers || {})}`).sort().join("|"),
+    duelSig(),
+    local.room?.testTitle || "",
+    finalMeta.subject,
+    finalMeta.topic
   ].join("#");
-  if (sig === finalDockSig) return;
-  finalDockSig = sig;
   const scrollY = window.scrollY;
-  const grades = gradeRoster(input);
-  finalDock.querySelector("[data-final-report]").replaceChildren(
-    reportPanel(buildLiveReport(input), { open: reportOpen, onToggle: (value) => { reportOpen = value; } }));
-  finalDock.querySelector("[data-final-journal]").replaceChildren(
-    journalPanel(journalRows(grades), { grades }));
+  if (sig !== finalDockSig) {
+    finalDockSig = sig;
+    // Данные изменились — кэш панелей недействителен: активная панель
+    // пересобирается сейчас, остальные лениво при переключении.
+    finalTabPanes.clear();
+  }
+  renderFinalTab();
   if (window.scrollY !== scrollY) window.scrollTo(0, scrollY);
+}
+
+// Предмет и тема для «Обзора»: имена по id теста, один раз, необязательно.
+// Нет доступа или полей — вкладка показывает «не указаны», ошибок нет.
+async function resolveFinalMeta(test) {
+  const subjectId = typeof test?.subjectId === "string" ? test.subjectId : "";
+  const topicId = typeof test?.topicId === "string" ? test.topicId : "";
+  if (!subjectId && !topicId) return;
+  try {
+    const [subject, topic] = await Promise.all([
+      subjectId ? getSubject(subjectId).catch(() => null) : Promise.resolve(null),
+      topicId ? getTopic(topicId).catch(() => null) : Promise.resolve(null)
+    ]);
+    const next = {
+      subject: subject?.title || "",
+      topic: topic?.title || ""
+    };
+    if (next.subject !== finalMeta.subject || next.topic !== finalMeta.topic) {
+      finalMeta = next;
+      if (finalDock?.isConnected) updateFinalDock();
+    }
+  } catch (err) {
+    console.error("Предмет/тема теста:", err);
+  }
 }
 
 function autoHostView() {
@@ -2565,15 +3165,15 @@ function autoHostView() {
           "Вопросы идут автоматически по расписанию. Эту страницу лучше держать открытой: она раскрывает ответы и считает баллы."))));
     wrap.appendChild(ratingPanel());
   } else {
-    // completed / closed. Порядок блоков фиксированный:
-    // название теста → подиум → полный рейтинг → подробный отчёт → журнал.
+    // completed / closed. Единый итоговый экран: название теста → подиум →
+    // экран с вкладками (Обзор · Рейтинг · Статистика · Участники ·
+    // Журнал · Рекомендации). Вкладки переключаются без пересборки вида.
     wrap.appendChild(h("div", { class: "final-title" },
       h("h2", {}, room.testTitle || "Итоги Live"),
       h("p", { class: "muted" }, "Итоги Live-тестирования")));
     wrap.appendChild(progressPanel(li, room));
     const hostSeq = finalSequence();
     if (hostSeq) wrap.appendChild(hostSeq);
-    wrap.appendChild(ratingPanel({ title: "Полный рейтинг участников" }));
     wrap.appendChild(finalDockNode());
   }
 
@@ -2720,6 +3320,151 @@ function gapPanel(question, li, my) {
   return box;
 }
 
+// ---------- Дуэли за места (участник) ----------
+// Участник группы ничьей получает вопрос раунда здесь же, на итоговом
+// экране, и отвечает один раз; результат появится после закрытия раунда.
+
+function duelAnswerId(group) {
+  return `${group.id}__${group.currentRound}__${State.user?.uid}`;
+}
+
+// Свой ответ на открытый раунд: правила отдают участнику только его
+// документ; проверяем один раз на пару (группа, раунд).
+function ensureMyDuelAnswerKnown(answerId) {
+  if (duelAnswerKnown.has(answerId)) return;
+  duelAnswerKnown.set(answerId, false);
+  getDoc(doc(db, "rooms", local.code, "duels", "final", "answers", answerId))
+    .then(snap => {
+      if (snap.exists()) {
+        duelAnswerKnown.set(answerId, true);
+        lastSignature = null;
+        scheduleRender(null);
+      }
+    })
+    .catch(err => console.warn("Ответ дуэли:", err?.code || err));
+}
+
+// Форма ответа на раунд дуэли: тот же состав полей, что в answerForm,
+// но запись идёт в answers дуэли и не влияет на основной тест.
+function duelAnswerForm(group, question) {
+  const answerId = duelAnswerId(group);
+  ensureMyDuelAnswerKnown(answerId);
+
+  const head = h("div", { class: "panel-head" },
+    h("h2", {}, "Дуэль за место"),
+    h("span", { class: "badge badge-neutral" }, `раунд ${group.currentRound} · ${question.points || 1} б.`));
+  const panel = h("section", { class: "panel" }, head);
+
+  if (duelAnswerKnown.get(answerId) === true) {
+    return h("section", { class: "panel" }, head,
+      h("div", { class: "panel-body" },
+        h("p", { class: "form-hint" }, "Ответ принят — ждём закрытия раунда.")));
+  }
+
+  const submitBtn = h("button", { type: "button", class: "btn primary btn-block" }, "Ответить");
+  const message = h("div", { class: "form-hint", role: "status" });
+  const name = `duel-q-${group.id}-${question.type || "single"}`;
+
+  const submit = async (value, successNote) => {
+    message.textContent = "";
+    message.className = "form-hint";
+    submitBtn.disabled = true;
+    try {
+      await saveDuelAnswer(local.code, answerId, value);
+      duelAnswerKnown.set(answerId, true);
+      toast(successNote, "success");
+      lastSignature = null;
+      scheduleRender(null);
+    } catch (err) {
+      console.error("Ответ дуэли:", err);
+      message.textContent = err?.code === "permission-denied"
+        ? "Ответ уже принят или раунд закрыт."
+        : "Не удалось отправить ответ (нет сети?)";
+      message.className = "form-error";
+      submitBtn.disabled = false;
+    }
+  };
+
+  if (question.type === "short") {
+    const input = h("input", { class: "form-control", type: "text", "aria-label": "Ответ" });
+    panel.appendChild(h("div", { class: "panel-body" },
+      h("div", { class: "field" }, input), submitBtn, message));
+    submitBtn.addEventListener("click", () => {
+      const value = input.value.trim();
+      if (!value) { message.textContent = "Введите ответ."; message.className = "form-error"; return; }
+      submit(value, "Ответ на раунд принят");
+    });
+  } else if (question.type === "multiple") {
+    const checkboxes = [];
+    panel.appendChild(h("div", { class: "panel-body" },
+      h("div", { class: "options" },
+        (question.options || []).map((option, index) => {
+          const cb = h("input", { type: "checkbox", id: `${name}-${index}`, value: String(index) });
+          checkboxes.push(cb);
+          return h("label", { class: "option", for: `${name}-${index}` }, cb, option.text || "—");
+        })),
+      submitBtn, message));
+    submitBtn.addEventListener("click", () => {
+      const value = checkboxes.filter(cb => cb.checked).map(cb => Number(cb.value));
+      if (!value.length) { message.textContent = "Отметьте хотя бы один вариант."; message.className = "form-error"; return; }
+      submit(value, "Ответ на раунд принят");
+    });
+  } else {
+    const radios = [];
+    panel.appendChild(h("div", { class: "panel-body" },
+      h("div", { class: "options" },
+        (question.options || []).map((option, index) => {
+          const rb = h("input", { type: "radio", name, id: `${name}-${index}`, value: String(index) });
+          radios.push(rb);
+          return h("label", { class: "option", for: `${name}-${index}` }, rb, option.text || "—");
+        })),
+      submitBtn, message));
+    submitBtn.addEventListener("click", () => {
+      const checked = radios.find(rb => rb.checked);
+      if (!checked) { message.textContent = "Выберите вариант."; message.className = "form-error"; return; }
+      submit(Number(checked.value), "Ответ на раунд принят");
+    });
+  }
+
+  // Текст вопроса — над формой ответа.
+  panel.insertBefore(questionPanel(question), panel.querySelector(".panel-body"));
+  return panel;
+}
+
+// Блок дуэли в итоговом виде участника: вопрос раунда, статусы групп,
+// решение преподавателя. Участники без ничьей блок не получают.
+function duelPlayerWidget() {
+  const doc = local.duels;
+  const uid = State.user?.uid;
+  if (!doc || !uid) return null;
+  const group = (doc.groups || []).find(g => (g.uids || []).includes(uid));
+  if (!group) return null;
+  if (group.status === "resolved") {
+    return h("p", { class: "form-hint" },
+      group.decision
+        ? "Ваше место определено решением преподавателя."
+        : "Ваше место определено дуэлью.");
+  }
+  if (group.status === "pending") {
+    return h("div", { class: "panel" },
+      h("div", { class: "panel-body" },
+        h("h3", {}, "Место ещё не определено"),
+        h("p", { class: "muted" },
+          "Дуэль не дала перевеса — ведущий примет решение. Итоговый рейтинг обновится автоматически.")));
+  }
+  if (group.currentQid != null) {
+    const question = (local.test?.questions || [])[Number(group.currentQid)];
+    if (question) return duelAnswerForm(group, question);
+    return h("div", { class: "panel" },
+      h("div", { class: "panel-body" }, h("p", { class: "muted" }, "Загружаем вопрос дуэли…")));
+  }
+  return h("div", { class: "panel" },
+    h("div", { class: "panel-body" },
+      h("h3", {}, "Дуэль за место"),
+      h("p", { class: "muted" },
+        "Вы претендуете на одно место с другим участником. Ведущий проводит раунды — вопрос появится здесь.")));
+}
+
 function finishedPlayerView(wrap, room, li) {
   const rows = ratingSource();
   wrap.appendChild(h("div", { class: "final-title" },
@@ -2746,6 +3491,8 @@ function finishedPlayerView(wrap, room, li) {
       h("ol", { class: "live-accuracy" },
         results.map((r, i) => h("li", {}, `Вопрос ${i + 1}: ${formatBreakdown(r)}`)))));
   }
+  const duelWidget = duelPlayerWidget();
+  if (duelWidget) wrap.appendChild(duelWidget);
   wrap.appendChild(ratingPanel({ title: "Итоговый рейтинг" }));
   const m = materialButton();
   if (m) wrap.appendChild(m);

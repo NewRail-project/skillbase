@@ -7,8 +7,8 @@
 // участников только через reveals после закрытия вопроса.
 
 import {
-  db, doc, getDoc, setDoc, updateDoc, onSnapshot, serverTimestamp,
-  collection, runTransaction
+  db, doc, getDoc, getDocs, setDoc, updateDoc, onSnapshot, serverTimestamp,
+  collection, runTransaction, query, where
 } from "../shared/firebase.js";
 import {
   generateRoomCode, normalizeRoomCode, isValidRoomCode,
@@ -605,6 +605,88 @@ export async function saveAnswer(code, questionId, answer) {
   );
 }
 
+// ---------- Дуэли за места (разрешение ничьих итогового рейтинга) ----------
+// Состояние живёт в rooms/{code}/duels/final (один документ, правила
+// разрешают читать всем в комнате и писать только ведущему), ответы
+// раундов — rooms/{code}/duels/final/answers/{группа}__{раунд}__{uid}:
+// участник пишет только свой ответ и только один раз. Логика состояний —
+// в core/duel-logic.js; здесь только доступ к Firestore.
+
+// Подписка на состояние дуэлей: null — документа ещё нет (ничьих не
+// зафиксировано или ведущий их не начал).
+export function subscribeDuels(code, onData, onError) {
+  const roomCode = normalizeRoomCode(code);
+  if (!roomCode) throw new Error("Некорректный код комнаты.");
+  return onSnapshot(
+    doc(db, "rooms", roomCode, "duels", "final"),
+    snapshot => onData && onData(snapshot.exists() ? snapshot.data() : null),
+    error => onError && onError(error)
+  );
+}
+
+// Создаёт документ дуэлей, только если его ещё нет: повторное открытие
+// комнаты (переподключение ведущего) не должно затирать историю раундов
+// и решения преподавателя. Возвращает true, если документ создан.
+export async function ensureDuelsDoc(code, payload) {
+  requireOnline("Нет подключения к интернету. Дуэли не начаты.");
+  const roomCode = normalizeRoomCode(code);
+  if (!roomCode) throw new Error("Некорректный код комнаты.");
+  const ref = doc(db, "rooms", roomCode, "duels", "final");
+  const existing = await getDoc(ref);
+  if (existing.exists()) return false;
+  await setDoc(ref, {
+    ...payload,
+    computedBy: State.user?.uid || "",
+    computedAt: serverTimestamp()
+  }, { merge: false });
+  return true;
+}
+
+// Обновление состояния дуэлей ведущим: новый раунд, закрытие раунда,
+// остановка серии или решение преподавателя (целиком, merge: false —
+// состояние считается на клиенте и пишется как есть).
+export async function updateDuelsDoc(code, payload) {
+  requireOnline("Нет подключения к интернету. Дуэль не обновлена.");
+  const roomCode = normalizeRoomCode(code);
+  if (!roomCode) throw new Error("Некорректный код комнаты.");
+  await setDoc(doc(db, "rooms", roomCode, "duels", "final"), {
+    ...payload,
+    computedBy: State.user?.uid || "",
+    computedAt: serverTimestamp()
+  }, { merge: false });
+}
+
+// Ответы участников на раунды дуэлей: читает только ведущий (правила
+// не отдают чужие ответы никому другому). Ключ документа — идентификатор
+// "{groupId}__{раунд}__{uid}", значение — answer или null.
+export async function readDuelAnswers(code) {
+  const roomCode = normalizeRoomCode(code);
+  if (!roomCode) throw new Error("Некорректный код комнаты.");
+  const snap = await getDocs(
+    collection(db, "rooms", roomCode, "duels", "final", "answers")
+  );
+  const out = {};
+  snap.forEach(item => { out[item.id] = (item.data() || {}).answer ?? null; });
+  return out;
+}
+
+// Ответ участника на раунд дуэли: один раз (правила запрещают update),
+// свой документ — идентификатор обязан заканчиваться собственным uid.
+export async function saveDuelAnswer(code, answerId, answer) {
+  requireOnline("Нет подключения к интернету. Ответ дуэли не сохранён.");
+  const roomCode = normalizeRoomCode(code);
+  if (!roomCode) throw new Error("Некорректный код комнаты.");
+  if (!State.user?.uid) throw new Error("Нужно войти в аккаунт.");
+  if (String(answerId).split("__").pop() !== State.user.uid) {
+    throw new Error("Можно отправить только свой ответ.");
+  }
+  await setDoc(
+    doc(db, "rooms", roomCode, "duels", "final", "answers", String(answerId)),
+    { answer, at: serverTimestamp() },
+    { merge: false }
+  );
+}
+
 // ---------- Реакции ----------
 
 // rooms/{code}/reactions/{uid}: { emoji, at }. Каждый участник/наблюдатель
@@ -649,3 +731,51 @@ export function subscribeReactions(code, callback, onError) {
 }
 
 export { isValidRoomCode, normalizeRoomCode };
+
+// ---------- История завершённых Live-комнат ----------
+// Снимок итогового отчёта: roomHistory/{code}. Код комнаты = id документа
+// (устойчивый идентификатор): второй документ на ту же комнату невозможен,
+// повторная отправка события завершения не создаёт дубликат — снимок
+// пишется только если документ ещё не существует. Обновление и удаление
+// запрещены и правилами (история неизменяема), и клиентом (снимок
+// не пересчитывается при повторном открытии).
+
+export async function saveRoomHistory(snapshot) {
+  requireOnline("Нет подключения к интернету. История комнаты не сохранена.");
+  const code = normalizeRoomCode(snapshot?.code);
+  if (!code) throw new Error("Некорректный код комнаты.");
+  const ref = doc(db, "roomHistory", code);
+  const existing = await getDoc(ref);
+  if (existing.exists()) return { saved: false, reason: "exists" };
+  await setDoc(ref, {
+    ...snapshot,
+    key: code,
+    code,
+    savedAt: serverTimestamp()
+  });
+  return { saved: true };
+}
+
+// Один снимок по коду: null — комнаты нет в истории (частичное состояние
+// показывает страница, а не выдуманные данные).
+export async function getRoomHistory(code) {
+  const roomCode = normalizeRoomCode(code);
+  if (!roomCode) throw new Error("Некорректный код комнаты.");
+  const snap = await getDoc(doc(db, "roomHistory", roomCode));
+  return snap.exists() ? snap.data() : null;
+}
+
+// Список истории: преподаватель — свои комнаты (hostId), администратор —
+// все комнаты организации. Оба запроса по одному полю — составного
+// индекса не требуется (сортировка на клиенте, sortHistoryRows).
+export async function listRoomHistory({ orgId = null, hostId = null } = {}) {
+  if (!navigator.onLine) throw new Error("Нет подключения к интернету.");
+  const whereField = hostId ? "hostId" : "orgId";
+  const whereValue = hostId || orgId;
+  if (!whereValue) throw new Error("Укажите организацию или преподавателя.");
+  const snap = await getDocs(query(
+    collection(db, "roomHistory"),
+    where(whereField, "==", whereValue)
+  ));
+  return snap.docs.map(item => item.data() || {});
+}

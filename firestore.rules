@@ -1157,6 +1157,83 @@ function isGuest() {
 
         allow delete: if request.auth.uid == observerId || isRoomHost();
       }
+
+      // ---------- Дуэли за места ----------
+      // Разрешение ничьих итогового рейтинга: состояние дуэлей
+      // (rooms/{roomId}/duels/final) пишет только ведущий, читают все
+      // в комнате — финальный рейтинг с уникальными местами нужен каждому.
+      // Логика раундов — core/duel-logic.js; баллы основного теста
+      // (players/answers, scores) дуэли не затрагивают.
+      match /duels/{docId} {        allow read: if isRoomHost() || inRoomAnyRole();
+
+        // Пишет ведущий: ключ документа совпадает с id ("final"),
+        // состав полей ограничен. Решение преподавателя хранится внутри
+        // группы с причиной и автором — удаление истории невозможно.
+        allow create, update: if isRoomHost()
+          && request.resource.data.key == docId
+          && request.resource.data.keys().hasOnly(
+            ["key", "status", "groups", "order", "computedAt", "computedBy", "version"]);
+
+        allow delete: if false;
+
+        // Ответы раундов: участник (не наблюдатель, не вышедший из
+        // комнаты) пишет только свой документ и только один раз (create).
+        // Идентификатор "{группа}__{раунд}__{uid}" — uid берётся из самого
+        // идентификатора, поле доверять не нужно.
+        match /answers/{answerId} {
+          function duelAnswerOwner() {
+            return answerId.split("__").size() == 3
+              ? answerId.split("__")[2]
+              : "";
+          }
+
+          function duelPlayerDoc() {
+            return get(
+              /databases/$(database)/documents/rooms/$(roomId)/players/$(duelAnswerOwner())
+            ).data;
+          }
+
+          allow read: if isRoomHost()
+            || (request.auth.uid != null && request.auth.uid == duelAnswerOwner());
+
+          allow create: if (hasProfile() || isGuest())
+            && inRoomAnyRole()
+            && request.auth.uid == duelAnswerOwner()
+            && duelPlayerDoc().observer != true
+            && duelPlayerDoc().get("role", "player") != "observer"
+            && request.resource.data.keys().hasOnly(["answer", "at"])
+            && request.resource.data.at == request.time;
+
+          allow update, delete: if false;
+        }
+      }
+    }
+
+    // ---------- roomHistory ----------
+    // История завершённых Live-комнат: снимок итогового отчёта
+    // (roomHistory/{код комнаты}). Пишет только ведущий своей комнаты
+    // при завершении; код = id документа, повторная запись не создаёт
+    // дубликат (клиент проверяет существование, идентификатор устойчивый).
+    // Читают: администратор — все комнаты организации, преподаватель —
+    // только свои (владелец). Студентам история недоступна вовсе:
+    // читать и тем более изменять чужие отчёты нельзя.
+    // Ключи правильных ответов в снимок не пишутся: белый список полей,
+    // обновление и удаление запрещены — история неизменяема.
+    match /roomHistory/{docId} {
+      allow read: if isStaffOf(resource.data.orgId)
+        && (isAdminOf(resource.data.orgId)
+          || resource.data.hostId == request.auth.uid);
+
+      allow create: if isStaff()
+        && request.resource.data.orgId == myOrg()
+        && request.resource.data.hostId == request.auth.uid
+        && request.resource.data.code == docId
+        && request.resource.data.keys().hasOnly(
+          ["key", "code", "orgId", "hostId", "hostName", "testId", "testTitle",
+           "subjectName", "topicName", "createdAtMs", "finishedAtMs", "version",
+           "overview", "rating", "duels", "report", "studentsDetail", "journal", "savedAt"]);
+
+      allow update, delete: if false;
     }
   }
 }

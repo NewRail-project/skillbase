@@ -456,6 +456,7 @@ function renderStaffHome(page, profile) {
         { icon: icons.plus, label: lt("home.staff.quickNew"), hint: "Конструктор", href: "#create-test" },
         { icon: icons.chart, label: lt("nav.results"), hint: "Проверка и экспорт", href: "#results" },
         { icon: icons.qr, label: lt("nav.join"), hint: "Live-комната", href: "#join" },
+        { icon: icons.clock, label: lt("nav.roomHistory"), hint: "Завершённые комнаты", href: "#room-history" },
         { icon: icons.users, label: lt("home.staff.quickUsers"), hint: lt("home.staff.quickUsersHint"), href: "#users" }
       ])
     ),

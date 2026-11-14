@@ -3841,7 +3841,408 @@ function testCases() {
         }
         ,
         ...subjectCases(),
-        ...liveAutoCases()
+        ...liveAutoCases(),
+        ...duelCases(),
+        ...roomHistoryCases()
+    ];
+}
+
+// Кейсы правил истории завершённых Live-комнат (roomHistory/{код}).
+function historyDocData(overrides = {}) {
+    return {
+        key: "ABC123",
+        code: "ABC123",
+        orgId: ORG,
+        hostId: "teacher1",
+        hostName: "Преподаватель",
+        testId: "test1",
+        testTitle: "Тест",
+        subjectName: "",
+        topicName: "",
+        createdAtMs: 1,
+        finishedAtMs: 2,
+        version: 1,
+        overview: { participants: 2, observers: 1, averageGrade: 50, averagePercent: 50, finished: 1, verdict: null },
+        rating: [{ uid: "student1", name: "Ученик", place: 1, score: 3, streak: 1, trail: "111" }],
+        duels: null,
+        report: { group: {}, questions: [], students: [], topics: [], recommendations: [], verdict: null },
+        studentsDetail: [],
+        journal: [],
+        savedAt: ISO,
+        ...overrides
+    };
+}
+
+function roomHistoryCases() {
+    return [
+        // ---------- чтение ----------
+        {
+            name: "История: преподаватель-ведущий читает свой снимок",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/roomHistory/ABC123`,
+                method: "get"
+            },
+            resource: { data: historyDocData() },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "История: администратор организации читает снимок",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "admin1" },
+                path: `${DB}/roomHistory/ABC123`,
+                method: "get"
+            },
+            resource: { data: historyDocData() },
+            functionMocks: profileMocks("admin1", "admin")
+        },
+        {
+            name: "История: преподаватель не читает чужую комнату (не владелец)",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher2" },
+                path: `${DB}/roomHistory/ABC123`,
+                method: "get"
+            },
+            resource: { data: historyDocData() },
+            functionMocks: profileMocks("teacher2", "teacher")
+        },
+        {
+            name: "История: преподаватель не читает снимок чужой организации",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/roomHistory/OTHER`,
+                method: "get"
+            },
+            resource: { data: historyDocData({ code: "OTHER", key: "OTHER", orgId: "other-org" }) },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "История: администратор не читает снимок чужой организации",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "admin1" },
+                path: `${DB}/roomHistory/OTHER`,
+                method: "get"
+            },
+            resource: { data: historyDocData({ code: "OTHER", key: "OTHER", orgId: "other-org" }) },
+            functionMocks: profileMocks("admin1", "admin")
+        },
+        {
+            name: "История: студент не читает снимок",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/roomHistory/ABC123`,
+                method: "get"
+            },
+            resource: { data: historyDocData() },
+            functionMocks: profileMocks("student1", "student")
+        },
+        // ---------- создание ----------
+        {
+            name: "История: ведущий сохраняет снимок своей комнаты",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/roomHistory/ABC123`,
+                method: "create",
+                resource: { data: historyDocData() }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "История: код документа не совпадает с id — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/roomHistory/OTHER`,
+                method: "create",
+                resource: { data: historyDocData() }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "История: подмена hostId — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/roomHistory/ABC123`,
+                method: "create",
+                resource: { data: historyDocData({ hostId: "teacher2" }) }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "История: ведущий не пишет снимок в чужую организацию — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/roomHistory/ABC123`,
+                method: "create",
+                resource: { data: historyDocData({ orgId: "other-org" }) }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "История: студент не сохраняет снимок",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/roomHistory/ABC123`,
+                method: "create",
+                resource: { data: historyDocData({ hostId: "student1" }) }
+            },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "История: лишние поля снимка — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/roomHistory/ABC123`,
+                method: "create",
+                resource: { data: historyDocData({ keys: { "0": [0] } }) }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        // ---------- изменение и удаление ----------
+        {
+            name: "История: снимок неизменяем — даже ведущий не обновляет",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/roomHistory/ABC123`,
+                method: "update",
+                resource: { data: historyDocData() }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "История: студент не изменяет отчёт",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/roomHistory/ABC123`,
+                method: "update",
+                resource: { data: historyDocData() }
+            },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "История: удаление запрещено даже администратору",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "admin1" },
+                path: `${DB}/roomHistory/ABC123`,
+                method: "delete"
+            },
+            resource: { data: historyDocData() },
+            functionMocks: profileMocks("admin1", "admin")
+        }
+    ];
+}
+
+// Кейсы правил дуэлей за места (duels/final и answers раундов).
+function duelDocData(overrides = {}) {
+    return {
+        key: "final",
+        status: "running",
+        groups: [{ id: "g0", uids: ["student1", "student2"], status: "running" }],
+        order: ["student1", "student2"],
+        computedAt: ISO,
+        computedBy: "teacher1",
+        version: 1,
+        ...overrides
+    };
+}
+
+function duelCases() {
+    const answerTime = "2026-01-01T00:10:00Z";
+    return [
+        {
+            name: "Дуэли: ведущий создаёт документ дуэлей",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/rooms/r1/duels/final`,
+                method: "create",
+                resource: { data: duelDocData() }
+            },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                ...roomMocks("", "idle")
+            ]
+        },
+        {
+            name: "Дуэли: ключ документа не совпадает с id — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/rooms/r1/duels/final`,
+                method: "create",
+                resource: { data: duelDocData({ key: "other" }) }
+            },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                ...roomMocks("", "idle")
+            ]
+        },
+        {
+            name: "Дуэли: лишние поля документа — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/rooms/r1/duels/final`,
+                method: "create",
+                resource: { data: duelDocData({ verdicts: { student1: "x" } }) }
+            },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                ...roomMocks("", "idle")
+            ]
+        },
+        {
+            name: "Дуэли: участник не создаёт документ дуэлей",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/duels/final`,
+                method: "create",
+                resource: { data: duelDocData() }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...roomMocks("", "idle")
+            ]
+        },
+        {
+            name: "Дуэли: участник не обновляет документ дуэлей",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/duels/final`,
+                method: "update",
+                resource: { data: duelDocData() }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...roomMocks("", "idle")
+            ]
+        },
+        {
+            name: "Дуэли: участник читает состояние дуэлей",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/duels/final`,
+                method: "get"
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...roomMocks("", "idle")
+            ]
+        },
+        {
+            name: "Дуэли: посторонний не читает состояние дуэлей",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student9" },
+                path: `${DB}/rooms/r1/duels/final`,
+                method: "get"
+            },
+            functionMocks: [
+                ...profileMocks("student9", "student"),
+                ...roomMocks("", "idle"),
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/rooms/r1/players/student9` }],
+                    result: { value: false }
+                },
+                {
+                    function: "exists",
+                    args: [{ exactValue: `${DB}/rooms/r1/observers/student9` }],
+                    result: { value: false }
+                }
+            ]
+        },
+        {
+            name: "Дуэли: участник пишет свой ответ на раунд",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/duels/final/answers/g0__1__student1`,
+                method: "create",
+                resource: { data: { answer: "A", at: answerTime } },
+                time: answerTime
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...roomMocks("", "idle"),
+                ...playerMock("student1", false)
+            ]
+        },
+        {
+            name: "Дуэли: чужой ответ от имени другого участника — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/duels/final/answers/g0__1__student2`,
+                method: "create",
+                resource: { data: { answer: "A", at: answerTime } }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...roomMocks("", "idle"),
+                ...playerMock("student2", false)
+            ]
+        },
+        {
+            name: "Дуэли: наблюдатель не отвечает на раунд — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student2" },
+                path: `${DB}/rooms/r1/duels/final/answers/g0__1__student2`,
+                method: "create",
+                resource: { data: { answer: "A", at: answerTime } }
+            },
+            functionMocks: [
+                ...profileMocks("student2", "student"),
+                ...roomMocks("", "idle"),
+                ...playerMock("student2", true)
+            ]
+        },
+        {
+            name: "Дуэли: участник не перезаписывает свой ответ — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/duels/final/answers/g0__1__student1`,
+                method: "update",
+                resource: { data: { answer: "B", at: answerTime } }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...roomMocks("", "idle"),
+                ...playerMock("student1", false)
+            ]
+        },
+        {
+            name: "Дуэли: ведущий не удаляет документ дуэлей — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/rooms/r1/duels/final`,
+                method: "delete"
+            },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                ...roomMocks("", "idle")
+            ]
+        }
     ];
 }
 

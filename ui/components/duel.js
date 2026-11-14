@@ -1,33 +1,15 @@
 // ui/components/duel.js — «Дуэль» перед финалом: два лидера, пошаговое
 // сравнение ответов по вопросам. Раунд выигрывает тот, кто ответил верно,
 // когда соперник ошибся или пропустил; иначе — ничья раунда.
+// Чистая логика раундов живёт в core/duel-logic.js — она же используется
+// разрешением ничьих итогового рейтинга; здесь только анимация.
 import { h } from "../../shared/dom.js";
+import { duelRounds } from "../../core/duel-logic.js";
 import { animateNumber } from "./leaderboard.js";
 
 export const DUEL_STEP_MS = 1100;
 
-// Чистая логика: сравнение двух рядов вердиктов по общим вопросам.
-// verdict: true / false / null (пропуск). Возвращает раунды и счёт.
-export function duelRounds(a, b) {
-  const qids = [];
-  const seen = new Set();
-  for (const item of [...(a?.verdicts || []), ...(b?.verdicts || [])]) {
-    if (!seen.has(item.qid)) { seen.add(item.qid); qids.push(item.qid); }
-  }
-  qids.sort((x, y) => Number(x) - Number(y));
-  const pick = (row, qid) => (row?.verdicts || []).find(v => v.qid === qid)?.verdict ?? null;
-  let winsA = 0;
-  let winsB = 0;
-  const rounds = qids.map(qid => {
-    const va = pick(a, qid);
-    const vb = pick(b, qid);
-    let winner = "draw";
-    if (va === true && vb !== true) { winner = "a"; winsA += 1; }
-    else if (vb === true && va !== true) { winner = "b"; winsB += 1; }
-    return { qid, a: va, b: vb, winner };
-  });
-  return { rounds, winsA, winsB };
-}
+export { duelRounds };
 
 const MARK = { true: "✓", false: "✗", null: "–" };
 const MARK_LABEL = { true: "верно", false: "неверно", null: "пропуск" };
@@ -55,6 +37,12 @@ export function buildDuel(a, b, { avatar, onDone } = {}) {
     rows, banner);
 
   const winnerText = () => {
+    // После разрешения ничьей места уникальны: показываем лидера по месту,
+    // а не «Ничья — места делятся» для строк с равными баллами.
+    if (typeof a.place === "number" && typeof b.place === "number"
+      && a.place !== b.place) {
+      return `Впереди ${(a.place < b.place ? a : b).name}`;
+    }
     if ((a.score ?? 0) === (b.score ?? 0)) return "Ничья — места делятся!";
     return `Впереди ${(a.score ?? 0) > (b.score ?? 0) ? a.name : b.name}`;
   };

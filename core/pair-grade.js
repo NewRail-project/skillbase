@@ -73,9 +73,20 @@ export function gradePlayer(player, keysByPos, { positions = null } = {}) {
 
 // «Присутствовал» — вошёл в комнату как участник. Отсутствующим считается
 // тот, кого нет среди участников (его в журнале показываем из списка группы).
+// Повторное подключение не создаёт вторую строку: в Live-комнате каждому
+// участнику отвечает один документ players/{uid}; на случай сторонних
+// источников (история попыток) одинаковые uid схлопываются — первый вход
+// выигрывает.
 export function gradeRoster({ players = [], keysByPos = [], positions = null, absent = [] } = {}) {
+  const seen = new Set();
   const rows = players
-    .filter(p => !p.observer && p.role !== "observer" && p.isAdminPlayer !== true)
+    .filter(p => {
+      if (p.observer || p.role === "observer" || p.isAdminPlayer === true) return false;
+      if (p.uid == null) return true;
+      if (seen.has(p.uid)) return false;
+      seen.add(p.uid);
+      return true;
+    })
     .map(p => gradePlayer(p, keysByPos, { positions }));
   for (const person of absent) {
     rows.push({ uid: person.uid || null, name: person.name || "Участник",
@@ -85,17 +96,35 @@ export function gradeRoster({ players = [], keysByPos = [], positions = null, ab
   return rows;
 }
 
-// Журнал: ФИО по алфавиту независимо от места в рейтинге.
+// Журнал: ФИО по алфавиту независимо от места в рейтинге. Строка несёт
+// все данные, которые требует журнал: порядковый номер, ФИО, статус
+// участия, число верных/неверных/пропущенных ответов и итоговую оценку.
+// Счётчики выводятся из разбора gradePlayer (breakdown) — новых источников
+// данных нет: неверный ответ отличается от пропуска и от неучастия.
 export function journalRows(grades) {
   return [...(grades || [])]
     .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ru", { sensitivity: "base" }))
-    .map(row => ({
-      uid: row.uid,
-      name: row.name,
-      status: row.status,
-      grade: row.status === GRADE_STATUS.ABSENT ? null : row.grade,
-      label: row.status === GRADE_STATUS.ABSENT ? GRADE_STATUS_LABEL.absent : String(row.grade)
-    }));
+    .map((row, index) => {
+      const breakdown = Array.isArray(row.breakdown) ? row.breakdown : [];
+      const wrong = breakdown.filter(b => b.answered && !b.correct).length;
+      const skipped = breakdown.filter(b => !b.answered).length;
+      return {
+        n: index + 1,
+        uid: row.uid,
+        name: row.name,
+        status: row.status,
+        // Статус участия: был и отвечал / был без ответов / не участвовал.
+        statusLabel: row.status === GRADE_STATUS.ABSENT ? GRADE_STATUS_LABEL.absent
+          : row.status === GRADE_STATUS.ZERO ? GRADE_STATUS_LABEL.zero
+          : "Участвовал",
+        correct: row.correctCount ?? breakdown.filter(b => b.correct).length,
+        wrong,
+        skipped,
+        total: row.total ?? breakdown.length,
+        grade: row.status === GRADE_STATUS.ABSENT ? null : row.grade,
+        label: row.status === GRADE_STATUS.ABSENT ? GRADE_STATUS_LABEL.absent : String(row.grade)
+      };
+    });
 }
 
 // Средний балл по журналу: только выставленные оценки (независимо от
@@ -104,10 +133,38 @@ export function journalRows(grades) {
 // Пустой журнал → null (показывать среднее нечего).
 export function journalAverage(grades) {
   const values = (grades || [])
+    .filter(row => row.status !== GRADE_STATUS.ABSENT)
     .map(row => row.grade)
     .filter(v => typeof v === "number");
   if (!values.length) return null;
   return Math.round(values.reduce((sum, v) => sum + v, 0) / values.length);
+}
+
+// ---------- CSV журнала ----------
+// Колонки промта и строки для экспорта. Данные — те же, что отображает
+// вкладка «Журнал» (journalRows): отдельной формулы оценки и отдельной
+// логики участников нет. «Не вошедшие» (status absent — из списка
+// группы, не из players) в экспорт не попадают; вошедший без ответов
+// остаётся со статусом «zero» и оценкой 0; наблюдателей в journalRows
+// уже нет (gradeRoster их отфильтровал). Порядок строк — по ФИО,
+// как на вкладке.
+export const JOURNAL_CSV_COLUMNS = [
+  "№", "ФИО", "Статус участия", "Правильные ответы", "Неправильные ответы",
+  "Пропуски", "Итоговая оценка"
+];
+
+export function journalCsvRows(journal) {
+  return (journal || [])
+    .filter(row => row.status !== GRADE_STATUS.ABSENT)
+    .map(row => ({
+      "№": row.n ?? "",
+      "ФИО": row.name ?? "",
+      "Статус участия": row.statusLabel ?? "",
+      "Правильные ответы": row.correct ?? 0,
+      "Неправильные ответы": row.wrong ?? 0,
+      "Пропуски": row.skipped ?? 0,
+      "Итоговая оценка": row.status === GRADE_STATUS.ABSENT ? "" : (row.grade ?? 0)
+    }));
 }
 
 // Ручная правка оценки: хранится отдельной записью, с причиной и автором.

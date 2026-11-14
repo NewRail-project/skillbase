@@ -49,6 +49,17 @@
 @media (max-width: 380px) {
   .lb-card { grid-template-columns: 1.6rem auto minmax(0, 1fr) auto; column-gap: var(--space-2); padding: var(--space-2); }
   .lb-card .avatar-chip { width: 34px; height: 34px; }
+  /* История: на узких экранах карточка — одна колонка, кнопка под текстом. */
+  .history-item .panel-body { display: flex; flex-direction: column; gap: var(--space-2); }
+  .history-item-actions { justify-content: flex-start; }
+  .history-item-head { flex-wrap: wrap; gap: var(--space-2); }
+  .history-item-head h3 { font-size: .95em; }
+  /* Итоговый экран: вкладки — табы, прокручиваются горизонтально. */
+  .final-tabs { gap: var(--space-1); }
+  .final-tab { min-height: 44px; padding: var(--space-2) var(--space-3); }
+  /* Журнал: кнопка экспорта занимает всю ширину на узких экранах. */
+  .journal-export { width: 100%; }
+  .panel-head-actions .journal-export { width: auto; }
 }
 
 /* ---------- Серия ---------- */
@@ -403,3 +414,92 @@
 @media (prefers-reduced-motion: reduce) { .col-bar, .gauge-fg { transition: none; } }
 .verdict { padding: var(--space-2) var(--space-3); border-radius: var(--radius, 8px); background: rgba(127,127,127,.12); }
 .verdict-good { background: rgba(46,158,91,.16); } .verdict-mid { background: rgba(217,162,43,.18); } .verdict-low { background: rgba(192,57,43,.16); }
+
+/* Единый итоговый экран Live: вкладки. Полоса вкладок прокручивается
+   горизонтально сама, страница не переполняется; кнопки крупные —
+   удобно нажимать на телефоне. */
+.live-final { margin-top: var(--space-3); }
+.final-tabs {
+  display: flex;
+  gap: var(--space-1, 4px);
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: var(--space-2) var(--space-2) 0;
+  border-bottom: 1px solid rgba(127,127,127,.25);
+}
+.final-tabs::-webkit-scrollbar { display: none; }
+.final-tab {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius, 8px) var(--radius, 8px) 0 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.final-tab:hover { background: rgba(127,127,127,.12); }
+.final-tab.active {
+  background: rgba(127,127,127,.15);
+  font-weight: 700;
+  box-shadow: inset 0 -2px 0 var(--accent, #2f7dd1);
+}
+.final-tab:focus-visible { outline: 2px solid var(--accent, #2f7dd1); outline-offset: -2px; }
+.final-pane { padding: var(--space-2) var(--space-2) var(--space-3); }
+.final-pane > .panel { margin: 0 0 var(--space-2); }
+.final-pane > .panel:last-child { margin-bottom: 0; }
+.final-pane-stack { display: grid; gap: var(--space-2); }
+
+/* Обзор: сетка «метка — значение» без переполнения. */
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+}
+.overview-item {
+  padding: var(--space-2);
+  border-radius: var(--radius, 8px);
+  background: rgba(127,127,127,.1);
+}
+.overview-item dt { font-size: .8em; opacity: .75; }
+.overview-item dd { margin: 2px 0 0; font-weight: 600; overflow-wrap: anywhere; }
+
+/* Участники: раскрывающиеся строки. */
+.students-detail { display: grid; gap: var(--space-2); }
+.student-detail { border-radius: var(--radius, 8px); background: rgba(127,127,127,.08); }
+.student-detail summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  list-style: none;
+}
+.student-detail summary::-webkit-details-marker { display: none; }
+.student-detail-stats { opacity: .8; font-size: .9em; }
+.student-detail-grade { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+.student-detail .table-scroll { margin: 0 var(--space-2) var(--space-2); }
+.student-detail .form-hint { margin: 0 var(--space-3) var(--space-2); }
+.row-ok td:first-child { color: #2e9e5b; }
+.row-bad td:first-child { color: #c0392b; }
+.row-skip { opacity: .7; }
+
+/* История завершённых Live-комнат: список карточек с кнопкой отчёта. */
+.history-list { display: grid; gap: var(--space-3); }
+.history-item .panel-body { display: grid; gap: var(--space-2); }
+.history-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+.history-item-head h3 { margin: 0; font-size: 1.05em; }
+.history-item-actions { display: flex; justify-content: flex-end; }
+.room-history-report { display: grid; gap: var(--space-3); }
+
+/* Экспорт журнала в CSV: кнопка в шапке панели, тап-зона ≥44px. */
+.journal-export { min-height: 44px; }
