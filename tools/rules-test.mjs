@@ -1016,7 +1016,114 @@ function subjectCases() {
             functionMocks: profileMocks("student1", "student")
         },
         {
-            name: "Темы: недопустимый статус published — отказ",
+            // ЭТАП 4: «published» теперь допустимый статус темы (набор
+            // расширен: draft/planned/published/active/archived).
+            name: "Темы: преподаватель публикует тему (published)",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/topics/t1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: topicDoc(),
+            newDoc: topicDoc({ status: "published", updatedAt: "2026-01-02T00:00:00Z" }),
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Темы: преподаватель создаёт тему-черновик",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/topics/t-draft`,
+                method: "create",
+                resource: { data: topicDoc({ status: "draft", groupId: "" }) }
+            },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                ...subjectMock("s1")
+            ]
+        },
+        {
+            // Студентам черновики запрещены правилами, а не только UI.
+            name: "Темы: студент не читает черновик",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/topics/t-draft`,
+                method: "get"
+            },
+            resource: { data: topicDoc({ status: "draft" }) },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Темы: студент не читает запланированную тему",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/topics/t-planned`,
+                method: "get"
+            },
+            resource: { data: topicDoc({ status: "planned" }) },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Темы: студент читает опубликованную тему своей группы",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/topics/t-pub`,
+                method: "get"
+            },
+            resource: { data: topicDoc({ status: "published", groupId: "default-group" }) },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Темы: студент читает опубликованную тему без группы",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/topics/t-pub-all`,
+                method: "get"
+            },
+            resource: { data: topicDoc({ status: "published", groupId: "" }) },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Темы: студент не читает тему чужой группы",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/topics/t-other-group`,
+                method: "get"
+            },
+            resource: { data: topicDoc({ status: "published", groupId: "group-2" }) },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            // ЭТАП 4: расписании темы — даты timestamp, группа строкой.
+            name: "Темы: преподаватель задаёт расписание темы",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/topics/t1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: topicDoc(),
+            newDoc: topicDoc({
+                groupId: "default-group",
+                lessonDate: "2026-11-20T09:00:00Z",
+                openDate: "2026-11-18T00:00:00Z",
+                closeDate: "2026-12-01T00:00:00Z",
+                publishDate: "2026-11-17T00:00:00Z",
+                dueDate: "2026-11-30T00:00:00Z",
+                updatedAt: "2026-01-02T00:00:00Z"
+            }),
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Темы: даты расписания строками — отказ",
             expectation: "DENY",
             request: {
                 auth: { uid: "teacher1" },
@@ -1025,8 +1132,58 @@ function subjectCases() {
                 requestResource: true
             },
             existingDoc: topicDoc(),
-            newDoc: topicDoc({ status: "published" }),
+            newDoc: topicDoc({ openDate: "2026-11-18" }),
             functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Темы: groupId не строкой — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/topics/t1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: topicDoc(),
+            newDoc: topicDoc({ groupId: 42 }),
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Темы: неизвестное поле расписания — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/topics/t1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: topicDoc(),
+            newDoc: topicDoc({ startDate: "2026-11-18T00:00:00Z" }),
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Темы: недопустимый статус bogus — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/topics/t1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: topicDoc(),
+            newDoc: topicDoc({ status: "bogus" }),
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Темы: физическое удаление запрещено даже администратору",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "admin1" },
+                path: `${DB}/topics/t1`,
+                method: "delete"
+            },
+            resource: { data: topicDoc() },
+            functionMocks: profileMocks("admin1", "admin")
         }
     ];
 }
@@ -3152,6 +3309,71 @@ function testCases() {
                 }
             },
             functionMocks: profileMocks("student2", "student")
+        },
+        // ---------- Этап 6: сотрудник читает прогресс чтения ----------
+        // Аналитике тем нужен материал «завершили чтение»: сотрудник
+        // организации читает progressDoc ученика, владелец сверяется по
+        // users/{uid}.orgId. Межорганизационный доступ и студенческий
+        // доступ к чужому прогрессу запрещены.
+        {
+            name: "Прогресс: преподаватель организации читает прогресс ученика",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/materialProgress/student1_t1`,
+                method: "get"
+            },
+            resource: {
+                data: { uid: "student1", testId: "t1", lastPage: 2, completed: true, updatedAt: ISO }
+            },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/users/student1` }],
+                    result: { value: { data: userDoc("student1", "student") } }
+                }
+            ]
+        },
+        {
+            name: "Прогресс: преподаватель другой организации не читает прогресс",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher-out" },
+                path: `${DB}/materialProgress/student1_t1`,
+                method: "get"
+            },
+            resource: {
+                data: { uid: "student1", testId: "t1", lastPage: 2, completed: true, updatedAt: ISO }
+            },
+            functionMocks: [
+                ...profileMocks("teacher-out", "teacher", "other-org"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/users/student1` }],
+                    result: { value: { data: userDoc("student1", "student") } }
+                }
+            ]
+        },
+        {
+            name: "Прогресс: студент не читает чужой прогресс",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student2" },
+                path: `${DB}/materialProgress/student1_t1`,
+                method: "get"
+            },
+            resource: {
+                data: { uid: "student1", testId: "t1", lastPage: 2, completed: true, updatedAt: ISO }
+            },
+            functionMocks: [
+                ...profileMocks("student2", "student"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/users/student1` }],
+                    result: { value: { data: userDoc("student1", "student") } }
+                }
+            ]
         },
         // ---------- Этап 3: статусы материалов ----------
         // Книги тестов не имеют поля status — они по-прежнему читаются

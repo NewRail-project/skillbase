@@ -4,6 +4,7 @@ import {
 } from "../shared/firebase.js";
 import { isCorrect, normalizeKeys, sanitizeAnswers, scoreAttempt } from "./scoring.js";
 import { State } from "./auth.js";
+import { saveJournalEntry } from "./journal.js";
 
 export { isCorrect, sanitizeAnswers };
 
@@ -388,6 +389,22 @@ export async function gradeAttempt(attempt, graderUid, keysCache = {}, decisions
     gradedBy: graderUid,
     updatedAt: serverTimestamp()
   });
+
+  // Автоматическая ингрессия (авто-запись) оценки в электронный журнал
+  try {
+    if (attempt.userId) {
+      await saveJournalEntry({
+        studentId: attempt.userId,
+        subjectId: attempt.subjectId || null,
+        topicId: attempt.topicId || null,
+        grade: percent !== undefined ? percent : (total > 0 ? Math.round((score / total) * 100) : 0),
+        source: "test",
+        reason: `Зачет за попытку теста ${attempt.testTitle || attempt.testId || ""}`.trim()
+      });
+    }
+  } catch (journalErr) {
+    console.error("Ошибка авто-ингрессии в журнал:", journalErr);
+  }
 
   return { score, total, percent };
 }

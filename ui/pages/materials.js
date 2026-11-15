@@ -105,8 +105,10 @@ export default async function MaterialsPage() {
     // «Прочитать материал» — добровольный режим читалки (не привязан к
     // попытке). Черновики студентам правилами закрыты.
     if (isPublished(material)) {
+      // Этап 5: контекст возврата (каталог) в адресе — вернёмся сюда
+      // даже после обновления страницы.
       actions.appendChild(h("a", {
-        class: "btn primary", href: `#material/${encodeURIComponent(material.id)}/free`
+        class: "btn primary", href: materialLink(window.location.hash, material.id)
       }, "Прочитать материал"));
     }
     if (material.pdfName) {

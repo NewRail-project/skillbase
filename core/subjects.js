@@ -12,6 +12,7 @@ import { State } from "./auth.js";
 import {
   subjectReadAccessError, subjectWriteAccessError,
   validateSubjectData, validateTopicData,
+  STUDENT_TOPIC_STATUSES, TOPIC_DATE_FIELDS,
   createReferenceCache
 } from "./subjects-logic.js";
 
@@ -46,6 +47,13 @@ export async function getSubjects() {
 
 // Темы предмета, упорядоченные по order. Темы чужой организации правила
 // не отдают, поэтому чужой subjectId возвращает пустой список.
+//
+// ЭТАП 4: правила дают студенту читать только опубликованные темы своей
+// группы. Правила — не фильтры: если выборка содержит запрещённый документ,
+// запрос падает целиком, поэтому запрос студента сам несёт те же
+// ограничения (status in, groupId in) и опирается на составной индекс
+// topics (firestore.indexes.json). У персонала — прежний запрос без
+// ограничений: он видит черновики, архив и все группы.
 export async function getTopics(subjectId) {
   const denied = subjectReadAccessError(State.user, State.profile);
   if (denied) throw new Error(denied);
@@ -55,12 +63,26 @@ export async function getTopics(subjectId) {
   const cacheKey = `topics:${State.profile.orgId}:${subjectId}`;
   const cached = refCache.get(cacheKey);
   if (cached) return cached;
-  const snap = await getDocs(query(
-    collection(db, "topics"),
+  const base = [
     where("subjectId", "==", subjectId),
-    where("orgId", "==", State.profile.orgId),
-    orderBy("order", "asc")
-  ));
+    where("orgId", "==", State.profile.orgId)
+  ];
+  let q;
+  if (State.profile.role === "student") {
+    // Группа «» = тема без ограничения по группе; своя группа — видна.
+    // Старые темы без поля groupId запрос не находит: поле появится при
+    // первом редактировании темы сотрудником (updateTopic проставляет "").
+    const myGroup = typeof State.profile.groupId === "string" ? State.profile.groupId : "";
+    const groups = [...new Set(["", myGroup])];
+    q = query(collection(db, "topics"),
+      ...base,
+      where("status", "in", STUDENT_TOPIC_STATUSES),
+      where("groupId", "in", groups),
+      orderBy("order", "asc"));
+  } else {
+    q = query(collection(db, "topics"), ...base, orderBy("order", "asc"));
+  }
+  const snap = await getDocs(q);
   const topics = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   refCache.set(cacheKey, topics);
   return topics;
@@ -223,7 +245,62 @@ export async function updateTopic(id, patch = {}) {
     throw new Error("Нет доступа: тема другой организации.");
   }
   await updateDoc(ref, { ...check.value, updatedAt: serverTimestamp() });
+  // Нормализация старых данных: при любом изменении темы поле groupId
+  // получает явное значение («» = для всех групп). Это нужно и правилам
+  // чтения для студентов, и запросу с groupId in (старые темы без поля
+  // запрос не находил).
+  if (!("groupId" in check.value) && snap.data().groupId === undefined) {
+    await updateDoc(ref, { groupId: "", updatedAt: serverTimestamp() });
+  }
   return { id, ...snap.data(), ...check.value };
+}
+
+// Копирование темы (этап 4). Безопасно: создаёт НОВЫЙ документ в той же
+// организации; исходная тема не меняется, привязки материалов, тестов и
+// история попыток остаются у оригинала. Копия создаётся черновиком
+// («— копия»), даты и группа переносятся — их можно поправить в настройках.
+// Перенос темы в другую дисциплину выполняется так же: копия в новую
+// дисциплину + архивирование оригинала (subjectId менять запрещают
+// правила, а удаления нет — история попыток сохраняется).
+export async function copyTopic(id, { toSubjectId = null } = {}) {
+  const denied = subjectWriteAccessError(State.user, State.profile);
+  if (denied) throw new Error(denied);
+  const source = await getTopic(id);
+  if (!source) throw new Error("Тема не найдена.");
+
+  const targetSubjectId = toSubjectId || source.subjectId;
+  let subjectSnap;
+  try {
+    subjectSnap = await getDoc(doc(db, "subjects", targetSubjectId));
+  } catch (e) {
+    throw accessError(e, "Предмет не найден в вашей организации.");
+  }
+  if (!subjectSnap.exists() || subjectSnap.data().orgId !== State.profile.orgId) {
+    throw new Error("Предмет не найден в вашей организации.");
+  }
+
+  const siblings = await getTopics(targetSubjectId);
+  const order = siblings.reduce((max, t) => Math.max(max, Number(t.order) || 0), 0) + 1;
+
+  const copy = {
+    orgId: State.profile.orgId,
+    subjectId: targetSubjectId,
+    title: `${source.title} — копия`.slice(0, 120),
+    description: source.description || "",
+    order,
+    status: "draft",
+    groupId: typeof source.groupId === "string" ? source.groupId : "",
+    createdBy: State.user.uid,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  };
+  for (const field of TOPIC_DATE_FIELDS) {
+    if (source[field]) copy[field] = source[field];
+  }
+  const ref = doc(collection(db, "topics"));
+  await setDoc(ref, copy);
+  refCache.clear();
+  return { id: ref.id, ...copy };
 }
 
 // Смена порядка темы на одну позицию (delta = -1 выше, +1 ниже).

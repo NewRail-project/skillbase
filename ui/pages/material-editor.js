@@ -24,7 +24,8 @@ import {
 } from "../../core/material-logic.js";
 import {
   validateMaterialMeta, normalizeStatus, draftKeyFor, serializeEditorDraft,
-  parseEditorDraft, draftIsNewer, LEVEL_CHAPTER, LEVEL_SUB
+  parseEditorDraft, draftIsNewer, LEVEL_CHAPTER, LEVEL_SUB,
+  pdfChunkCount
 } from "../../core/material-library-logic.js";
 import {
   loadLibraryMaterial, createLibraryMaterial, updateLibraryMaterial,
@@ -722,15 +723,21 @@ export default async function MaterialEditorPage() {
     try {
       paintSaveStatus("Загружаем PDF…");
       const pdf = await readPdfFile(file);
-      const total = Math.ceil(pdf.size / (256 * 1024));
+      const total = pdfChunkCount(pdf.size);
       paintSaveStatus(`Загружаем PDF: 0/${total}…`);
-      await saveLibraryPdf(state.id, pdf);
+      // Этап 5: ход загрузки по кусочкам (раньше — молчаливое ожидание,
+      // а «total» был захардкожен как 256 КБ, вне связи с PDF_CHUNK_BIN).
+      await saveLibraryPdf(state.id, pdf, (done, all) => {
+        paintSaveStatus(`Загружаем PDF: ${done}/${all}…`);
+      });
       state.pdf = { name: pdf.name, size: pdf.size };
       pdfInfo.textContent = `Вложение: ${pdf.name} (${(pdf.size / 1024 / 1024).toFixed(1)} МБ).`;
       pdfRemoveBtn.disabled = false;
       paintSaveStatus(`PDF загружен: ${total} частей.`);
       toast("PDF загружен", "success");
     } catch (err) {
+      // Введённый текст и страницы не трогаем: ошибка PDF не сбрасывает
+      // состояние редактора, черновик в localStorage сохраняется.
       paintSaveStatus(err?.message || "PDF не загружен.", true);
     } finally {
       pdfInput.value = "";

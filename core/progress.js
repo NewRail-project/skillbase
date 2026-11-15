@@ -114,7 +114,7 @@ export function computeStudentProgress(attempts, subjects = [], topics = [], mat
   // Серия успешных тестов (например, 3 теста подряд >= 75%)
   let currentStreak = 0;
   let maxStreak = 0;
-  const sortedAttempts = [...completedAttempts].sort((a, b) => (a.finishedAt?.toMillis() || 0) - (b.finishedAt?.toMillis() || 0));
+  const sortedAttempts = [...completedAttempts].sort((a, b) => attemptTimeMs(a.finishedAt) - attemptTimeMs(b.finishedAt));
   sortedAttempts.forEach(a => {
     if (a.percent >= 75) {
       currentStreak += 1;

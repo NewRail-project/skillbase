@@ -11,13 +11,16 @@ import { State } from "../../core/auth.js";
 import { loadMaterial, loadMaterialProgress, saveMaterialProgress } from "../../core/materials.js";
 import { materialProgress } from "../../core/material-logic.js";
 import {
-  deriveChapters, hasToc
+  deriveChapters, hasToc,
+  readerBackTarget,
+  backLabel as backLabelFor
 } from "../../core/material-library-logic.js";
 import {
   pdfBlob, loadLibraryPdf
 } from "../../core/material-library.js";
 import { setHashGuard, leaveWithHash } from "../../shared/app.js";
 import { t as tr, lt } from "../../core/i18n.js";
+import { toast } from "../components/toast.js";
 
 // Метаданные книги не берём из router: нужно знать orgId, чтобы правила
 // разрешили чтение. Материал грузим напрямую.
@@ -99,15 +102,20 @@ export default async function MaterialPage() {
   // #material/<id>/free — добровольное чтение: выйти к тесту можно в любой момент.
   const freeMode = routeParts[1] === "free";
   const previewMode = routeParts[1] === "preview";
-  // Код комнаты (чтение из лобби): «К тесту» возвращает в комнату.
-  const roomCode = routeParts[2] ? decodeURIComponent(routeParts[2]).toUpperCase() : "";
+  // Этап 5 (навигация): источник чтения передаётся в маршруте —
+  // «back:<закодированный адрес>» от темы/дисциплины, «preview/materials»
+  // из каталога, код комнаты из лобби. Жёсткого маршрута больше нет:
+  // студент возвращается туда, откуда открыл материал. Контекст возврата
+  // живёт в самом адресе, поэтому сохраняется после обновления страницы.
+  const back = freeMode ? readerBackTarget(routeParts) : { mode: "other", hash: "" };
+  const roomCode = back.mode === "room" ? decodeURIComponent(routeParts[2]).toUpperCase() : "";
   // Самостоятельный материал (этап 3): возврат в каталог материалов,
   // а не к несуществующему тесту. Редактор открывает предпросмотр как
   // #material/<id>/preview/materials — «К редактору» вернёт в каталог.
-  const fromLibrary = freeMode ? !roomCode : previewMode && routeParts[2] === "materials";
-  const backHash = fromLibrary ? "#materials"
-    : previewMode ? `#create-test/${testId}`
-      : (roomCode ? `#room/${roomCode}` : `#quiz/${testId}`);
+  const fromLibrary = freeMode && back.mode !== "room";
+  const backHash = previewMode ? `#create-test/${testId}`
+    : freeMode ? (back.mode === "back" || back.mode === "room" ? back.hash : "#materials")
+      : `#quiz/${testId}`;
   const prefs = loadPrefs();
   page.dataset.rd = prefs.mode;
   page.style.setProperty("--rd-size", `${prefs.size}px`);
@@ -227,32 +235,50 @@ export default async function MaterialPage() {
     tocBtn.setAttribute("aria-expanded", String(open));
   });
 
-  // ---------- PDF-вложение ----------
+  // ---------- PDF-вложение (этап 5, исправление по аудиту) ----------
+  //
+  // Раньше: ссылка blob: без target="_blank". На iOS Safari и части
+  // Android-вебвью атрибут download игнорируется — браузер навигируется в
+  // ТЕКУЩЕЙ вкладке на blob: URL, читалка заменяется, место чтения
+  // теряется, «назад» давал пустую страницу. Это и была главная причина
+  // «сломанной загрузки PDF». Теперь: hidden-ссылка с download И
+  // target="_blank" — настольные браузеры скачивают файл, мобильные
+  // открывают его в новой вкладке системным просмотрщиком (оттуда файл
+  // сохраняется в «Файлы»/на диск). Ошибки показываются тостом, а не
+  // только в консоли; кнопка сообщает о ходе загрузки кусочков.
   const pdfBtn = material.pdfName
     ? h("button", { type: "button", class: "reader-tool", "aria-label": "Открыть PDF" }, "PDF")
     : null;
   if (pdfBtn) {
     pdfBtn.addEventListener("click", async () => {
       pdfBtn.disabled = true;
+      const original = pdfBtn.textContent;
+      pdfBtn.textContent = "…";
       try {
         const pdf = await loadLibraryPdf(testId);
         if (!pdf) throw new Error("PDF не найден.");
         const url = URL.createObjectURL(pdfBlob(pdf.base64));
-        // Открыть системным просмотрщиком устройства / скачать.
         // blob: URL не проходит белый список href у h() — создаём
         // ссылку напрямую (это собственный объектный URL, не данные).
         const link = document.createElement("a");
         link.href = url;
         link.download = pdf.name;
+        link.target = "_blank";
         link.rel = "noopener";
         document.body.appendChild(link);
         link.click();
         link.remove();
+        // Скачивание/открытие — не доказательство прочтения: completed
+        // ставит только листание книги до последней страницы. Прогресс
+        // «открыл» уже записан читалкой (lastPage=0 при старте).
+        toast("PDF открыт. Если файл не появился — проверьте вкладки и «Загрузки».", "success");
         setTimeout(() => URL.revokeObjectURL(url), 60_000);
       } catch (err) {
         console.error("PDF:", err);
+        toast(err?.message || "Не удалось открыть PDF. Проверьте сеть и попробуйте ещё раз.", "error");
       } finally {
         pdfBtn.disabled = false;
+        pdfBtn.textContent = original;
       }
     });
   }
@@ -294,7 +320,9 @@ export default async function MaterialPage() {
     // Кнопка выхода: в обязательном режиме только на последней странице,
     // в добровольном (#material/<id>/free) — всегда.
     exitRow.textContent = "";
-    const backLabel = fromLibrary ? "К списку материалов" : previewMode ? "К редактору" : "К тесту";
+    // Этап 5: подпись выхода — по адресу возврата (тема, дисциплина,
+    // каталог, редактор, тест), а не жёсткое «К тесту».
+    const backLabel = backLabelFor(backHash);
     if ((freeMode || previewMode) && !isLast) {
       exitRow.appendChild(h("button", {
         type: "button", class: "btn secondary",
@@ -398,9 +426,9 @@ export default async function MaterialPage() {
 }
 
 function exitBtn(hash) {
-  const label = hash.startsWith("#create-test") ? "К редактору"
-    : hash === "#materials" ? "К списку материалов"
-      : "К тесту";
+  // Этап 5: подпись по адресу возврата (тема/дисциплина/каталог/тест),
+  // не жёсткая «К тесту».
+  const label = backLabel(hash);
   return h("a", {
     class: "btn secondary",
     onclick: () => {

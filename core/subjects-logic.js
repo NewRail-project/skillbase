@@ -14,6 +14,44 @@ export const STATUS_ACTIVE = "active";
 export const STATUS_ARCHIVED = "archived";
 export const SUBJECT_STATUSES = [STATUS_ACTIVE, STATUS_ARCHIVED];
 
+// ---------- Статусы тем ----------
+//
+// Хранимые статусы темы. «active» — легаси (темы до этапа 4); он равнозначен
+// «published». Состояния выполнения конкретным учеником (изучается,
+// завершена, просрочена) в теме НЕ хранятся — они вычисляются по попыткам
+// и датам в core/schedule-logic.js, чтобы не смешивать статус темы и
+// прогресс ученика.
+export const TOPIC_STATUS_DRAFT = "draft";
+export const TOPIC_STATUS_PLANNED = "planned";
+export const TOPIC_STATUS_PUBLISHED = "published";
+export const TOPIC_STATUS_ARCHIVED = STATUS_ARCHIVED;
+export const TOPIC_STATUSES = [
+  TOPIC_STATUS_DRAFT,
+  TOPIC_STATUS_PLANNED,
+  TOPIC_STATUS_PUBLISHED,
+  STATUS_ACTIVE, // легаси: темы до этапа 4
+  TOPIC_STATUS_ARCHIVED
+];
+// Студенты читают только опубликованные темы (правила Firestore; «active» —
+// легаси «опубликована»). Черновики и запланированные видит только персонал.
+export const STUDENT_TOPIC_STATUSES = [TOPIC_STATUS_PUBLISHED, STATUS_ACTIVE];
+// При создании темы можно выбрать начальный статус (по умолчанию — draft).
+export const TOPIC_CREATE_STATUSES = [
+  TOPIC_STATUS_DRAFT, TOPIC_STATUS_PLANNED, TOPIC_STATUS_PUBLISHED, STATUS_ACTIVE
+];
+
+// ---------- Даты темы (расписание) ----------
+// Ключи полей дат в документе. Значения — Firestore Timestamp или null
+// (правила проверяют is timestamp / is null); строки не допускаются,
+// поэтому страницы конвертируют input type=date в Timestamp.
+export const TOPIC_DATE_FIELDS = [
+  "lessonDate",  // дата проведения занятия
+  "openDate",    // дата открытия (доступа для студентов)
+  "closeDate",   // дата закрытия (после неё студентам недоступна)
+  "publishDate", // планируемая дата публикации (информационная)
+  "dueDate"      // срок сдачи
+];
+
 // Лимиты согласованы с правилами: название ≤ 120 символов (как ФИО в
 // core/registration.js), описание ≤ 600 (короткий текст для списка тем).
 export const TITLE_MAX = 120;
@@ -49,7 +87,13 @@ export function createReferenceCache(ttlMs = 60000) {
 // а у темы и subjectId) выставляет API, поэтому в данных от вызывающего
 // они запрещены и при создании, и при изменении.
 const SUBJECT_FIELDS = ["title", "description", "order", "status"];
-const TOPIC_FIELDS = ["subjectId", "title", "description", "order", "status"];
+// Поля темы: расписание этапа 4 + учебная группа. Правила Firestore
+// разрешают ровно этот список (см. match /topics).
+const TOPIC_FIELDS = [
+  "subjectId", "title", "description", "order", "status",
+  "groupId",
+  "lessonDate", "openDate", "closeDate", "publishDate", "dueDate"
+];
 
 const SUBJECT_SYSTEM_FIELDS = {
   orgId: "Нельзя изменять организацию (orgId)",
@@ -99,8 +143,11 @@ function unknownFieldError(data, allowed) {
 // Общие проверки полей предмета/темы. Возвращает строку ошибки или null.
 // Название требуется при создании и при передаче в patch; order — конечное
 // неотрицательное целое (Number.isInteger отсекает NaN, Infinity и дроби);
-// статус — active|archived, при создании строго active.
-function commonFieldsError(data, isCreate) {
+// статус — из набора модуля (у тем шире, у предметов как раньше).
+// opts: { statuses, createStatuses, defaultStatus } — для тем.
+function commonFieldsError(data, isCreate, opts = {}) {
+  const statuses = opts.statuses || SUBJECT_STATUSES;
+  const createStatuses = opts.createStatuses || [STATUS_ACTIVE];
   const needTitle = isCreate || data.title !== undefined;
   if (needTitle) {
     if (typeof data.title !== "string" || !data.title.trim()) {
@@ -130,8 +177,8 @@ function commonFieldsError(data, isCreate) {
   }
   if (data.status !== undefined) {
     const valid = isCreate
-      ? data.status === STATUS_ACTIVE
-      : SUBJECT_STATUSES.includes(data.status);
+      ? createStatuses.includes(data.status)
+      : statuses.includes(data.status);
     if (!valid) return "Недопустимый статус";
   }
   return null;
@@ -139,7 +186,9 @@ function commonFieldsError(data, isCreate) {
 
 // Очищенные значения полей: название и описание обрезаны, значения по
 // умолчанию выставлены только при создании. Системные поля не включает.
-function normalizeCommon(data, isCreate) {
+// opts — те же наборы статусов, что и в commonFieldsError.
+function normalizeCommon(data, isCreate, opts = {}) {
+  const defaultStatus = opts.defaultStatus || STATUS_ACTIVE;
   const value = {};
   if (isCreate || data.title !== undefined) value.title = data.title.trim();
   if (data.description !== undefined) value.description = data.description.trim();
@@ -148,13 +197,61 @@ function normalizeCommon(data, isCreate) {
   if (isCreate) {
     if (value.description === undefined) value.description = "";
     if (value.order === undefined) value.order = 0;
-    value.status = STATUS_ACTIVE;
+    if (value.status === undefined) value.status = defaultStatus;
   }
   return value;
 }
 
 function validSubjectId(src) {
   return typeof src.subjectId === "string" && Boolean(src.subjectId.trim());
+}
+
+// ---------- Расчёты каталога дисциплин ----------
+//
+// Чистые функции для карточек дисциплин и страницы дисциплины. Читают
+// только уже загруженные данные; Firestore не трогают, поэтому тестируются
+// в Node. Совместимость со старыми данными: поля teacher и startDate в
+// правилах записи запрещены (hasOnly), поэтому считаются необязательными —
+// старые дисциплины без них отображаются без ошибок.
+
+// Активные темы (без архивных). Массив не мутируется.
+export function activeTopics(topics) {
+  return (Array.isArray(topics) ? topics : []).filter(t => t?.status !== STATUS_ARCHIVED);
+}
+
+// Прогресс изучения дисциплины: доля активных тем от общего числа, в
+// процентах. 0 тем — 0%. Округление до целого — для карточки.
+export function disciplineProgress(topics) {
+  const list = Array.isArray(topics) ? topics : [];
+  if (!list.length) return 0;
+  const active = activeTopics(list).length;
+  return Math.round(active / list.length * 100);
+}
+
+// Ближайшая запланированная тема: первая активная тема с датой начала
+// (startDate). Старые темы без startDate не участвуют — поле в правилах
+// записи запрещено, поэтому ожидать его можно только в старых данных.
+// Возвращает тему или null.
+export function nextScheduledTopic(topics) {
+  const scheduled = activeTopics(topics)
+    .filter(t => t.startDate)
+    .sort((a, b) => {
+      const da = new Date(a.startDate).getTime() || Infinity;
+      const db = new Date(b.startDate).getTime() || Infinity;
+      return da - db;
+    });
+  return scheduled[0] || null;
+}
+
+// Краткое описание для карточки: обрезка по границе слова до limit символов.
+// Строковые описания только: числа и прочее (старые данные) → "".
+export function shortDescription(text, limit = 140) {
+  if (typeof text !== "string") return "";
+  const trimmed = text.trim();
+  if (trimmed.length <= limit) return trimmed;
+  const cut = trimmed.slice(0, limit);
+  const space = cut.lastIndexOf(" ");
+  return (space > limit * 0.6 ? cut.slice(0, space) : cut).trimEnd() + "…";
 }
 
 // Валидация данных предмета. isCreate — создание (все обязательные поля,
@@ -169,17 +266,79 @@ export function validateSubjectData(data, isCreate = false) {
   return { ok: true, value: normalizeCommon(src, isCreate) };
 }
 
+// ---------- Поля расписания темы: группа и даты ----------
+
+// Учебная группа темы: пустая строка = для всех групп (старые данные и
+// темы без ограничения). Строка до 100 символов — как groupId задания
+// (core/assign.js).
+function topicGroupError(data) {
+  if (data.groupId === undefined) return null;
+  if (typeof data.groupId !== "string") return "Некорректная учебная группа";
+  if (data.groupId.trim().length > 100) return "Название группы слишком длинное (максимум 100 символов)";
+  return null;
+}
+
+// Дата темы: null (не задана) или объект с toMillis() (Firestore Timestamp
+// в приложении; в тестах — мок той же формы). Строки и числа отклоняются:
+// вызывающий код обязан конвертировать input type=date в Timestamp,
+// иначе правила Firestore отклонят запись.
+export function topicDateMs(value) {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isFinite(ms) ? ms : undefined;
+  }
+  if (typeof value === "object" && typeof value.toMillis === "function") {
+    const ms = Number(value.toMillis());
+    return Number.isFinite(ms) ? ms : undefined;
+  }
+  return undefined; // некорректный тип
+}
+
+function topicDatesError(data) {
+  const ms = {};
+  for (const field of TOPIC_DATE_FIELDS) {
+    if (data[field] === undefined) continue;
+    const value = topicDateMs(data[field]);
+    if (value === undefined) {
+      return `Некорректная дата: ${field}`;
+    }
+    ms[field] = value;
+  }
+  // Окно доступа: дата закрытия не может быть раньше даты открытия.
+  if (ms.openDate != null && ms.closeDate != null && ms.closeDate < ms.openDate) {
+    return "Дата закрытия не может быть раньше даты открытия";
+  }
+  return null;
+}
+
 // Валидация данных темы: как у предмета + обязательный subjectId при
 // создании; при изменении subjectId запрещён (перенос между предметами
-// не поддерживается — см. правила).
+// не поддерживается — см. правила). Статусы темы шире: черновик,
+// запланирована, опубликована, архив. Дополнительно проверяются поля
+// расписания: groupId и даты (lessonDate/openDate/closeDate/publishDate/dueDate).
 export function validateTopicData(data, isCreate = false) {
   const src = data || {};
+  const topicOpts = {
+    statuses: TOPIC_STATUSES,
+    createStatuses: TOPIC_CREATE_STATUSES,
+    defaultStatus: TOPIC_STATUS_DRAFT
+  };
   const error = systemFieldError(src, isCreate ? SUBJECT_SYSTEM_FIELDS : TOPIC_SYSTEM_FIELDS)
     || unknownFieldError(src, TOPIC_FIELDS)
     || (isCreate && !validSubjectId(src) ? "Укажите предмет (subjectId)" : null)
-    || commonFieldsError(src, isCreate);
+    || commonFieldsError(src, isCreate, topicOpts)
+    || topicGroupError(src)
+    || topicDatesError(src);
   if (error) return { ok: false, error };
-  const value = normalizeCommon(src, isCreate);
+  const value = normalizeCommon(src, isCreate, topicOpts);
   if (isCreate) value.subjectId = src.subjectId.trim();
+  if (isCreate && value.groupId === undefined) value.groupId = "";
+  if (src.groupId !== undefined) value.groupId = src.groupId.trim();
+  // Даты проходят как есть (Timestamp|null) — конвертация на вызывающей
+  // стороне, правила Firestore проверяют тип.
+  for (const field of TOPIC_DATE_FIELDS) {
+    if (src[field] !== undefined) value[field] = src[field];
+  }
   return { ok: true, value };
 }

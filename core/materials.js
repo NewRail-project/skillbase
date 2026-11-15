@@ -101,16 +101,18 @@ export async function loadMaterialMeta(testId) {
 // ---------- Прогресс чтения ----------
 
 export async function loadMaterialProgress(uid, testId) {
-  if (!uid || !testId) return { lastPage: 0, completed: false };
+  // exists отличает «не открывал» (документа нет) от «открыл, но не
+  // листал» (читалка пишет lastPage=0 при старте) — этап 5.
+  if (!uid || !testId) return { lastPage: 0, completed: false, exists: false };
   try {
     const snap = await getDoc(doc(db, "materialProgress", materialDocId(uid, testId)));
-    if (!snap.exists()) return { lastPage: 0, completed: false };
+    if (!snap.exists()) return { lastPage: 0, completed: false, exists: false };
     const d = snap.data();
-    return { lastPage: d.lastPage ?? 0, completed: d.completed === true };
+    return { lastPage: d.lastPage ?? 0, completed: d.completed === true, exists: true };
   } catch (err) {
     // Нет доступа (идёт попытка — материал закрыт правилами): прогресс неважен.
     console.error("materialProgress:", err);
-    return { lastPage: 0, completed: false };
+    return { lastPage: 0, completed: false, exists: false };
   }
 }
 

@@ -74,7 +74,9 @@ const routes = {
   "material":     { file: "ui/pages/material.js",          title: "Материал",             tkey: "title.material",    auth: true },
   "test-history": { file: "ui/pages/test-history.js",       title: "История теста",        tkey: "title.results",     auth: true, roles: STAFF },
   "results":      { file: "ui/pages/results.js",           title: "Результаты",           tkey: "title.results",     auth: true, roles: STAFF },
-  "analytics":    { file: "ui/pages/analytics.js",         title: "Аналитика по тесту",   tkey: "title.analytics",   auth: true, roles: STAFF },
+  "analytics":    { file: "ui/pages/analytics.js",         title: "Аналитика",            tkey: "title.analytics",   auth: true, roles: STAFF },
+  // Аналитика учебной темы (этап 6): показатель темы + частые ошибки.
+  "topic-analytics": { file: "ui/pages/topic-analytics.js", title: "Аналитика темы",      auth: true, roles: STAFF },
   "review":       { file: "ui/pages/review.js",            title: "Проверка попытки",     auth: true, roles: STAFF },
   "assignments":  { file: "ui/pages/assignments.js",       title: "Задания",              tkey: "title.assignments", auth: true },
   "student":      { file: "ui/pages/student-dashboard.js", title: "Панель студента",      tkey: "title.student",     auth: true },
@@ -83,10 +85,16 @@ const routes = {
   "admins":       { file: "ui/pages/admins.js",            title: "Администраторы",       auth: true, roles: ADMIN },
   "settings":     { file: "ui/pages/settings.js",          title: "Настройки",            auth: true },
   "admin":        { file: "ui/pages/admin-panel.js",       title: "Админ-панель",         auth: true, roles: ADMIN },
-  "subjects":     { file: "ui/pages/subjects.js",          title: "Предметы и темы",      tkey: "title.subjects",    auth: true },
+  "subjects":     { file: "ui/pages/subjects.js",          title: "title.subjects",     tkey: "title.subjects",    auth: true,  legacy: true },
+  "disciplines":  { file: "ui/pages/discipline-catalog.js", title: "title.disciplines",  tkey: "title.disciplines", auth: true },
+  "journal":      { file: "ui/pages/journal.js",             title: "Электронный журнал", auth: true },
+  // Отдельная страница дисциплины: темы, материалы, тесты. #discipline/<id>
+  "discipline":  { file: "ui/pages/discipline-page.js", title: "title.disciplines",  tkey: "title.disciplines", auth: true, param: "disciplineId" },
   // Отдельная страница темы: материалы и тесты темы. #subjects/<id>
   // обслуживается той же страницей subjects.js по State.routeParam.
   "topic":        { file: "ui/pages/topic.js",             title: "Тема",                 tkey: "title.topic",       auth: true },
+  // Расписание: даты занятий, публикаций, сроков и заданий (этап 4).
+  "calendar":     { file: "ui/pages/calendar.js",          title: "Расписание",           auth: true },
   // Библиотека материалов: единый каталог книг и PDF (этап 3).
   "materials":    { file: "ui/pages/materials.js",         title: "Материалы",            tkey: "title.materials",   auth: true },
   // Рейтинг: агрегат попыток организации (staff). Страница существовала,
@@ -396,6 +404,7 @@ export function updateHeaderNav() {
   }
   if (STAFF.includes(State.profile?.role)) {
     nav.append(link("#create-test", () => t("nav.testsStaff")), link("#results", () => t("nav.results")), link("#analytics", () => t("nav.analytics")));
+    nav.append(link("#journal", () => t("nav.journal")), " ");
   }
   if (State.profile?.role === "admin") {
     nav.append(link("#admins", "Администраторы"));

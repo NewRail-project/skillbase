@@ -455,12 +455,20 @@ service cloud.firestore {
     match /materialProgress/{progressId} {
       // Прогресс может ещё не существовать (первое чтение материала):
       // пустой документ читается как «прогресса нет», существующий —
-      // только его владельцем.
+      // только его владельцем. Этап 6: чтение распространено на
+      // сотрудника СВОЕЙ организации (владелец прогресса сверяется по
+      // users/{uid}.orgId) — без этого аналитика тем («завершивших
+      // материал») невозможна. Граница между организациями не ослаблена:
+      // сотрудник другой организации не пройдёт проверку orgId, студент
+      // по-прежнему читает только свой прогресс.
       allow read: if signedIn()
         && (
           resource == null
           || (progressId == resource.data.uid + "_" + resource.data.testId
             && resource.data.uid == request.auth.uid)
+          || (isStaff()
+            && resource.data.uid is string
+            && get(/databases/$(database)/documents/users/$(resource.data.uid)).data.orgId == myOrg())
         );
 
       allow create, update: if hasProfile()
@@ -821,37 +829,87 @@ service cloud.firestore {
           && request.resource.data.order >= 0;
       }
 
+      // Поля расписания (этап 4): учебная группа — строка до 100 символов
+      // («» = для всех групп); даты занятия, открытия, закрытия,
+      // публикации и сдачи — timestamp или null (либо поле отсутствует у
+      // старых данных). Строки не допускаются: клиент конвертирует
+      // input type=date в Timestamp.
+      function topicScheduleOk() {
+        return (!("groupId" in request.resource.data)
+            || (request.resource.data.groupId is string
+              && request.resource.data.groupId.size() <= 100))
+          && topicDateOk("lessonDate")
+          && topicDateOk("openDate")
+          && topicDateOk("closeDate")
+          && topicDateOk("publishDate")
+          && topicDateOk("dueDate");
+      }
+
+      function topicDateOk(field) {
+        return !(field in request.resource.data.keys())
+          || request.resource.data[field] == null
+          || request.resource.data[field] is timestamp;
+      }
+
+      // Чтение: члены организации. Студентам — только опубликованные темы
+      // («active» — легаси «опубликована») своей группы или без группы
+      // (groupId == null / отсутствует / «»). Черновики, запланированные
+      // и архивные темы студенту запрещены правилами, не только интерфейсом.
+      // Даты открытия/закрытия правилами НЕ проверяются: правила — не
+      // фильтры, и LIST-запрос упал бы целиком при первой же теме с датой
+      // в будущем. Окно доступа применяется клиентской логикой
+      // (core/schedule-logic.js: topicOpenNow) во всех местах чтения.
       allow read: if (resource == null)
-        || (hasProfile() && resource.data.orgId == myOrg());
+        || (hasProfile()
+          && resource.data.orgId == myOrg()
+          && (isStaff()
+            || (resource.data.status in ["published", "active"]
+              && (!("groupId" in resource.data)
+                || resource.data.groupId == null
+                || resource.data.groupId == ""
+                || resource.data.groupId == userDoc().groupId))));
 
       // Создание: сотрудник организации; предмет обязан существовать и
       // принадлежать той же организации — тему нельзя повесить на чужой
-      // или несуществующий предмет; статус — только «active».
+      // или несуществующий предмет. Статус при создании — черновик,
+      // «запланирована» или опубликована (авто-публикации по расписанию
+      // нет: публикация — ручное действие сотрудника).
       allow create: if isStaff()
         && request.resource.data.orgId == myOrg()
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.subjectId is string
         && exists(/databases/$(database)/documents/subjects/$(request.resource.data.subjectId))
         && get(/databases/$(database)/documents/subjects/$(request.resource.data.subjectId)).data.orgId == myOrg()
-        && request.resource.data.status == "active"
+        && request.resource.data.status in ["draft", "planned", "published", "active"]
         && request.resource.data.keys().hasOnly(
           ["orgId", "subjectId", "title", "description", "order", "status",
+           "groupId",
+           "lessonDate", "openDate", "closeDate", "publishDate", "dueDate",
            "createdBy", "createdAt", "updatedAt"])
-        && topicFieldsOk();
+        && topicFieldsOk()
+        && topicScheduleOk();
 
       // Изменение: сотрудник организации темы; orgId, subjectId, createdBy
-      // и createdAt неизменяемы (перенос темы между предметами запрещён).
+      // и createdAt неизменяемы (перенос темы между предметами запрещён:
+      // для этого есть копирование + архивирование). Статус — из полного
+      // набора тем.
       allow update: if isStaffOf(resource.data.orgId)
         && request.resource.data.orgId == resource.data.orgId
         && request.resource.data.subjectId == resource.data.subjectId
         && request.resource.data.createdBy == resource.data.createdBy
         && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.status in ["active", "archived"]
+        && request.resource.data.status in ["draft", "planned", "published", "active", "archived"]
         && request.resource.data.keys().hasOnly(
           ["orgId", "subjectId", "title", "description", "order", "status",
+           "groupId",
+           "lessonDate", "openDate", "closeDate", "publishDate", "dueDate",
            "createdBy", "createdAt", "updatedAt"])
-        && topicFieldsOk();
+        && topicFieldsOk()
+        && topicScheduleOk();
 
+      // Физическое удаление запрещено: «удаление» — архивирование
+      // (status = archived) с проверкой зависимостей на клиенте. История
+      // попыток, тесты и материалы сохраняют привязку к topicId.
       allow delete: if false;
     }
 
@@ -1234,6 +1292,71 @@ function isGuest() {
            "overview", "rating", "duels", "report", "studentsDetail", "journal", "savedAt"]);
 
       allow update, delete: if false;
+    }
+    // ---------- journalEntries ----------
+    // Итоговые оценки по темам/предметам.
+    match /journalEntries/{docId} {
+      allow read: if signedIn()
+        && (
+          resource == null
+          || isStaffOf(resource.data.orgId)
+          || resource.data.studentId == request.auth.uid
+        );
+
+      allow create: if isStaff()
+        && request.resource.data.studentId is string
+        && (!("orgId" in request.resource.data) || request.resource.data.orgId == myOrg());
+
+      allow update, delete: if false;
+    }
+
+    // ---------- gradeOverrides ----------
+    // История ручных правок оценок (кто, когда, до/после, причина).
+    match /gradeOverrides/{docId} {
+      allow read: if signedIn()
+        && (
+          resource == null
+          || isStaffOf(resource.data.orgId)
+          || resource.data.studentId == request.auth.uid
+        );
+
+      allow create: if isStaff()
+        && request.resource.data.studentId is string
+        && request.resource.data.authorUid == request.auth.uid;
+
+      allow update, delete: if false;
+    }
+
+    // ---------- attendance ----------
+    // Отслеживание посещаемости: present/absent/late/excused.
+    match /attendance/{docId} {
+      allow read: if signedIn()
+        && (
+          resource == null
+          || isStaffOf(resource.data.orgId)
+          || resource.data.studentId == request.auth.uid
+        );
+
+      allow create: if isStaff()
+        && request.resource.data.studentId is string;
+
+      allow update, delete: if false;
+    }
+
+    // ---------- studentProgress ----------
+    // Динамика прогресса студента.
+    match /studentProgress/{docId} {
+      allow read: if signedIn()
+        && (
+          resource == null
+          || isStaff()
+          || resource.data.studentId == request.auth.uid
+        );
+
+      allow create, update: if isStaff()
+        || (hasProfile() && role() == "student" && request.resource.data.studentId == request.auth.uid);
+
+      allow delete: if false;
     }
   }
 }

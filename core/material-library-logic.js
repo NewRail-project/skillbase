@@ -180,6 +180,131 @@ export function isValidPdfName(name) {
     && value.toLowerCase().endsWith(".pdf");
 }
 
+// ---------- Проверка содержимого PDF (этап 5, аудит) ----------
+//
+// Раньше проверялось только имя и размер: переименованный файл любого
+// типа (например, .exe.pdf) загружался, а падал уже при открытии у
+// ученика. Теперь дополнительно проверяются MIME-тип и магическая
+// подпись «%PDF-» в начале файла.
+
+// Допустимые MIME-типы. Пустая строка разрешена: часть браузеров и
+// вебвью не выставляет type, но присылает корректную подпись.
+const PDF_MIME_TYPES = ["application/pdf", "application/x-pdf", ""];
+
+export function pdfMimeOk(type) {
+  return PDF_MIME_TYPES.includes(String(type ?? "").toLowerCase());
+}
+
+// Магическая подпись PDF: первые байты файла начинаются с «%PDF-».
+// bytes — Uint8Array/массив байтов; некорректный ввод → false.
+export function pdfHeaderOk(bytes) {
+  const sig = [0x25, 0x50, 0x44, 0x46, 0x2d]; // "%PDF-"
+  if (!bytes || typeof bytes.length !== "number" || bytes.length < sig.length) {
+    return false;
+  }
+  return sig.every((byte, i) => bytes[i] === byte);
+}
+
+// Полная проверка файла перед загрузкой: имя, MIME, подпись, размер.
+// Возвращает строку ошибки или null.
+export function pdfFileError(file) {
+  if (!isValidPdfName(file?.name)) {
+    return "Выберите файл PDF (имя без символов / \\, до 120 символов).";
+  }
+  if (!pdfMimeOk(file?.type)) {
+    return "Это не похоже на PDF: тип файла не поддерживается.";
+  }
+  if (Number(file?.size) > PDF_MAX_BYTES) {
+    return `Файл больше 4 МБ (${(file.size / 1024 / 1024).toFixed(1)} МБ). Сожмите PDF.`;
+  }
+  if (!file?.size) return "Файл пуст.";
+  if (!pdfHeaderOk(file?.headerBytes)) {
+    return "Файл не является PDF (нет подписи %PDF-). Возможно, расширение изменено вручную.";
+  }
+  return null;
+}
+
+// ---------- Возврат из читалки (этап 5) ----------
+//
+// Ссылки из темы передают источник в маршруте:
+//   #material/<id>/free                      — старый формат: каталог материалов
+//   #material/<id>/free/back:<encoded hash>  — возврат на исходную страницу
+//   #material/<id>/free/<КОД КОМНАТЫ>        — из лобби Live-комнаты (легаси)
+//   #material/<id>/preview/materials         — предпросмотр из каталога
+// Разбор чистый: тестируется в Node.
+
+export function readerBackTarget(parts) {
+  const third = String(parts?.[2] || "");
+  // Легаси: третий сегмент — код Live-комнаты (заглавные буквы/цифры).
+  // «back:» — новый формат: закодированный адрес возврата.
+  if (third.startsWith("back:")) {
+    try {
+      const target = decodeURIComponent(third.slice(5));
+      // Возврат только на внутренние маршруты приложения.
+      if (/^#(topic|discipline|disciplines|materials|quiz|room|assignments|student|home)\//.test(target)
+        || /^(#(topic|disciplines|materials|assignments|student|home))$/.test(target)) {
+        return { mode: "back", hash: target, label: backLabel(target) };
+      }
+      return { mode: "catalog", hash: "#materials", label: "К списку материалов" };
+    } catch (_) {
+      return { mode: "catalog", hash: "#materials", label: "К списку материалов" };
+    }
+  }
+  if (third) return { mode: "room", hash: `#room/${third}`, label: "В комнату" };
+  return { mode: "catalog", hash: "#materials", label: "К списку материалов" };
+}
+
+// Подпись кнопки выхода по адресу возврата.
+export function backLabel(hash) {
+  const h = String(hash || "");
+  if (h.startsWith("#topic")) return "К теме";
+  if (h.startsWith("#discipline/")) return "К дисциплине";
+  if (h.startsWith("#disciplines")) return "К каталогу дисциплин";
+  if (h.startsWith("#materials")) return "К списку материалов";
+  if (h.startsWith("#create-test")) return "К редактору";
+  if (h.startsWith("#room")) return "В комнату";
+  if (h.startsWith("#assignments")) return "К заданиям";
+  return "К тесту";
+}
+
+// Ссылка на материал с возвратом на текущую страницу:
+//   materialLink(currentHash, materialId, mode)
+// mode: "free" (добровольное чтение) — по умолчанию.
+// Текущий хеш кодируется одним сегментом (# → %23, / → %2F), поэтому
+// обновление страницы сохраняет контекст возврата.
+export function materialLink(currentHash, materialId, mode = "free") {
+  const back = String(currentHash || "").trim();
+  if (!back || !/^#[a-zA-Z]/.test(back) || back.startsWith("#material")) {
+    return `#material/${encodeURIComponent(materialId)}/${mode}`;
+  }
+  return `#material/${encodeURIComponent(materialId)}/${mode}/back:${encodeURIComponent(back)}`;
+}
+
+// ---------- Состояния прогресса изучения (этап 5) ----------
+//
+// Не открывал / Открыл / Читает / Завершил изучение. Состояния вычисляются
+// из существующего materialProgress { lastPage, completed }:
+//   • документа нет или lastPage == 0 и нет отметки чтения — «Не открывал»;
+//   • документ есть (читалка открывалась — она пишет lastPage=0 при старте),
+//     но страниц не листали и PDF не скачивали — «Открыл»;
+//   • lastPage > 0 — «Читает»;
+//   • completed — «Завершил изучение».
+// Скачивание PDF НЕ считает материал завершённым: completed ставит только
+// листание до последней страницы книги.
+
+export function materialProgressState(progress) {
+  const lastPage = Number(progress?.lastPage) || 0;
+  const completed = progress?.completed === true;
+  // exists — документ materialProgress существует: читалка открывалась
+  // (она пишет lastPage=0 при старте). Старые данные без exists при
+  // ненулевой странице всё равно считаются «читает/завершено».
+  const opened = progress?.exists === true;
+  if (completed) return { state: "done", label: "Завершил изучение" };
+  if (lastPage > 0) return { state: "reading", label: "Читает" };
+  if (opened) return { state: "opened", label: "Открыл" };
+  return { state: "none", label: "Не открывал" };
+}
+
 // ---------- Черновик редактора (автосохранение) ----------
 
 // Ключ локального черновика: для нового материала — «new».

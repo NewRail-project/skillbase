@@ -160,12 +160,15 @@ test("тема: корректное создание проходит", () => {
     true
   );
   assert.equal(check.ok, true);
+  // ЭТАП 4: тема по умолчанию создаётся черновиком, groupId — пустая
+  // строка (для всех групп).
   assert.deepEqual(check.value, {
     subjectId: "s1",
     title: "Тяговые двигатели",
     description: "",
     order: 1,
-    status: "active"
+    status: "draft",
+    groupId: ""
   });
 });
 
@@ -227,7 +230,11 @@ test("тема: нельзя сменить предмет при изменен
 test("тема: архивирование и допустимые patch", () => {
   assert.equal(validateTopicData({ status: "archived" }, false).ok, true);
   assert.equal(validateTopicData({ title: "Новое название", order: 3 }, false).ok, true);
-  assert.equal(validateTopicData({ status: "draft" }, false).error, "Недопустимый статус");
+  // ЭТАП 4: у тем шире набор статусов — черновик и «запланирована»
+  // допустимы при изменении (в правилах тот же список).
+  assert.equal(validateTopicData({ status: "draft" }, false).ok, true);
+  assert.equal(validateTopicData({ status: "planned" }, false).ok, true);
+  assert.equal(validateTopicData({ status: "unknown" }, false).error, "Недопустимый статус");
   assert.equal(
     validateTopicData({ orgId: "other-org" }, false).error,
     "Нельзя изменять организацию (orgId)"

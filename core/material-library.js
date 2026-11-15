@@ -17,7 +17,8 @@ import { validateMaterial } from "./material-logic.js";
 import {
   validateMaterialMeta, materialMetaPatch, normalizeStatus,
   MATERIAL_STATUS_DRAFT,
-  PDF_MAX_BYTES, PDF_CHUNK_BIN, pdfChunkCount, isValidPdfName
+  PDF_MAX_BYTES, PDF_CHUNK_BIN, pdfChunkCount, isValidPdfName,
+  pdfFileError
 } from "./material-library-logic.js";
 
 function accessError(e, message) {
@@ -165,15 +166,20 @@ export async function saveLibraryMaterialPages(id, pages) {
 
 // Считывает файл кусочками base64. Ограничение 4 МБ: PDF — учебное
 // приложение к материалу, документ Firestore не может быть больше 1 МБ.
+// Этап 5 (аудит): раньше проверялись только имя и размер — переименованный
+// файл любого типа проходил загрузку и падал при открытии у ученика.
+// Теперь проверяются MIME-тип и магическая подпись «%PDF-» (pdfFileError).
 export async function readPdfFile(file) {
-  if (!isValidPdfName(file?.name)) {
-    throw new Error("Выберите файл PDF (имя без символов / \\, до 120 символов).");
-  }
-  if (file.size > PDF_MAX_BYTES) {
-    throw new Error(`Файл больше 4 МБ (${(file.size / 1024 / 1024).toFixed(1)} МБ). Сожмите PDF.`);
-  }
   const buffer = await file.arrayBuffer();
-  return { name: file.name, size: file.size, bytes: new Uint8Array(buffer) };
+  const bytes = new Uint8Array(buffer);
+  const error = pdfFileError({
+    name: file?.name,
+    type: file?.type,
+    size: file?.size,
+    headerBytes: bytes
+  });
+  if (error) throw new Error(error);
+  return { name: file.name, size: file.size, bytes };
 }
 
 // Uint8Array → кусочки base64 по PDF_CHUNK_BIN байт. В браузере — через
@@ -187,27 +193,36 @@ function toBase64(bytes) {
   return btoa(binary);
 }
 
-export async function saveLibraryPdf(id, { name, size, bytes }) {
+// onProgress(done, total) — необязательный колбэк хода загрузки кусочков:
+// редактор показывает «Загружаем PDF: k/total» вместо беззвучного ожидания
+// (этап 5: обработка ошибок и понятный ход долгой операции).
+export async function saveLibraryPdf(id, { name, size, bytes }, onProgress = null) {
   requireOrg();
   if (!isValidPdfName(name)) throw new Error("Некорректное имя файла.");
   if (size > PDF_MAX_BYTES) throw new Error("Файл больше 4 МБ.");
   const total = pdfChunkCount(size);
   if (!total) throw new Error("Файл пуст.");
+  const report = typeof onProgress === "function" ? onProgress : () => {};
+  report(0, total);
 
   // Лишние кусочки предыдущего вложения удалить (файл мог стать меньше).
   const current = await getDocs(collection(db, "materials", id, "files"));
   const stale = current.docs.filter(d => Number(d.id) >= total);
   const writes = stale.map(d => deleteDoc(d.ref));
 
+  let done = 0;
   for (let n = 0; n < total; n++) {
     const start = n * PDF_CHUNK_BIN;
     const piece = bytes.subarray(start, Math.min(bytes.length, start + PDF_CHUNK_BIN));
-    writes.push(setDoc(doc(db, "materials", id, "files", String(n)), {
-      data: toBase64(piece)
-    }));
+    writes.push(
+      setDoc(doc(db, "materials", id, "files", String(n)), {
+        data: toBase64(piece)
+      }).then(() => report(++done, total))
+    );
   }
   await Promise.all(writes);
 
+  report(total, total);
   await setDoc(doc(db, "materials", id), {
     pdfName: String(name),
     pdfSize: Number(size),
