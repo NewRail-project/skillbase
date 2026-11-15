@@ -51,6 +51,7 @@ import { buildPodium, playPodium, showPodiumNow, podiumOrder, STEP_MS } from "..
 import { runConfetti, stopConfetti } from "../components/confetti.js";
 import { buildDuel } from "../components/duel.js";
 import { buildExpress, expressStations, EXPRESS_STOP_MS } from "../components/express.js";
+import { buildLiveTrain } from "../components/live-train.js";
 import { themeToggle } from "../components/theme-toggle.js";
 import { icons } from "../../shared/icons.js";
 import { toast } from "../components/toast.js";
@@ -90,6 +91,8 @@ let lastCrowdSig = null;  // подпись «толпы»: ответы/очк�
 let lastStepKey = null;   // «шаг» комнаты: смена вопроса/фазы/роли → плавный переход вида
 let lastBoardSig = null;
 let lastReactionSig = null;
+let journalOpen = false;     // раскрыт ли журнал пары (переживает перерисовку вида)
+let liveTrainNode = null;   // паровоз живёт между перерисовками: движение плавное
 const ratingNodes = new Map(); // рейтинг живёт между перерисовками вида: карточки не пересоздаются
 let finalDock = null;     // единый итоговый экран с вкладками: обновляется на месте
 let finalDockSig = "";
@@ -148,6 +151,9 @@ function reset() {
   lastBoardSig = null;
   lastReactionSig = null;
   ratingNodes.clear();
+  if (liveTrainNode) liveTrainNode.destroy();
+  liveTrainNode = null;
+  journalOpen = false;
   finalDock = null;
   finalDockSig = "";
   finalTab = "overview";
@@ -578,7 +584,7 @@ export default async function RoomPage() {
     local.keysReady = true;
     // Предмет/тема для вкладки «Обзор»: только у ведущего (имена из
     // справочников организации), не блокирует отрисовку.
-    if (isHost && testDoc) resolveFinalMeta(testDoc);
+    if (testDoc) resolveFinalMeta(testDoc);
   } catch (err) {
     console.error("Комната:", err);
     page.appendChild(connectionErrorPanel(err));
@@ -1845,6 +1851,7 @@ function hostHeader(wrap, room) {
     h("div", {},
       h("div", { class: "eyebrow" }, "Live-комната · вы ведущий"),
       h("h1", {}, room.testTitle || "Комната"),
+      local.test?.description ? h("p", { class: "room-desc" }, local.test.description) : null,
       h("p", { class: "page-sub" }, `Код комнаты: `),
     ),
     h("div", { class: "room-head-tools" },
@@ -2795,13 +2802,24 @@ function buildRatingPanel({ title, limit }) {
 
 function progressPanel(li, room) {
   const total = room.questionCount || 0;
+  const finished = li.lifecycle === "completed" || li.lifecycle === "closed";
   const label = li.lifecycle === "waiting" ? lt("room.notStarted")
     : li.lifecycle === "in_progress"
       ? (li.phase === "question" ? `Вопрос ${li.position + 1} из ${total}`
         : li.position + 1 >= total ? "Последний вопрос завершён"
         : `Пауза перед вопросом ${li.position + 2} из ${total}`)
       : lt("room.finished");
-  return h("section", { class: "panel live-progress" },
+  if (!liveTrainNode) liveTrainNode = buildLiveTrain();
+  const riders = finished ? ratingSource().slice(0, 3).map(r => r.name || "") : [];
+  liveTrainNode.update({ position: li.position || 0, total, finished, riders });
+  const topicLine = finalMeta.topic || finalMeta.subject;
+  return h("section", { class: "panel live-progress room-topic" },
+    topicLine
+      ? h("div", { class: "panel-body" },
+          finalMeta.subject && finalMeta.topic ? h("div", { class: "eyebrow" }, finalMeta.subject) : null,
+          h("h2", { class: "room-topic-title" }, finalMeta.topic || finalMeta.subject))
+      : null,
+    h("div", { class: "panel-body" }, liveTrainNode.el),
     h("div", { class: "panel-head" },
       h("h2", {}, label),
       li.lifecycle === "in_progress"
@@ -2862,6 +2880,34 @@ const FINAL_TABS = [
   { id: "journal", label: "Журнал" },
   { id: "recs", label: "Рекомендации" }
 ];
+
+// Кнопка «Журнал»: раскрывает оценки за пару по участникам в алфавитном
+// порядке (ФИО). Оценка считается по сохранённым ответам и ключам
+// (pair-grade.js), скорость и место в рейтинге на неё не влияют.
+// Панель собирается при раскрытии из актуальных данных; состояние
+// «раскрыто» хранится в journalOpen и переживает перерисовку вида.
+function journalToggle() {
+  const box = h("div", { class: "journal-collapse" });
+  const btn = h("button", { type: "button", class: "btn primary journal-toggle", "aria-expanded": "false" });
+  const paint = () => {
+    btn.setAttribute("aria-expanded", String(journalOpen));
+    btn.textContent = journalOpen ? "Скрыть журнал" : "Журнал: оценки за пару";
+    box.hidden = !journalOpen;
+    if (journalOpen) {
+      const { grades } = finalData();
+      box.replaceChildren(journalPanel(journalRows(grades), {
+        grades,
+        export: { title: local.room?.testTitle || "", dateMs: finalFinishedMs(local.room) }
+      }));
+    } else {
+      box.replaceChildren();
+    }
+  };
+  btn.addEventListener("click", () => { journalOpen = !journalOpen; paint(); });
+  paint();
+  return h("section", { class: "panel final-journal" },
+    h("div", { class: "panel-body" }, btn, box));
+}
 
 function finalDockNode() {
   if (!finalDock) {
@@ -3061,6 +3107,8 @@ async function resolveFinalMeta(test) {
     };
     if (next.subject !== finalMeta.subject || next.topic !== finalMeta.topic) {
       finalMeta = next;
+      lastSignature = null; // тема появится под названием в ближайшем кадре
+      scheduleRender();
       if (finalDock?.isConnected) updateFinalDock();
     }
   } catch (err) {
@@ -3168,12 +3216,12 @@ function autoHostView() {
     // completed / closed. Единый итоговый экран: название теста → подиум →
     // экран с вкладками (Обзор · Рейтинг · Статистика · Участники ·
     // Журнал · Рекомендации). Вкладки переключаются без пересборки вида.
-    wrap.appendChild(h("div", { class: "final-title" },
-      h("h2", {}, room.testTitle || "Итоги Live"),
-      h("p", { class: "muted" }, "Итоги Live-тестирования")));
+    // Порядок: название, описание, код и QR (hostHeader) → тема с паровозом
+    // на конечной станции → лучшие участники → журнал пары → вкладки итогов.
     wrap.appendChild(progressPanel(li, room));
     const hostSeq = finalSequence();
-    if (hostSeq) wrap.appendChild(hostSeq);
+    if (hostSeq) wrap.appendChild(h("div", { class: "final-top" }, hostSeq));
+    if (local.keysReady) wrap.appendChild(journalToggle());
     wrap.appendChild(finalDockNode());
   }
 
@@ -3197,6 +3245,7 @@ function playerHead(room, label) {
     h("div", {},
       h("div", { class: "eyebrow" }, `Live-комната · ${label}`),
       h("h1", {}, room.testTitle || "Комната"),
+      local.test?.description ? h("p", { class: "room-desc" }, local.test.description) : null,
       h("p", { class: "page-sub" }, `Код комнаты: ${room.code || room.id}`)),
     h("div", { class: "room-head-tools" }, themeToggle()));
 }
@@ -3467,9 +3516,7 @@ function duelPlayerWidget() {
 
 function finishedPlayerView(wrap, room, li) {
   const rows = ratingSource();
-  wrap.appendChild(h("div", { class: "final-title" },
-    h("h2", {}, room.testTitle || "Итоги Live"),
-    h("p", { class: "muted" }, "Итоги Live-тестирования")));
+  wrap.appendChild(progressPanel(li, room));
   const seq = finalSequence();
   if (seq) wrap.appendChild(seq);
   const mine = rows.find(r => r.uid === State.user?.uid);

@@ -503,3 +503,19 @@
 
 /* Экспорт журнала в CSV: кнопка в шапке панели, тап-зона ≥44px. */
 .journal-export { min-height: 44px; }
+
+/* ---------- Паровоз Live-теста (ui/components/live-train.js) ---------- */
+.live-train { margin: var(--space-2) 0; }
+.live-train .ex-track { margin: 0; }
+.live-train .ex-info { padding: var(--space-2) 0 0; font-size: .9rem; }
+.lt-wagons { display: flex; align-items: flex-end; }
+.room-topic { margin-bottom: var(--space-3); }
+.room-topic-title { margin: 2px 0 var(--space-2); overflow-wrap: anywhere; }
+.room-desc { margin: 0 0 var(--space-2); color: var(--text-2); overflow-wrap: anywhere; }
+.journal-toggle { width: 100%; justify-content: center; }
+.journal-collapse[hidden] { display: none; }
+.final-top { margin-bottom: var(--space-3); }
+@media (max-width: 520px) {
+  .live-train .ex-track { height: 130px; }
+  .live-train .ex-label { font-size: .6rem; }
+}

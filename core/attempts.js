@@ -4,7 +4,7 @@ import {
 } from "../shared/firebase.js";
 import { isCorrect, normalizeKeys, sanitizeAnswers, scoreAttempt } from "./scoring.js";
 import { State } from "./auth.js";
-import { saveJournalEntry } from "./journal.js";
+import { saveJournalEntry } from "./grade-journal.js";
 
 export { isCorrect, sanitizeAnswers };
 
@@ -399,6 +399,7 @@ export async function gradeAttempt(attempt, graderUid, keysCache = {}, decisions
         topicId: attempt.topicId || null,
         grade: percent !== undefined ? percent : (total > 0 ? Math.round((score / total) * 100) : 0),
         source: "test",
+        sourceId: attempt.id,
         reason: `Зачет за попытку теста ${attempt.testTitle || attempt.testId || ""}`.trim()
       });
     }

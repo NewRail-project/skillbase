@@ -87,7 +87,6 @@ const routes = {
   "admin":        { file: "ui/pages/admin-panel.js",       title: "Админ-панель",         auth: true, roles: ADMIN },
   "subjects":     { file: "ui/pages/subjects.js",          title: "title.subjects",     tkey: "title.subjects",    auth: true,  legacy: true },
   "disciplines":  { file: "ui/pages/discipline-catalog.js", title: "title.disciplines",  tkey: "title.disciplines", auth: true },
-  "journal":      { file: "ui/pages/journal.js",             title: "Электронный журнал", auth: true },
   // Отдельная страница дисциплины: темы, материалы, тесты. #discipline/<id>
   "discipline":  { file: "ui/pages/discipline-page.js", title: "title.disciplines",  tkey: "title.disciplines", auth: true, param: "disciplineId" },
   // Отдельная страница темы: материалы и тесты темы. #subjects/<id>
@@ -404,7 +403,6 @@ export function updateHeaderNav() {
   }
   if (STAFF.includes(State.profile?.role)) {
     nav.append(link("#create-test", () => t("nav.testsStaff")), link("#results", () => t("nav.results")), link("#analytics", () => t("nav.analytics")));
-    nav.append(link("#journal", () => t("nav.journal")), " ");
   }
   if (State.profile?.role === "admin") {
     nav.append(link("#admins", "Администраторы"));

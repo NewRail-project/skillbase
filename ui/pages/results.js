@@ -5,6 +5,8 @@ import { loadPublicProfiles, displayName } from "../../core/profile.js";
 import { toCsv } from "../../shared/csv.js";
 import { icons } from "../../shared/icons.js";
 import { t as tr, lt } from "../../core/i18n.js";
+import { gradeDistribution, performanceDynamics, averagePercent } from "../../core/analytics-logic.js";
+import { barChart, lineChart } from "../components/charts.js";
 
 function formatDate(value) {
   if (!value) return "—";
@@ -45,6 +47,52 @@ function downloadCsv(rows) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Аналитика обычных тестов: распределение оценок, динамика, сравнение
+// тестов, лидеры и ученики, которым нужна помощь. Считается по тем же
+// проверенным попыткам, что и таблица ниже (черновики и неоценённые
+// попытки в итог не входят).
+function analyticsPanel(rows) {
+  const graded = rows.filter(r => r.percent !== null);
+  if (!graded.length) return null;
+  const percents = graded.map(r => r.percent);
+  const dist = gradeDistribution(percents);
+  const dynamics = performanceDynamics(graded.map(r => r.raw), Date.now());
+
+  const byTest = new Map();
+  for (const r of graded) {
+    if (!byTest.has(r.test)) byTest.set(r.test, []);
+    byTest.get(r.test).push(r.percent);
+  }
+  const testBars = [...byTest].map(([label, list]) => ({ label, value: averagePercent(list) }))
+    .filter(x => x.value !== null).sort((a, b) => b.value - a.value).slice(0, 8);
+
+  const best = new Map();
+  for (const r of graded) best.set(r.student, Math.max(best.get(r.student) ?? 0, r.percent));
+  const leaders = [...best].sort((a, b) => b[1] - a[1]).slice(0, 5)
+    .map(([label, value]) => ({ label, value }));
+  const needHelp = [...best].filter(([, v]) => v < 50).sort((a, b) => a[1] - b[1]).slice(0, 5)
+    .map(([label, value]) => ({ label, value }));
+
+  const section = (title, node) => h("section", { class: "panel" },
+    h("div", { class: "panel-head" }, h("h2", {}, title)),
+    h("div", { class: "panel-body" }, node));
+  const wrap = h("div", { class: "analytics-after-test" },
+    h("div", { class: "stat-grid" },
+      h("div", { class: "stat" }, h("div", { class: "stat-value" }, `${Math.max(...percents)}%`), h("div", { class: "stat-label" }, "лучший результат")),
+      h("div", { class: "stat" }, h("div", { class: "stat-value" }, `${Math.min(...percents)}%`), h("div", { class: "stat-label" }, "худший результат")),
+      h("div", { class: "stat" }, h("div", { class: "stat-value" }, String(new Set(graded.map(r => r.student)).size)), h("div", { class: "stat-label" }, "участников"))),
+    dist ? section("Распределение оценок", barChart(dist.buckets.map(b => ({ label: b.label, value: b.count, hint: String(b.count) })),
+      { ariaLabel: "Распределение оценок", max: Math.max(1, ...dist.buckets.map(b => b.count)) })) : null,
+    dynamics ? section("Динамика среднего балла", lineChart(dynamics.map(p => ({ label: p.label, value: p.avgPercent })),
+      { ariaLabel: "Динамика среднего балла по неделям" })) : null,
+    testBars.length > 1 ? section("Сравнение тестов", barChart(testBars, { ariaLabel: "Средний балл по тестам" })) : null,
+    leaders.length ? section("Лучшие результаты", barChart(leaders, { ariaLabel: "Лучшие результаты" })) : null,
+    needHelp.length ? section("Нужна помощь (ниже 50%)", barChart(needHelp, { ariaLabel: "Ученики с низким результатом" })) : null);
+  const details = h("details", { class: "analytics-details", open: "open" },
+    h("summary", { class: "btn secondary" }, "Аналитика по тестам"), wrap);
+  return details;
 }
 
 export default async function ResultsPage() {
@@ -219,6 +267,9 @@ export default async function ResultsPage() {
         h("div", { class: "stat-label" }, "ожидают проверки")
       )
     );
+
+    const analytics = analyticsPanel(rows);
+    if (analytics) stats.after(analytics);
 
     if (rows.length) {
       exportBtn.disabled = false;
