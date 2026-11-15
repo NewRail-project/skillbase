@@ -434,5 +434,33 @@ a.list-row-title:hover { text-decoration: underline; }
 .analytics-table td:last-child, .analytics-table th:last-child { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* Селекты фильтров аналитики — строкой, переносятся на телефоне */
-.analytics-filters { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); }
-.analytics-filters select, .analytics-filters input { max-width: 100%; }
+.analytics-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-2); margin-bottom: var(--space-2); }
+.analytics-filters select, .analytics-filters input { max-width: 100%; min-width: 0; width: 100%; }
+.analytics-filter { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.analytics-filter-reset { flex: none; min-width: 44px; min-height: 44px; padding: 0 var(--space-2); }
+.analytics-filters-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); }
+.analytics-filters-foot .stat-hint { margin: 0; flex: 1 1 220px; }
+.analytics-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+@media (max-width: 480px) {
+  .analytics-filters { grid-template-columns: 1fr; }
+}
+
+/* ---------- Графики (ui/components/charts.js) ---------- */
+.chart-line { width: 100%; height: auto; max-height: 220px; display: block; }
+.chart-line .chart-grid { stroke: var(--border); stroke-width: 1; }
+.chart-line .chart-path { fill: none; stroke: var(--accent, #2F6FE4); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.chart-line .chart-dot { fill: var(--accent, #2F6FE4); }
+.chart-line text { fill: var(--muted, #6b7280); font-size: 11px; }
+.chart-bars { display: grid; gap: var(--space-2, 8px); margin: 0; padding: 0; list-style: none; }
+.chart-bar { display: grid; grid-template-columns: minmax(80px, 34%) 1fr auto; gap: var(--space-2, 8px); align-items: center; font-size: .9rem; }
+.chart-bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chart-bar-track { height: 10px; border-radius: 999px; background: var(--elevated, rgba(127,127,127,.15)); overflow: hidden; }
+.chart-bar-fill { height: 100%; border-radius: 999px; background: var(--accent, #2F6FE4); transition: width .5s ease; }
+.chart-bar-fill.is-low { background: var(--danger, #d64545); }
+.chart-bar-fill.is-mid { background: var(--warning, #e0a100); }
+.chart-bar-fill.is-high { background: var(--success, #2e9b5f); }
+.chart-bar-value { font-variant-numeric: tabular-nums; color: var(--muted, #6b7280); }
+.progress-meter { display: grid; gap: 4px; margin: var(--space-2, 8px) 0; }
+.progress-meter-head { display: flex; justify-content: space-between; font-size: .9rem; }
+.chart-empty { color: var(--muted, #6b7280); font-size: .9rem; }
+@media (prefers-reduced-motion: reduce) { .chart-bar-fill { transition: none; } }

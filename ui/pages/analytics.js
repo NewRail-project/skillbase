@@ -2,21 +2,25 @@
 //
 // Маршрут #analytics, только сотрудники. Страница-хаб:
 //   • обзорные показатели, динамика успеваемости (линейный график);
-//   • сравнение дисциплин и тем, сравнение групп (столбцы);
+//   • распределение оценок, сравнение дисциплин и тем, сравнение групп;
 //   • учебный рейтинг учеников, отстающие, без активности;
 //   • доля выполненных заданий и просроченные;
 //   • блок «Слабые темы» — существующая логика страницы, сохранена.
 //
 // Данные: одна выборка listOrgAttempts (та же, что у результатов и
-// leaderboard) + roster listOrgUsers + справочники. Тяжёлых подзапросов
-// нет: все разрезы считаются чистой логикой core/analytics-logic.js
-// на клиенте. Стратегия актуализации: пересчёт при открытии страницы и
-// кнопке «Повторить» — подготовленных агрегатных документов в проекте
-// нет, а писать их сотрудникам правила не разрешают. Формула оценки
+// leaderboard) + roster listOrgUsers + справочники. Подзапросов на смену
+// фильтра нет: фильтры зависимы (дисциплина → тема/группа → ученик), а все
+// разделы считаются ОДНОЙ функцией analyticsView (core/analytics-logic.js)
+// из одной отфильтрованной выборки — карточки, графики и таблицы не могут
+// разойтись. Страница только рисует готовую модель.
+// Стратегия актуализации: пересчёт при открытии страницы и кнопке
+// «Повторить» — подготовленных агрегатных документов в проекте нет, а
+// писать их сотрудникам правила не разрешают. Формула оценки
 // (scoreAttempt) не изменилась.
 //
 // Рейтинг здесь — УЧЕБНЫЙ (средний балл попыток). Live-рейтинг комнат
-// живёт отдельно (live-report/duel) и не смешивается.
+// живёт отдельно (live-report/duel) и не смешивается: Live-результаты не
+// хранятся в attempts, поэтому в фильтре типа проверки их нет.
 import { h } from "../../shared/dom.js";
 import { State, isStaff } from "../../core/auth.js";
 import { listOrgAttempts } from "../../core/attempts.js";
@@ -25,15 +29,15 @@ import { listOrgUsers } from "../../core/admins.js";
 import { listAssignments } from "../../core/assign.js";
 import { teacherCanSeeAttempt } from "../../core/access.js";
 import {
-  filterAttempts, gradeDistribution, performanceDynamics, averagePercent,
-  disciplineAnalytics, groupAnalytics, assignmentCompletion, studentAnalytics,
-  PERIODS, TOPIC_PASS_PERCENT
+  analyticsView, normalizeFilters, hasActiveFilters, EMPTY_FILTERS,
+  TOPIC_PASS_PERCENT
 } from "../../core/analytics-logic.js";
 import { lineChart, barChart, progressMeter } from "../components/charts.js";
 import { loading } from "../components/loading.js";
 import { error as errorState } from "../components/error.js";
 
-const DAY = 24 * 3600 * 1000;
+const dateRu = (ms) => new Date(ms).toLocaleDateString("ru-RU");
+const pct = (value) => (value === null || value === undefined ? "—" : `${value}%`);
 
 export default async function AnalyticsPage() {
   const page = h("div", { class: "page" });
@@ -43,7 +47,6 @@ export default async function AnalyticsPage() {
     return page;
   }
   const profile = State.profile;
-  const staff = isStaff();
 
   page.append(h("div", { class: "page-head" },
     h("div", {},
@@ -59,12 +62,9 @@ export default async function AnalyticsPage() {
   const state = {
     loading: true,
     error: null,
-    attempts: [],      // попытки в зоне видимости роли (scope)
-    students: [],      // roster в зоне видимости роли
-    subjects: [],
-    topics: [],        // все темы организации { ...topic, subjectId }
-    assignments: [],
-    filters: { subjectId: "", topicId: "", groupId: "", userId: "", period: "all", kind: "" }
+    // Данные в зоне видимости роли (scope) — вход analyticsView.
+    data: { attempts: [], students: [], subjects: [], topics: [], assignments: [], orgId: profile.orgId },
+    filters: { ...EMPTY_FILTERS }
   };
 
   async function load() {
@@ -86,14 +86,19 @@ export default async function AnalyticsPage() {
       }
       // Зона видимости роли: админ — вся организация; преподаватель —
       // свои группы (teacherCanSeeAttempt — зеркало правил Firestore).
-      state.attempts = attempts.filter(a => teacherCanSeeAttempt(a, profile));
+      // Ученики и задания сужаются теми же группами: иначе чужая группа
+      // попадала в список фильтра группы.
       const groups = Array.isArray(profile.teacherGroups) ? profile.teacherGroups : null;
-      state.students = users
-        .filter(u => u.role === "student")
-        .filter(u => !groups || groups.includes(u.groupId));
-      state.subjects = subjects.filter(s => s.status !== "archived");
-      state.topics = topics;
-      state.assignments = assignments;
+      state.data = {
+        orgId: profile.orgId,
+        attempts: attempts.filter(a => teacherCanSeeAttempt(a, profile)),
+        students: users
+          .filter(u => u.role === "student")
+          .filter(u => !groups || groups.includes(u.groupId)),
+        subjects: subjects.filter(s => s.status !== "archived"),
+        topics,
+        assignments: assignments.filter(a => !groups || groups.includes(a.groupId))
+      };
       state.loading = false;
       paint();
     } catch (err) {
@@ -108,25 +113,15 @@ export default async function AnalyticsPage() {
     body.replaceChildren(loading());
   }
 
-  function filtered() {
-    const f = state.filters;
-    const period = PERIODS.find(p => p.id === f.period) || PERIODS[0];
-    const fromMs = period.days ? Date.now() - period.days * DAY : null;
-    return filterAttempts(state.attempts, {
-      subjectId: f.subjectId || null,
-      topicId: f.topicId || null,
-      groupId: f.groupId || null,
-      userId: f.userId || null,
-      kind: f.kind || null,
-      fromMs
-    });
+  // Любое изменение фильтра: применить, сбросить несовместимое
+  // (normalizeFilters) и пересчитать ВСЮ страницу.
+  function setFilter(name, value) {
+    state.filters = normalizeFilters(state.data, { ...state.filters, [name]: value });
+    paint();
   }
-
-  function topicTitle(id) {
-    return state.topics.find(t => t.id === id)?.title || id;
-  }
-  function subjectTitle(id) {
-    return state.subjects.find(s => s.id === id)?.title || id;
+  function resetAll() {
+    state.filters = { ...EMPTY_FILTERS };
+    paint();
   }
 
   function paint() {
@@ -141,92 +136,78 @@ export default async function AnalyticsPage() {
       return;
     }
 
-    paintFilters();
-    const attempts = filtered();
-    const nowMs = Date.now();
-
-    if (!state.attempts.length && !state.students.length) {
+    if (!state.data.attempts.length && !state.data.students.length) {
       body.append(panel("Нет данных", "В зоне видимости роли пока нет учеников и попыток. Аналитика появится после первых прохождений."));
       return;
     }
 
-    // ---------- Обзор ----------
-    const graded = attempts.filter(a => a.status === "graded" && Number.isFinite(a.percent));
-    const avg = averagePercent(graded.map(a => a.percent));
-    const overview = h("section", { class: "panel" },
-      h("div", { class: "section-title" }, h("h2", {}, "Обзор")),
-      h("div", { class: "stat-grid" },
-        stat("Учеников", String(state.students.length)),
-        stat("Тем", String(scopeTopics().length)),
-        stat("Попыток", String(attempts.length), `оценено: ${graded.length}`),
-        stat("Средний балл", avg === null ? "—" : `${avg}%`, graded.length ? `лучший: ${Math.max(...graded.map(a => a.percent))}%` : "")),
-      !attempts.length
-        ? h("p", { class: "muted" }, "Попыток по выбранным фильтрам нет. Ослабьте фильтры или выберите другой период.")
-        : h("p", { class: "muted" }, "Показатели — по выбранным фильтрам."));
-    body.append(overview);
+    const view = analyticsView(state.data, state.filters, { nowMs: Date.now() });
+    state.filters = view.filters; // нормализованные: источник правды для UI
 
-    // ---------- Динамика успеваемости ----------
-    body.append(dynamicsSection(attempts, nowMs));
-
-    // ---------- Дисциплины ----------
-    body.append(disciplinesSection(attempts, nowMs));
-
-    // ---------- Группы ----------
-    body.append(groupsSection(attempts, nowMs));
-
-    // ---------- Ученики ----------
-    body.append(studentsSection(attempts, nowMs));
-
-    // ---------- Задания ----------
-    body.append(assignmentsSection(attempts, nowMs));
-
-    // ---------- Слабые темы (существующая логика страницы) ----------
-    body.append(weakTopicsSection(attempts));
-  }
-
-  function scopeTopics() {
-    const f = state.filters;
-    return state.topics
-      .filter(t => !t.status || t.status !== "archived")
-      .filter(t => !f.subjectId || t.subjectId === f.subjectId)
-      .filter(t => !f.groupId || !t.groupId || t.groupId === f.groupId);
+    paintFilters(view);
+    body.append(overviewSection(view));
+    body.append(dynamicsSection(view));
+    body.append(distributionSection(view));
+    body.append(disciplinesSection(view));
+    body.append(groupsSection(view));
+    body.append(studentsSection(view));
+    body.append(assignmentsSection(view));
+    body.append(weakTopicsSection(view));
   }
 
   // ---------- Фильтры ----------
-  function paintFilters() {
+  function filterField(key, ariaLabel, allLabel, items) {
     const f = state.filters;
-    const groupsInScope = new Set();
-    for (const a of state.attempts) if (a.groupId) groupsInScope.add(a.groupId);
-    for (const s of state.students) if (s.groupId) groupsInScope.add(s.groupId);
-    for (const a of state.assignments) if (a.groupId) groupsInScope.add(a.groupId);
+    const select = h("select", {
+      "aria-label": ariaLabel,
+      onchange: e => setFilter(key, e.target.value)
+    },
+    h("option", { value: "", selected: !f[key] }, allLabel),
+    ...items.map(item => h("option", { value: item.value, selected: f[key] === item.value }, item.label)));
+    return h("div", { class: "analytics-filter" },
+      select,
+      f[key]
+        ? h("button", {
+          type: "button", class: "btn secondary analytics-filter-reset",
+          "aria-label": `Сбросить: ${ariaLabel.toLowerCase()}`,
+          onclick: () => setFilter(key, EMPTY_FILTERS[key])
+        }, "×")
+        : null);
+  }
 
-    const subjectSel = h("select", { "aria-label": "Фильтр по дисциплине", onchange: e => { f.subjectId = e.target.value; f.topicId = ""; e.target.closest(".analytics-filters").querySelectorAll("select")[1].value = ""; paint(); } },
-      h("option", { value: "", selected: !f.subjectId }, "Все дисциплины"),
-      ...state.subjects.map(s => h("option", { value: s.id, selected: f.subjectId === s.id }, s.title)));
-
-    const topicsForSubject = state.topics.filter(t => !f.subjectId || t.subjectId === f.subjectId);
-    const topicSel = h("select", { "aria-label": "Фильтр по теме", onchange: e => { f.topicId = e.target.value; paint(); } },
-      h("option", { value: "", selected: !f.topicId }, "Все темы"),
-      ...topicsForSubject.map(t => h("option", { value: t.id, selected: f.topicId === t.id }, t.title)));
-
-    const groupSel = h("select", { "aria-label": "Фильтр по группе", onchange: e => { f.groupId = e.target.value; paint(); } },
-      h("option", { value: "", selected: !f.groupId }, "Все группы"),
-      ...[...groupsInScope].sort().map(g => h("option", { value: g, selected: f.groupId === g }, g)));
-
-    const studentSel = h("select", { "aria-label": "Фильтр по ученику", onchange: e => { f.userId = e.target.value; paint(); } },
-      h("option", { value: "", selected: !f.userId }, "Все ученики"),
-      ...state.students.map(s => h("option", { value: s.uid, selected: f.userId === s.uid }, s.fullName || s.uid)));
-
-    const periodSel = h("select", { "aria-label": "Фильтр по периоду", onchange: e => { f.period = e.target.value; paint(); } },
-      ...PERIODS.map(p => h("option", { value: p.id, selected: f.period === p.id }, p.label)));
-
-    const kindSel = h("select", { "aria-label": "Фильтр по типу проверки", onchange: e => { f.kind = e.target.value; paint(); } },
-      h("option", { value: "", selected: !f.kind }, "Все проверки"),
-      h("option", { value: "assignment", selected: f.kind === "assignment" }, "По заданию"),
-      h("option", { value: "free", selected: f.kind === "free" }, "Свободные прохождения"));
+  function paintFilters(view) {
+    const f = state.filters;
+    const o = view.options;
+    const periodSel = h("div", { class: "analytics-filter" },
+      h("select", { "aria-label": "Фильтр по периоду", onchange: e => setFilter("period", e.target.value) },
+        ...o.periods.map(p => h("option", { value: p.id, selected: f.period === p.id }, p.label))),
+      f.period !== "all"
+        ? h("button", {
+          type: "button", class: "btn secondary analytics-filter-reset",
+          "aria-label": "Сбросить: фильтр по периоду",
+          onclick: () => setFilter("period", "all")
+        }, "×")
+        : null);
 
     body.append(h("div", { class: "analytics-filters" },
-      subjectSel, topicSel, groupSel, studentSel, periodSel, kindSel));
+      filterField("subjectId", "Фильтр по дисциплине", "Все дисциплины",
+        o.subjects.map(s => ({ value: s.id, label: s.title || s.id }))),
+      filterField("topicId", "Фильтр по теме", "Все темы",
+        o.topics.map(t => ({ value: t.id, label: t.title || t.id }))),
+      filterField("groupId", "Фильтр по группе", "Все группы",
+        o.groups.map(g => ({ value: g, label: g }))),
+      filterField("userId", "Фильтр по ученику", "Все ученики",
+        o.students.map(s => ({ value: s.uid, label: s.fullName || s.uid }))),
+      periodSel,
+      filterField("kind", "Фильтр по типу проверки", "Все проверки",
+        o.kinds.map(k => ({ value: k.id, label: k.label })))));
+
+    body.append(h("div", { class: "analytics-filters-foot" },
+      hasActiveFilters(f)
+        ? h("button", { type: "button", class: "btn secondary", onclick: resetAll }, "Сбросить все фильтры")
+        : null,
+      h("p", { class: "muted stat-hint" },
+        "Live-проверки здесь не учитываются: их результаты — в Live-отчётах комнат и в учебные оценки не входят.")));
   }
 
   // ---------- Разделы ----------
@@ -248,32 +229,55 @@ export default async function AnalyticsPage() {
     return h("p", { class: "muted" }, text);
   }
 
-  function dynamicsSection(attempts, nowMs) {
-    const points = performanceDynamics(attempts, nowMs);
+  function overviewSection(view) {
+    const o = view.overview;
+    const parts = [`оценено: ${o.gradedCount}`];
+    if (o.pendingCount) parts.push(`на проверке: ${o.pendingCount}`);
+    if (o.expiredCount) parts.push(`время вышло: ${o.expiredCount}`);
+    if (o.inProgressCount) parts.push(`в процессе (не в счёт): ${o.inProgressCount}`);
+    return h("section", { class: "panel" },
+      h("div", { class: "section-title" }, h("h2", {}, "Обзор")),
+      h("div", { class: "stat-grid" },
+        stat("Учеников", String(o.studentsCount), `с попытками: ${o.studentsWithAttempts}`),
+        stat("Тем", String(o.topicsCount)),
+        stat("Попыток", String(o.attemptsCount), parts.join(" · ")),
+        stat("Средний балл", pct(o.averageScore), o.bestScore === null ? "" : `лучший: ${o.bestScore}%`)),
+      view.isEmpty
+        ? h("div", {},
+          h("p", { class: "muted" }, "Нет данных. Попыток по выбранным фильтрам нет. Ослабьте фильтры или выберите другой период."),
+          hasActiveFilters(view.filters)
+            ? h("button", { type: "button", class: "btn secondary", onclick: resetAll }, "Сбросить все фильтры")
+            : null)
+        : h("p", { class: "muted" }, "Показатели — по выбранным фильтрам."),
+      o.guestAttempts
+        ? h("p", { class: "muted stat-hint" }, `Включая гостевые попытки: ${o.guestAttempts} (гости не входят в списки учеников).`)
+        : null);
+  }
+
+  function dynamicsSection(view) {
     return panel("Динамика успеваемости",
-      points
-        ? lineChart(points.map(p => ({ label: p.label, value: p.avgPercent })),
+      view.dynamics
+        ? lineChart(view.dynamics.map(p => ({ label: p.label, value: p.avgPercent })),
           { ariaLabel: "Динамика среднего балла по неделям" })
         : emptyHint("Недостаточно данных для динамики: нужно не меньше двух оценённых попыток в разные недели."));
   }
 
-  function disciplinesSection(attempts, nowMs) {
-    const rows = state.subjects.map(subject => {
-      const topics = state.topics.filter(t => t.subjectId === subject.id && (!t.status || t.status !== "archived"));
-      const studentIds = new Set(attempts.filter(a => a.subjectId === subject.id).map(a => a.userId));
-      const data = disciplineAnalytics({
-        attempts: attempts.filter(a => a.subjectId === subject.id),
-        topics,
-        // «Ученики дисциплины» — ученики с попытками по ней (состав групп
-        // к дисциплине не привязан).
-        students: state.students.filter(s => studentIds.has(s.uid)),
-        nowMs
-      });
-      return { subject, data };
-    }).filter(row => row.data.attemptsCount > 0 || row.data.topicsCount > 0);
-    if (!rows.length) return panel("Дисциплины", emptyHint("Дисциплин или тем пока нет."));
+  function distributionSection(view) {
+    const d = view.distribution;
+    return panel("Распределение оценок",
+      d
+        ? barChart(d.buckets.map(b => ({
+          label: b.label,
+          value: Math.round(b.count / d.total * 100),
+          hint: `${b.count} (${Math.round(b.count / d.total * 100)}%)`
+        })), { ariaLabel: "Распределение оценённых попыток по диапазонам баллов" })
+        : emptyHint("Оценённых попыток по выбранным фильтрам нет."));
+  }
+
+  function disciplinesSection(view) {
+    if (!view.disciplines.length) return panel("Дисциплины", emptyHint("Дисциплин с данными по выбранным фильтрам нет."));
     return panel("Дисциплины",
-      ...rows.map(({ subject, data }) => h("div", { class: "analytics-subject" },
+      ...view.disciplines.map(({ subject, data }) => h("div", { class: "analytics-subject" },
         h("div", { class: "section-title" },
           h("h3", {}, subject.title),
           h("span", { class: "muted" }, data.averageScore === null ? "нет оценённых попыток" : `средний: ${data.averageScore}%`)),
@@ -281,58 +285,26 @@ export default async function AnalyticsPage() {
           stat("Учеников", String(data.studentsCount)),
           stat("Тем", String(data.topicsCount)),
           stat("Завершено тем", String(data.completedTopics), `незавершено: ${data.incompleteTopics}`),
-          stat("Активность (30 дн.)", data.activeStudentsPercent === null ? "—" : `${data.activeStudentsPercent}%`, `${data.activeStudents} из ${data.studentsCount}`)),
+          stat("Активность (30 дн.)", pct(data.activeStudentsPercent), `${data.activeStudents} из ${data.studentsCount}`)),
         progressMeter(data.masteryPercent, { label: "Освоение программы" }),
         h("div", { class: "btn-row" },
           h("a", { class: "btn secondary", href: `#discipline/${encodeURIComponent(subject.id)}` }, "К дисциплине")))));
   }
 
-  function groupsSection(attempts, nowMs) {
-    const groups = new Map();
-    for (const a of attempts) {
-      const gid = a.groupId || "";
-      if (!groups.has(gid)) groups.set(gid, []);
-      groups.get(gid).push(a);
-    }
-    if (!groups.size) return panel("Группы", emptyHint("Попыток с группой нет."));
-    const rows = [...groups.entries()]
-      .map(([gid, list]) => ({
-        gid,
-        avg: averagePercent(list.filter(a => a.status === "graded" && Number.isFinite(a.percent)).map(a => a.percent))
-      }))
-      .filter(row => row.avg !== null)
-      .sort((a, b) => b.avg - a.avg);
-    const bars = barChart(rows.map(r => ({
-      label: r.gid || "Без группы",
-      value: r.avg
-    })), { ariaLabel: "Сравнение групп по среднему баллу" });
-
-    const f = state.filters;
-    const selected = f.groupId
-      ? groupAnalytics({
-        attempts,
-        students: state.students.filter(s => (s.groupId || "") === f.groupId),
-        topics: scopeTopics(),
-        nowMs
-      })
+  function groupsSection(view) {
+    const { bars, selected } = view.groups;
+    const chart = bars.length
+      ? barChart(bars.map(r => ({ label: r.label, value: r.averageScore, hint: `${r.averageScore}% (${r.count})` })),
+        { ariaLabel: "Сравнение групп по среднему баллу" })
       : null;
-
-    const completed = selected
-      ? assignmentCompletion({
-        attempts,
-        students: state.students.filter(s => (s.groupId || "") === f.groupId),
-        assignments: state.assignments.filter(a => a.groupId === f.groupId),
-        nowMs
-      })
-      : null;
-
     return panel("Группы",
-      bars || emptyHint("Оценённых попыток по группам нет."),
-      !selected && !f.groupId ? emptyHint("Выберите группу в фильтре — появятся рейтинг, отстающие и сравнение тем.") : null,
-      selected ? groupDetails(selected, completed) : null);
+      chart || emptyHint("Оценённых попыток по группам нет."),
+      !selected ? emptyHint("Выберите группу в фильтре — появятся рейтинг, отстающие и сравнение тем.") : null,
+      selected ? groupDetails(selected) : null);
   }
 
-  function groupDetails(selected, completed) {
+  function groupDetails(selected) {
+    const completed = selected.completion;
     const topicBars = selected.topicComparison.length
       ? barChart(selected.topicComparison.map(t => ({
         label: t.title,
@@ -340,25 +312,14 @@ export default async function AnalyticsPage() {
         hint: `${t.averageScore}% (${t.count})`
       })), { ariaLabel: "Сравнение тем группы по среднему баллу" })
       : emptyHint("Оценённых попыток по темам группы нет.");
-    const ranking = selected.ranking.length
-      ? h("table", { class: "analytics-table" },
-        h("thead", {}, h("tr", {},
-          h("th", {}, "Ученик"), h("th", {}, "Средний"), h("th", {}, "Попыток"), h("th", {}, "Лучший"), h("th", {}, "Активность"))),
-        h("tbody", {}, selected.ranking.map(r => h("tr", {},
-          h("td", {}, r.name),
-          h("td", {}, r.averageScore === null ? "—" : `${r.averageScore}%`),
-          h("td", {}, String(r.attemptsCount)),
-          h("td", {}, r.bestScore === null ? "—" : `${r.bestScore}%`),
-          h("td", {}, r.inactive ? "нет 30+ дней" : "есть")))))
-      : emptyHint("Учеников группы с попытками нет.");
     return h("div", {},
       h("div", { class: "stat-grid" },
         stat("Учеников", String(selected.studentsCount)),
-        stat("Средний балл", selected.averageScore === null ? "—" : `${selected.averageScore}%`),
-        stat("Активность (30 дн.)", selected.activeStudentsPercent === null ? "—" : `${selected.activeStudentsPercent}%`),
-        stat("Задания выполнены", completed?.percent === null || completed?.percent === undefined ? "—" : `${completed.percent}%`, completed ? `${completed.done} из ${completed.total}` : "")),
+        stat("Средний балл", pct(selected.averageScore)),
+        stat("Активность (30 дн.)", pct(selected.activeStudentsPercent)),
+        stat("Задания выполнены", pct(completed?.percent), completed ? `${completed.done} из ${completed.total}` : "")),
       h("h3", { class: "sub-title" }, "Учебный рейтинг группы"),
-      ranking,
+      rankingTable(selected.ranking, { withReport: false, empty: "Учеников группы нет." }),
       h("h3", { class: "sub-title" }, "Сравнение тем"),
       topicBars,
       h("div", { class: "btn-row" },
@@ -366,131 +327,90 @@ export default async function AnalyticsPage() {
       selected.lagging.length
         ? h("div", {},
           h("h3", { class: "sub-title" }, `Отстающие (средний ниже ${TOPIC_PASS_PERCENT}%)`),
-          listRows(selected.lagging.map(r => ({ title: r.name, value: r.averageScore === null ? "—" : `${r.averageScore}%` }))))
+          listRows(selected.lagging.map(r => ({ title: r.name, value: pct(r.averageScore) }))))
         : null,
       selected.inactive.length
         ? h("div", {},
           h("h3", { class: "sub-title" }, "Без активности (30+ дней)"),
-          listRows(selected.inactive.map(r => ({ title: r.name, value: r.lastActivityMs ? new Date(r.lastActivityMs).toLocaleDateString("ru-RU") : "нет попыток" }))))
+          listRows(selected.inactive.map(r => ({ title: r.name, value: r.lastActivityMs ? dateRu(r.lastActivityMs) : "нет попыток" }))))
         : null);
   }
 
-  function studentsSection(attempts, nowMs) {
-    const f = state.filters;
-    if (f.userId) {
-      const student = state.students.find(s => s.uid === f.userId);
-      const data = studentAnalytics({
-        attempts,
-        subjects: state.subjects,
-        topics: state.topics,
-        assignments: state.assignments.filter(a => a.groupId === (student?.groupId || "")),
-        nowMs
-      });
-      return panel(`Ученик: ${student?.fullName || f.userId}`,
-        h("div", { class: "stat-grid" },
-          stat("Средний балл", data.averageScore || 0 ? `${data.averageScore}%` : "—", data.bestScore ? `лучший: ${data.bestScore}%` : ""),
-          stat("Выполнено тестов", String(data.testsCompleted)),
-          stat("Изучено материалов", String(data.studiedMaterialsCount)),
-          stat("Просрочено заданий", String(data.overdueAssignments.length))),
-        dynamicsSection(attempts, nowMs),
-        data.subjectsProgress.length
-          ? barChart(data.subjectsProgress.filter(s => s.averageScore !== null).map(s => ({
-            label: s.title, value: s.averageScore, hint: s.averageScore === null ? "—" : `${s.averageScore}%`
-          })), { ariaLabel: "Результаты по дисциплинам" })
-          : emptyHint("Попыток по дисциплинам нет."),
-        data.strongTopics.length ? listRows(data.strongTopics.slice(0, 5).map(t => ({ title: `Сильная тема: ${t.title}`, value: `${t.averageScore}%` }))) : null,
-        data.weakTopics.length ? listRows(data.weakTopics.slice(0, 5).map(t => ({ title: `Слабая тема: ${t.title}`, value: `${t.averageScore}%` }))) : null,
-        data.overdueAssignments.length ? listRows(data.overdueAssignments.map(a => ({ title: `Просрочено: ${a.testTitle}`, value: new Date(a.deadlineMs).toLocaleDateString("ru-RU") }))) : null,
-        h("div", { class: "btn-row" },
-          h("a", { class: "btn secondary", href: `#profile/${encodeURIComponent(f.userId)}` }, "Профиль ученика")));
-    }
-
-    // Рейтинг по учебным результатам (не Live-рейтинг).
-    const byStudent = new Map();
-    for (const a of attempts.filter(x => x.status === "graded" && Number.isFinite(x.percent))) {
-      if (!byStudent.has(a.userId)) byStudent.set(a.userId, []);
-      byStudent.get(a.userId).push(a.percent);
-    }
-    const lastActivity = new Map();
-    for (const a of attempts) {
-      const ms = a.finishedAt?.toMillis?.() || a.startedAt?.toMillis?.() || 0;
-      if (ms > (lastActivity.get(a.userId) || 0)) lastActivity.set(a.userId, ms);
-    }
-    const ranking = state.students.map(s => {
-      const scores = byStudent.get(s.uid) || [];
-      const ms = lastActivity.get(s.uid) || null;
-      return {
-        uid: s.uid,
-        name: s.fullName || s.uid,
-        averageScore: averagePercent(scores),
-        attemptsCount: scores.length,
-        bestScore: scores.length ? Math.max(...scores) : null,
-        inactive: ms === null || nowMs - ms > 30 * DAY
-      };
-    }).sort((a, b) => (b.averageScore ?? -1) - (a.averageScore ?? -1)
-      || a.name.localeCompare(b.name, "ru", { sensitivity: "base" }));
-    if (!state.students.length) return panel("Ученики", emptyHint("Учеников в зоне видимости роли нет."));
-    return panel("Ученики",
+  function rankingTable(rows, { withReport, empty }) {
+    if (!rows.length) return emptyHint(empty);
+    return h("div", { class: "analytics-table-wrap" },
       h("table", { class: "analytics-table" },
         h("thead", {}, h("tr", {},
-          h("th", {}, "Ученик"), h("th", {}, "Средний"), h("th", {}, "Попыток"), h("th", {}, "Лучший"), h("th", {}))),
-        h("tbody", {}, ranking.map(r => h("tr", {},
+          h("th", {}, "Ученик"), h("th", {}, "Средний"), h("th", {}, "Попыток"), h("th", {}, "Лучший"),
+          h("th", {}, withReport ? "" : "Активность"))),
+        h("tbody", {}, rows.map(r => h("tr", {},
           h("td", {}, r.name),
-          h("td", {}, r.averageScore === null ? "—" : `${r.averageScore}%`),
+          h("td", {}, pct(r.averageScore)),
           h("td", {}, String(r.attemptsCount)),
-          h("td", {}, r.bestScore === null ? "—" : `${r.bestScore}%`),
-          h("td", {}, h("a", {
-            class: "btn secondary",
-            href: "#",
-            onclick: (e) => { e.preventDefault(); state.filters.userId = r.uid; paint(); }
-          }, "Отчёт")))))),
+          h("td", {}, pct(r.bestScore)),
+          h("td", {}, withReport
+            ? h("button", {
+              type: "button", class: "btn secondary",
+              onclick: () => setFilter("userId", r.uid)
+            }, "Отчёт")
+            : (r.inactive ? "нет 30+ дней" : "есть")))))));
+  }
+
+  function studentsSection(view) {
+    const student = view.students.student;
+    if (student) {
+      const a = student.assignments;
+      return panel(`Ученик: ${student.name}`,
+        h("div", { class: "stat-grid" },
+          stat("Средний балл", pct(student.averageScore), student.bestScore === null ? "" : `лучший: ${student.bestScore}%`),
+          stat("Выполнено тестов", String(student.testsCompleted)),
+          stat("Заданий выполнено", pct(a.percent), a.total ? `${a.done} из ${a.total}` : "заданий нет"),
+          stat("Просрочено заданий", String(student.overdue.length))),
+        student.subjectsProgress.length
+          ? barChart(student.subjectsProgress.map(s => ({
+            label: s.title, value: s.averageScore, hint: `${s.averageScore}%`
+          })), { ariaLabel: "Результаты по дисциплинам" })
+          : emptyHint("Оценённых попыток по выбранным фильтрам нет."),
+        student.strongTopics.length ? listRows(student.strongTopics.slice(0, 5).map(t => ({ title: `Сильная тема: ${t.title}`, value: `${t.averageScore}%` }))) : null,
+        student.weakTopics.length ? listRows(student.weakTopics.slice(0, 5).map(t => ({ title: `Слабая тема: ${t.title}`, value: `${t.averageScore}%` }))) : null,
+        student.overdue.length ? listRows(student.overdue.map(x => ({ title: `Просрочено: ${x.testTitle}`, value: dateRu(x.deadlineMs) }))) : null,
+        h("div", { class: "btn-row" },
+          h("a", { class: "btn secondary", href: `#profile/${encodeURIComponent(student.uid)}` }, "Профиль ученика")));
+    }
+    // Рейтинг по учебным результатам (не Live-рейтинг): только ученики
+    // выбранной области (группа/дисциплина), не вся организация.
+    return panel("Ученики",
+      rankingTable(view.students.rows, { withReport: true, empty: "Учеников по выбранным фильтрам нет." }),
       emptyHint("Рейтинг учебный (средний балл попыток). Live-рейтинг комнат считается отдельно."));
   }
 
-  function assignmentsSection(attempts, nowMs) {
-    const f = state.filters;
-    const completed = assignmentCompletion({
-      attempts,
-      students: f.groupId ? state.students.filter(s => s.groupId === f.groupId) : state.students,
-      assignments: state.assignments.filter(a => !f.groupId || a.groupId === f.groupId),
-      nowMs
-    });
+  function assignmentsSection(view) {
+    const c = view.assignments;
     return panel("Задания",
       h("div", { class: "stat-grid" },
-        stat("Назначено", String(completed.total)),
-        stat("Выполнено", String(completed.done), completed.percent === null ? "" : `${completed.percent}%`),
-        stat("Просрочено (без попытки)", String(completed.overdueRows.length))),
-      completed.total === 0
+        stat("Назначено", String(c.total)),
+        stat("Выполнено", String(c.done), c.percent === null ? "" : `${c.percent}%`),
+        stat("Просрочено (без попытки)", String(c.overdueRows.length))),
+      c.total === 0
         ? emptyHint("Активных заданий по выбранным фильтрам нет.")
-        : completed.overdueRows.length
-          ? listRows(completed.overdueRows.slice(0, 10).map(r => ({
+        : c.overdueRows.length
+          ? listRows(c.overdueRows.slice(0, 10).map(r => ({
             title: `${r.name} — ${r.testTitle}`,
-            value: new Date(r.deadlineMs).toLocaleDateString("ru-RU")
+            value: dateRu(r.deadlineMs)
           })))
-          : emptyHint("Просроченных заданий без попыток нет."));
+          : emptyHint("Просроченных заданий без попыток нет."),
+      emptyHint("Статус заданий не зависит от периода и типа попыток: «выполнено» — факт сдачи."));
   }
 
-  function weakTopicsSection(attempts) {
+  function weakTopicsSection(view) {
     // Существующая логика страницы «Слабые темы» — сохранена: средний
-    // балл по темам, топ-5 худших.
-    const completed = attempts.filter(a => a.status === "graded" && a.topicId);
-    const topicMap = new Map();
-    completed.forEach(a => {
-      if (!topicMap.has(a.topicId)) topicMap.set(a.topicId, { scoreSum: 0, count: 0, title: topicTitle(a.topicId) });
-      const t = topicMap.get(a.topicId);
-      t.scoreSum += a.percent;
-      t.count += 1;
-    });
-    const weakTopics = Array.from(topicMap.entries())
-      .map(([id, data]) => ({ id, title: data.title, avg: Math.round(data.scoreSum / data.count), count: data.count }))
-      .sort((a, b) => a.avg - b.avg)
-      .slice(0, 5);
-    const rows = weakTopics.length
-      ? h("div", { class: "list" }, weakTopics.map(t => h("div", { class: "list-row" },
+    // балл по темам, топ-5 худших (теперь — из общей выборки фильтров).
+    const rows = view.weakTopics.length
+      ? h("div", { class: "list" }, view.weakTopics.map(t => h("div", { class: "list-row" },
         h("div", { class: "list-row-main" },
           h("div", { class: "list-row-title" }, h("a", { href: `#topic-analytics/${encodeURIComponent(t.id)}` }, t.title)),
           h("div", { class: "list-row-sub" }, `попыток: ${t.count}`)),
-        h("div", { class: "badge badge-warning" }, `${t.avg}%`))))
+        h("div", { class: "badge badge-warning" }, `${t.averageScore}%`))))
       : emptyHint("Недостаточно данных: нужны оценённые попытки с привязкой к темам.");
     return panel("Слабые темы",
       rows,
