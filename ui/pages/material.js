@@ -57,13 +57,17 @@ function savePrefs(prefs) {
   try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch (_) { /* приватный режим */ }
 }
 
+// Служебный маркер заголовка из исходного текста («#>> Тема», «## Тема») не
+// должен попадать на экран — убираем его при показе (данные не меняются).
+const headingText = (text) => String(text || "").replace(/^\s*#+\s*>*\s*/, "").trim();
+
 function blockEl(block) {
   switch (block?.type) {
     case "heading":
       // level 2 — подзаголовок (глава — по умолчанию, как и раньше).
       return block.level === 2
-        ? h("h3", { class: "book-h book-sub" }, block.text || "")
-        : h("h2", { class: "book-h" }, block.text || "");
+        ? h("h3", { class: "book-h book-sub" }, headingText(block.text))
+        : h("h2", { class: "book-h" }, headingText(block.text));
     case "paragraph":
       return h("p", { class: "book-p" }, block.text || "");
     case "list":

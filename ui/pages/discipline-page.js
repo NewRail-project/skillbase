@@ -16,6 +16,7 @@ import { listMyTests, listPublishedTests } from "../../core/editor.js";
 import { listOrgAttempts } from "../../core/attempts.js";
 import { listOrgUsers } from "../../core/admins.js";
 import { disciplineAnalytics } from "../../core/analytics-logic.js";
+import { materialLink } from "../../core/material-library-logic.js";
 import { formDialog } from "../components/form-dialog.js";
 import { confirmAction } from "../components/confirm.js";
 import { toast } from "../components/toast.js";
@@ -110,7 +111,7 @@ export default async function DisciplinePage() {
         isArchived ? "Вернуть из архива" : "В архив")
     ];
 
-    body.replaceChildren(
+    body.replaceChildren(...[
       h("div", { class: "page-head" },
         h("div", {},
           h("div", { class: "eyebrow" }, h("a", { href: "#disciplines" }, "← Дисциплины")),
@@ -126,9 +127,9 @@ export default async function DisciplinePage() {
           ? h("ul", { class: "list" }, visible.map((t, i) => topicRow(t, i, visible.length, now)))
           : h("div", { class: "empty-state" }, h("p", { class: "muted" },
               staff ? "Тем пока нет — добавьте первую." : "Тем пока нет."))),
-      linkedPanel("Материалы", linked.materials, m => `#material/${encode(m.id)}`),
-      linkedPanel("Тесты", linked.tests, t => `#test/${encode(t.id)}`)
-    );
+      linkedPanel("Материалы", linked.materials, m => materialLink(window.location.hash, m.id)),
+      linkedPanel("Тесты", linked.tests, t => `#quiz/${encode(t.id)}`)
+    ].filter(Boolean));
   }
 
   // Ближайшие сроки: темы с датой сдачи или занятия в будущем, по возрастанию.

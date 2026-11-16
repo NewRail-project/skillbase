@@ -12,7 +12,7 @@ import { lt } from "../../core/i18n.js";
 import { empty } from "../components/empty.js";
 import {
   STATUS_LABEL, MATERIAL_STATUS_DRAFT, MATERIAL_STATUS_PUBLISHED,
-  MATERIAL_STATUS_ARCHIVED, visibleMaterials, sortMaterials, isPublished
+  MATERIAL_STATUS_ARCHIVED, visibleMaterials, sortMaterials, isPublished, materialLink
 } from "../../core/material-library-logic.js";
 import {
   listMaterials, publishLibraryMaterial, archiveLibraryMaterial

@@ -29,10 +29,11 @@ export class El {
     this.children.push(child);
     return child;
   }
+  // Как в браузере: null/undefined/число превращаются в ТЕКСТ («null»), а не
+  // пропускаются — именно так на странице дисциплины появлялось слово «null».
   append(...items) {
     for (const item of items) {
-      if (item == null) continue;
-      this.appendChild(typeof item === "string" ? new TextNode(item) : item);
+      this.appendChild(item && typeof item === "object" ? item : new TextNode(String(item)));
     }
   }
   replaceChildren(...items) { this.children = []; this.append(...items); }

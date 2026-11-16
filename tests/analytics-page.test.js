@@ -47,6 +47,8 @@ test("страница: без фильтров считает только св
   assert.equal(o["Учеников"].value, "5");
   assert.ok(!values(page, "user").includes("x1"));
   assert.ok(!text(page).includes("Чужой"));
+  // На экране не бывает служебных слов (null в DOM печатается текстом).
+  assert.ok(!/\bnull\b|\bundefined\b|NaN/.test(text(page)), "служебные значения на экране");
 });
 
 test("дисциплина: список реальных дисциплин; выбор оставляет данные только этой дисциплины", async () => {

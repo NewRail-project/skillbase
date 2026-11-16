@@ -410,7 +410,7 @@ export default async function AnalyticsPage() {
         h("div", { class: "list-row-main" },
           h("div", { class: "list-row-title" }, h("a", { href: `#topic-analytics/${encodeURIComponent(t.id)}` }, t.title)),
           h("div", { class: "list-row-sub" }, `попыток: ${t.count}`)),
-        h("div", { class: "badge badge-warning" }, `${t.averageScore}%`))))
+        h("div", { class: `badge ${t.averageScore < 60 ? "badge-danger" : t.averageScore < 75 ? "badge-warning" : "badge-success"}` }, `${t.averageScore}%`))))
       : emptyHint("Недостаточно данных: нужны оценённые попытки с привязкой к темам.");
     return panel("Слабые темы",
       rows,

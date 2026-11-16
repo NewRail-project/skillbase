@@ -372,6 +372,9 @@ a.list-row-title:hover { text-decoration: underline; }
    переносятся под заголовок: без этого .list-row-end (flex: none) сжимает
    .list-row-main и название переносится по одной-две буквы. */
 @media (max-width: 640px) {
+  .list-row { flex-wrap: wrap; row-gap: var(--space-2); }
+  .list-row > .list-row-main { flex: 1 1 100%; }
+  .list-row > .btn-row { margin-top: 0; }
   .topic-item .list-row { flex-wrap: wrap; row-gap: var(--space-2); }
   .topic-item .list-row-main { flex: 1 1 100%; }
   .topic-item .list-row-end { margin-left: 0; flex-wrap: wrap; }
@@ -452,15 +455,40 @@ a.list-row-title:hover { text-decoration: underline; }
 .chart-line .chart-dot { fill: var(--accent, #2F6FE4); }
 .chart-line text { fill: var(--muted, #6b7280); font-size: 11px; }
 .chart-bars { display: grid; gap: var(--space-2, 8px); margin: 0; padding: 0; list-style: none; }
-.chart-bar { display: grid; grid-template-columns: minmax(80px, 34%) 1fr auto; gap: var(--space-2, 8px); align-items: center; font-size: .9rem; }
-.chart-bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chart-bar-track { height: 10px; border-radius: 999px; background: var(--elevated, rgba(127,127,127,.15)); overflow: hidden; }
+/* Строка диаграммы. Сбрасываем свойства старого одноимённого правила
+   (.chart-bar выше — «заливка» старых графиков): иначе вся строка заливалась
+   акцентным цветом, и подписи/числа сливались с фоном. */
+.chart-bar {
+  display: grid; grid-template-columns: minmax(84px, 36%) 1fr minmax(44px, auto);
+  gap: var(--space-2, 8px); align-items: center; font-size: .9rem;
+  height: auto; background: none; border-radius: 0; padding: 4px 0;
+}
+.chart-bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text, inherit); font-weight: 500; }
+.chart-bar-track { height: 12px; border-radius: 999px; background: rgba(127,127,127,.22); overflow: hidden; min-width: 0; }
 .chart-bar-fill { height: 100%; border-radius: 999px; background: var(--accent, #2F6FE4); transition: width .5s ease; }
 .chart-bar-fill.is-low { background: var(--danger, #d64545); }
 .chart-bar-fill.is-mid { background: var(--warning, #e0a100); }
 .chart-bar-fill.is-high { background: var(--success, #2e9b5f); }
-.chart-bar-value { font-variant-numeric: tabular-nums; color: var(--muted, #6b7280); }
+.chart-bar-value { font-variant-numeric: tabular-nums; color: var(--text, inherit); font-weight: 600; text-align: right; white-space: nowrap; }
 .progress-meter { display: grid; gap: 4px; margin: var(--space-2, 8px) 0; }
 .progress-meter-head { display: flex; justify-content: space-between; font-size: .9rem; }
 .chart-empty { color: var(--muted, #6b7280); font-size: .9rem; }
 @media (prefers-reduced-motion: reduce) { .chart-bar-fill { transition: none; } }
+
+/* ---------- Каталог дисциплин: карточка-ссылка без «ссылочного» оформления ---------- */
+a.discipline-card { color: var(--text); text-decoration: none; display: block; transition: border-color .15s ease, transform .15s ease; }
+a.discipline-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+a.discipline-card h2 { margin: 0 0 var(--space-2); font-size: 1.05rem; line-height: 1.3; letter-spacing: -.01em; overflow-wrap: anywhere; }
+a.discipline-card .muted { margin: 0 0 var(--space-2); font-size: .875rem; line-height: 1.45; }
+a.discipline-card .badge { text-decoration: none; }
+.card-grid { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+
+/* ---------- Аналитика: читаемые заголовки блоков и плитки ---------- */
+.analytics-subject + .analytics-subject { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--border, rgba(127,127,127,.25)); }
+.analytics-subject .section-title { flex-wrap: wrap; gap: var(--space-1, 4px) var(--space-3); align-items: baseline; }
+.analytics-subject .section-title h3 { margin: 0; font-size: 1.05rem; line-height: 1.3; overflow-wrap: anywhere; flex: 1 1 14rem; }
+.panel .section-title h2 { margin: 0 0 var(--space-3); }
+.stat-hint { font-size: .8125rem; margin: 4px 0 0; }
+.sub-title { font-size: .95rem; margin: var(--space-4) 0 var(--space-2); }
+.panel .stat-grid { margin-bottom: var(--space-3); }
+.stat-value { display: block; }
