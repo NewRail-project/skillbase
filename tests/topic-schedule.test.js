@@ -69,9 +69,9 @@ test("даты: msToISODate и isoDateToMs — обратимы, локальн�
   assert.equal(d.getMonth(), 10);
 });
 
-test("даты: formatTopicDate — пустое значение даёт «—»", () => {
-  assert.equal(formatTopicDate(null), "—");
-  assert.equal(formatTopicDate("x"), "—");
+test("даты: formatTopicDate — пустое значение даёт заглушку", () => {
+  assert.equal(formatTopicDate(null), "не задана");
+  assert.equal(formatTopicDate("x"), "не задана");
   assert.match(formatTopicDate(isoDateToMs("2026-11-15")), /2026/);
 });
 
@@ -122,11 +122,12 @@ test("доступ: тема открывается по openDate и закры�
   assert.equal(topicOpenNow(topic, NOW), true, "внутри окна — открыта");
   assert.equal(topicOpenNow(topic, NOW - 3 * DAY), false, "до открытия — закрыта");
   assert.equal(topicOpenNow(topic, NOW + 6 * DAY), false, "после закрытия — закрыта");
-  // Границы: открыта ровно с момента открытия; закрыта сразу ПОСЛЕ
-  // closeDate — в сам день закрытия доступ сохраняется до конца дня.
+  // Границы: открыта ровно с момента открытия; closeDate — дата без
+  // времени, в сам день закрытия доступ сохраняется до конца дня.
   assert.equal(topicOpenNow(topic, NOW - 2 * DAY), true);
   assert.equal(topicOpenNow(topic, NOW + 5 * DAY), true);
-  assert.equal(topicOpenNow(topic, NOW + 5 * DAY + 1), false);
+  assert.equal(topicOpenNow(topic, NOW + 6 * DAY - 1), true, "конец дня закрытия");
+  assert.equal(topicOpenNow(topic, NOW + 6 * DAY), false, "на следующий день — закрыта");
 });
 
 // ---------- Состояния ученика ----------

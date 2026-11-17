@@ -54,12 +54,12 @@ test("ATTENDANCE_STATUS enum values", () => {
 test("computeTopicTotals: базовая агрегация по попыткам", () => {
   const attempts = [
     // Студент a: 5 верных из 5 по теме t1
-    { userId: "a", subjectId: "math", topicId: "t1", status: "graded", score: 45, total: 50, answered: 5, gradedAt: Date.now() },
-    { userId: "a", subjectId: "math", topicId: "t1", status: "graded", score: 40, total: 50, answered: 5, gradedAt: Date.now() },
+    { userId: "a", subjectId: "math", topicId: "t1", status: "graded", score: 45, total: 50, questions: 5, answered: 5, gradedAt: Date.now() },
+    { userId: "a", subjectId: "math", topicId: "t1", status: "graded", score: 40, total: 50, questions: 5, answered: 5, gradedAt: Date.now() },
     // Студент b: 3 верных из 5 по теме t1
-    { userId: "b", subjectId: "math", topicId: "t1", status: "graded", score: 27, total: 50, answered: 3, gradedAt: Date.now() },
+    { userId: "b", subjectId: "math", topicId: "t1", status: "graded", score: 27, total: 50, questions: 5, answered: 3, gradedAt: Date.now() },
     // Студент a: 2 верных из 5 по теме t2
-    { userId: "a", subjectId: "math", topicId: "t2", status: "graded", score: 18, total: 50, answered: 2, gradedAt: Date.now() },
+    { userId: "a", subjectId: "math", topicId: "t2", status: "graded", score: 18, total: 50, questions: 5, answered: 2, gradedAt: Date.now() },
   ];
 
   const topicsMap = new Map();
@@ -68,16 +68,17 @@ test("computeTopicTotals: базовая агрегация по попытка�
 
   const result = computeTopicTotals({ attempts, topicsMap });
 
-  // По теме t1: earned=45+40=85, max=50+50=100, answered=5+5=10, total=10
-  // knowledge = 85/100 = 0.85, participation = 10/10 = 1.0
-  // grade = round(90*0.85 + 10*1.0) = round(76.5+10) = 86
+  // По теме t1 агрегируются ВСЕ попытки, включая студента b:
+  // earned=45+40+27=112, max=50+50+50=150, answered=5+5+3=13, total=5+5+5=15
+  // knowledge = 112/150 ≈ 0.7467, participation = 13/15 ≈ 0.8667
+  // grade = round(90*0.7467 + 10*0.8667) = round(75.87) = 76
   const t1 = result.perTopic.get("t1");
-  assert.strictEqual(t1.testGrade, 86, "t1 testGrade should be 86 (90*0.85+10*1.0 rounded)");
+  assert.strictEqual(t1.testGrade, 76, "t1 testGrade should be 76 (all attempts incl. student b)");
   assert.strictEqual(t1.needsAgreement, false);
 
-  // По теме t2: earned=18, max=50, answered=2, total=5
+  // По теме t2: earned=18, max=50, answered=2, total=5 (вопросов)
   // knowledge = 18/50 = 0.36, participation = 2/5 = 0.4
-  // grade = round(90*0.36 + 10*0.4) = round(32.4+4) = 36
+  // grade = round(90*0.36 + 10*0.4) = round(36.4) = 36
   const t2 = result.perTopic.get("t2");
   assert.strictEqual(t2.testGrade, 36, "t2 testGrade should be 36");
   assert.strictEqual(t2.needsAgreement, false);

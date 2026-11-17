@@ -157,6 +157,10 @@ input[type="number"], input[type="search"], input[type="datetime-local"], select
 .form-error { border-color: var(--danger); }
 input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; min-height: 0; accent-color: var(--accent); }
 
+/* Строка фильтров страницы (календарь и т.п.): на телефоне переносится */
+.filters { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.filters select { flex: 1 1 12rem; width: auto; }
+
 /* ===== Таблицы ===== */
 .table, .tr-table { width: 100%; border-collapse: collapse; }
 .table th, .table td, .tr-table th, .tr-table td {

@@ -20,7 +20,9 @@ export function topicStatusLabel(status) {
   return STATUS_LABELS[status] || "Опубликована";
 }
 
-// Firestore Timestamp | Date | число | ISO-строка → миллисекунды или null.
+// Firestore Timestamp | Date | число → миллисекунды или null.
+// Строки не допускаются: правила Firestore требуют timestamp, а даты без
+// времени разбирает isoDateToMs только для input type=date.
 export function dateMs(value) {
   if (value === null || value === undefined || value === "") return null;
   if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.getTime() : null;
@@ -30,10 +32,6 @@ export function dateMs(value) {
     return Number.isFinite(ms) ? ms : null;
   }
   if (typeof value === "object" && typeof value.seconds === "number") return value.seconds * 1000;
-  if (typeof value === "string") {
-    const ms = new Date(value).getTime();
-    return Number.isFinite(ms) ? ms : null;
-  }
   return null;
 }
 
@@ -74,21 +72,126 @@ export function topicOpenNow(topic, nowMs = Date.now()) {
 }
 
 // Состояние темы глазами студента.
+// options.hasAttempts — есть ли у ученика попытки по теме (прогресс).
 // state: "upcoming" (ещё не открыта) | "closed" | "overdue" (срок сдачи
-// прошёл, тема ещё открыта) | "open".
-export function studentTopicState(topic, nowMs = Date.now()) {
+// прошёл, попыток нет) | "studying" (открыта, есть попытки) |
+// "completed" (срок прошёл, но попытки есть) | "available".
+// Черновики, запланированные и архивные темы состояния не выдают (null):
+// статус темы хранится отдельно и показывается через topicStatusLabel.
+export function studentTopicState(topic, nowMs = Date.now(), { hasAttempts = false } = {}) {
+  const status = topic?.status;
+  if (status === TOPIC_STATUS_DRAFT || status === TOPIC_STATUS_PLANNED ||
+    status === TOPIC_STATUS_ARCHIVED) {
+    return null;
+  }
   const open = dateMs(topic?.openDate);
   const close = dateMs(topic?.closeDate);
   const due = dateMs(topic?.dueDate);
-  if (open !== null && nowMs < open) {
-    return { state: "upcoming", label: `Откроется ${formatTopicDate(open)}` };
-  }
+  // Закрытие доступа важнее прогресса: закрытая тема закрыта для всех.
   if (close !== null && nowMs >= close + DAY_MS) {
-    return { state: "closed", label: "Тема закрыта" };
+    return { state: "closed", label: "Закрыта" };
+  }
+  if (open !== null && nowMs < open) {
+    return { state: "upcoming", label: "Откроется" };
   }
   if (due !== null && nowMs >= due + DAY_MS) {
-    return { state: "overdue", label: `Срок сдачи прошёл (${formatTopicDate(due)})` };
+    return hasAttempts
+      ? { state: "completed", label: "Завершена" }
+      : { state: "overdue", label: "Просрочена" };
   }
-  if (due !== null) return { state: "available", label: `Сдать до ${formatTopicDate(due)}` };
-  return { state: "available", label: "Открыта" };
+  if (hasAttempts) return { state: "studying", label: "Изучается" };
+  return { state: "available", label: "Доступна" };
+}
+
+// ---------- План учёбы ----------
+
+// studyPlan(topics, nowMs, { completedTopicIds }) → { current, next }:
+//   current — первая открытая незавершённая тема, next — первая тема
+//   с датой открытия в будущем. Черновики/архив не участвуют.
+export function studyPlan(topics = [], nowMs = Date.now(), { completedTopicIds = new Set() } = {}) {
+  const list = (Array.isArray(topics) ? topics : []).filter(t =>
+    t && ![TOPIC_STATUS_DRAFT, TOPIC_STATUS_PLANNED, TOPIC_STATUS_ARCHIVED].includes(t.status));
+  const done = (t) => completedTopicIds instanceof Set
+    ? completedTopicIds.has(t.id)
+    : false;
+  const current = list.find(t => topicOpenNow(t, nowMs) && !done(t)) || null;
+  const next = list.find(t => {
+    if (done(t)) return false;
+    const open = dateMs(t.openDate);
+    return open !== null && open > nowMs;
+  }) || null;
+  return { current, next };
+}
+
+// ---------- События расписания ----------
+
+// Поля дат темы → вид события в расписании.
+const TOPIC_DATE_KINDS = [
+  ["lessonDate", "lesson"],
+  ["openDate", "open"],
+  ["closeDate", "close"],
+  ["dueDate", "due"]
+];
+
+// buildScheduleEvents({ topics, assignments, nowMs }) → события по
+// возрастанию времени: занятия/открытия/закрытия/сроки тем и сроки
+// заданий. Архивные темы и записи без дат событий не дают.
+// При равном времени срок задания идёт раньше занятия (kind как ключ).
+export function buildScheduleEvents({ topics = [], assignments = [] } = {}) {
+  const events = [];
+  for (const topic of topics || []) {
+    if (!topic || topic.status === TOPIC_STATUS_ARCHIVED) continue;
+    for (const [field, kind] of TOPIC_DATE_KINDS) {
+      const ms = dateMs(topic[field]);
+      if (ms === null) continue;
+      events.push({
+        dateMs: ms, kind,
+        title: topic.title || `Тема ${topic.id}`,
+        topicId: topic.id,
+        subjectId: topic.subjectId || null,
+        groupId: topic.groupId || null
+      });
+    }
+  }
+  for (const a of assignments || []) {
+    const ms = dateMs(a?.deadline);
+    if (ms === null) continue; // задание без срока — не событие
+    events.push({
+      dateMs: ms, kind: "assignment",
+      title: a.testTitle || "Задание",
+      testId: a.testId || null,
+      subjectId: a.subjectId || null,
+      groupId: a.groupId || null
+    });
+  }
+  return events.sort((x, y) =>
+    x.dateMs - y.dateMs ||
+    String(x.kind).localeCompare(String(y.kind)) ||
+    String(x.title).localeCompare(String(y.title), "ru"));
+}
+
+// Просроченные: сроки сдачи тем и заданий, время которых уже прошло.
+export function overdueEvents(events = [], nowMs = Date.now()) {
+  return (Array.isArray(events) ? events : []).filter(e =>
+    (e.kind === "due" || e.kind === "assignment" || e.kind === "close") &&
+    e.dateMs < nowMs);
+}
+
+// Уникальные группы событий (для селекта фильтра), по алфавиту.
+export function scheduleGroups(events = []) {
+  const groups = new Set();
+  for (const e of Array.isArray(events) ? events : []) {
+    if (e?.groupId) groups.add(e.groupId);
+  }
+  return [...groups].sort((a, b) => String(a).localeCompare(String(b), "ru"));
+}
+
+// Фильтр событий: по дисциплине (задания остаются — у них нет дисциплины)
+// и по группе. Пустые фильтры не режут список.
+export function filterScheduleEvents(events = [], { subjectId = null, groupId = null } = {}) {
+  return (Array.isArray(events) ? events : []).filter(e => {
+    if (subjectId && e.kind !== "assignment" && e.subjectId !== subjectId) return false;
+    if (groupId && e.groupId !== groupId) return false;
+    return true;
+  });
 }

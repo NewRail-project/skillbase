@@ -118,7 +118,11 @@ export default async function DisciplinePage() {
         h("div", {},
           h("div", { class: "eyebrow" }, h("a", { href: "#disciplines" }, "← Дисциплины")),
           h("h1", {}, discipline.title),
-          discipline.description ? h("p", { class: "page-sub" }, discipline.description) : null),
+          discipline.description ? h("p", { class: "page-sub" }, discipline.description) : null,
+          // Поле teacher правила запрещают записывать: оно бывает только в
+          // старых данных, поэтому вывод условный.
+          typeof discipline.teacher === "string" && discipline.teacher.trim()
+            ? h("p", { class: "page-sub" }, `Преподаватель: ${discipline.teacher.trim()}`) : null),
         staff ? h("div", { class: "page-head-actions" }, h("div", { class: "btn-row" }, ...actionButtons)) : null),
       statsPanel(),
       upcomingPanel(now),
@@ -172,10 +176,10 @@ export default async function DisciplinePage() {
       : [["Доступных тем", String(stats.topics)]];
     return h("section", { class: "panel" },
       h("div", { class: "panel-head" }, h("h2", {}, "Статистика")),
-      h("div", { class: "panel-body" },
-        h("div", { class: "quick-actions" },
-          cells.map(([label, value]) => h("div", { class: "quick-action" },
-            h("b", {}, value), h("span", {}, label))))));
+      h("div", { class: "stat-grid" },
+        cells.map(([label, value]) => h("div", { class: "stat" },
+          h("div", { class: "stat-value" }, value),
+          h("div", { class: "stat-label" }, label)))));
   }
 
   const sessionInfo = () => ({ uid: State.user?.uid, role: State.profile?.role, orgId: State.profile?.orgId });

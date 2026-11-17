@@ -21,7 +21,9 @@
 import { h } from "../../shared/dom.js";
 import { State, isStaff } from "../../core/auth.js";
 import { computeJournalData, generateJournalUiRows, verifyOperation } from "../../core/journal.js";
-import { listMyAttempts } from "../../core/attempts.js";
+import { listOrgAttempts } from "../../core/attempts.js";
+import { isGradedStatus } from "../../core/journal-logic.js";
+import { saveGradeOverride, saveAttendance } from "../../core/journal.js";
 import { getSubjects, getTopics } from "../../core/subjects.js";
 import { toCsv, safeFileName, downloadCsv } from "../../shared/csv.js";
 import { t as tr, lt } from "../../core/i18n.js";
@@ -50,6 +52,15 @@ function statusColor(status) {
     case "excused": return "info";
     default:        return "neutral";
   }
+}
+
+// Источник оценки по данным попытки: обычный тест, Live-комната или
+// неизвестный (старые записи без пометки).
+function gradeSourceFromAttempt(a) {
+  if (!a) return null;
+  if (a.source) return a.source;
+  if (a.mode === "live" || a.roomId || a.liveRoomId) return "live";
+  return null;
 }
 
 export default async function JournalPage() {
@@ -99,6 +110,10 @@ export default async function JournalPage() {
     return await listOrgAttempts(profile.orgId);
   }
 
+  // Справочники дисциплин — в области видимости страницы: они нужны и
+  // при расчёте данных, и при отрисовке.
+  const subjectsMap = new Map();
+
   async function loadData() {
     const attempts = await loadAttempts();
     if (!attempts || !attempts.length) {
@@ -107,7 +122,6 @@ export default async function JournalPage() {
     }
 
     // Загружаем справочники предметов и тем
-    let subjectsMap = new Map();
     let topicsMap = new Map();
 
     try {
@@ -133,7 +147,7 @@ export default async function JournalPage() {
     });
 
     // Применяем фильтры и формируем строки в зависимости от вида
-    applyViewFilter(journalData, state);
+    await applyViewFilter(journalData, state);
 
     // Если это режим "студент" — фильтруем только свои записи
     if (state.view === "students" && profile?.role === "student" && profile.uid) {
@@ -142,7 +156,7 @@ export default async function JournalPage() {
     }
   }
 
-  function applyViewFilter(journalData, state) {
+  async function applyViewFilter(journalData, state) {
     const { perTopic, perStudent, disciplines, needsAgreement } = journalData;
     let rows = [];
 
@@ -434,7 +448,7 @@ export default async function JournalPage() {
             rows: 3,
             value: state.overrideReason,
             "aria-label": "Причина изменения"
-          })))),
+          }))),
       okLabel: "Сохранить",
       cancelLabel: "Отмена"
     });
@@ -449,8 +463,9 @@ export default async function JournalPage() {
         return;
       }
 
-      await addGradeOverride({
-        studentId: state.overrideStudentId,
+      await saveGradeOverride({
+        uid: state.overrideStudentId,
+        authorUid: State.user?.uid || null,
         from: Number(state.overrideFrom) || 0,
         to: Number(state.overrideTo) || 0,
         reason: state.overrideReason || "Без причины"
@@ -489,15 +504,18 @@ export default async function JournalPage() {
           h("span", { class: "value" }, state.attendanceDisciplineId ? "—" : "—")),
         h("div", { class: "form-field" },
           h("label", {}, "Статус:"),
-          h("select", { "aria-label": "Статус посещаемости" }, ...statusOptions.map(s =>
+          h("select", {
+            "aria-label": "Статус посещаемости",
+            onchange: (e) => { state.attendanceStatus = e.target.value; }
+          }, ...statusOptions.map(s =>
             h("option", { value: s.value }, s.label)
           ))),
         h("div", { class: "form-field" },
-          h("label", {}, "Причина (если извинение):"),
+          h("label", {}, "Причина (если уважительная):"),
           h("textarea", {
             rows: 3,
-            "aria-label": "Причина ausencia"
-          })))),
+            "aria-label": "Причина"
+          }))),
       okLabel: "Сохранить",
       cancelLabel: "Отмена"
     });
@@ -679,10 +697,10 @@ export default async function JournalPage() {
 
     return h("div", { class: "list" }, items.map(([sid, students]) => h("div", { class: "list-row" },
       h("div", { class: "list-row-main" },
-        h("div", { class: "list-row-title" }, sid === "unknown" ? "Без предмета" : (disciplinesMap[sid] || `Предмет ${sid}`)),
+        h("div", { class: "list-row-title" }, sid === "unknown" ? "Без предмета" : (subjectsMap.get(sid)?.title || `Предмет ${sid}`)),
         h("div", { class: "list-row-sub" }, `${students.length} студентов`))),
       ...students.map((s, i) => h("div", { key: i, class: "list-row" },
-        h("div", { class: "list-row-sub" }, `${s.name}: ${formatGrade(s.grade)}`)))))
+        h("div", { class: "list-row-sub" }, `${s.name}: ${formatGrade(s.grade)}`)))));
   }
 
   function renderGroupsView() {
@@ -697,14 +715,14 @@ export default async function JournalPage() {
     return h("div", { class: "list" }, items.map(([groupId, students]) => h("div", { class: "list-row" },
       h("div", { class: "list-row-main" }, `Группа ${groupId || "—"}`)),
       ...students.map(s => h("div", { class: "list-row" },
-        h("div", { class: "list-row-sub" }, `${s.name}: ${formatGrade(s.grade)}`)))))
+        h("div", { class: "list-row-sub" }, `${s.name}: ${formatGrade(s.grade)}`)))));
   }
 
   function renderStudentsView() {
     return h("div", { class: "list" }, state.rows.map((r, i) => h("div", { key: i, class: "list-row" },
       h("div", { class: "list-row-main" }, `${r.name || `Студент ${r.uid}`}`),
-      h("div", { class: "list-row-end" }, formatGrade(r.grade) ? `Оценка: ${formatGrade(r.grade)}` : "—")))
-  )
+      h("div", { class: "list-row-end" }, formatGrade(r.grade) ? `Оценка: ${formatGrade(r.grade)}` : "—"))));
+  }
 
   function renderTopicsView() {
     const byTopic = new Map(); // topicId -> [{ topicTitle, discipline, students: [{name, grade}] }]
@@ -725,18 +743,17 @@ export default async function JournalPage() {
 
     return h("div", { class: "list" }, items.map(([tid, data]) => h("div", { class: "list-row" },
       h("div", { class: "list-row-main" },
-        h("div", { class: "list-row-title" }, data.topicTitle || `Тема ${tid}`)),
-      h("div", { class: "list-row-sub" }, `${data.students.length} студентов`)),
+        h("div", { class: "list-row-title" }, data[0].topicTitle || `Тема ${tid}`)),
+      h("div", { class: "list-row-sub" }, `${data.length} студентов`)),
       ...data.students.map(s => h("div", { class: "list-row" },
-        h("div", { class: "list-row-sub" }, `${s.name}: ${formatGrade(s.grade)}`)))))
+        h("div", { class: "list-row-sub" }, `${s.name}: ${formatGrade(s.grade)}`)))));
   }
 
   function renderPeriodView() {
     // Сортировка уже произведена при загрузке
     return h("div", { class: "list" }, state.rows.map((r, i) => h("div", { key: i, class: "list-row" },
       h("div", { class: "list-row-main" },
-        h("div", { class: "list-row-title" }, r.date ? new Date(r.date).toLocaleDateString("ru-RU") : `—`)),
-        h("div", { class: "list-row-sub" }, `${r.name || "—"}: ${formatGrade(r.grade)}`))),
-      h("div", { class: "list-row-sub" }, `···`))
-  )
+        h("div", { class: "list-row-title" }, r.date ? new Date(r.date).toLocaleDateString("ru-RU") : `—`),
+        h("div", { class: "list-row-sub" }, `${r.name || "—"}: ${formatGrade(r.grade)}`)))));
+  }
 }
