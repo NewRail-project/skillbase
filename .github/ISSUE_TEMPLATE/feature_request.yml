@@ -1,0 +1,42 @@
+name: Предложение
+description: Идея новой возможности или улучшения существующей
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Проект небольшой — пишите по существу. Для учебного проекта это
+        нормально, если предложение попадёт в бэклог, а не будет сделано сразу.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какая задача или проблема
+      description: Что сейчас неудобно или чего не хватает. Опишите сценарий, а не только решение
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Предлагаемое решение
+      description: Как это должно работать с точки зрения пользователя
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Альтернативы
+      description: Другие способы решить ту же задачу, которые вы рассматривали
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Ограничения проекта
+      description: Предложения не должны нарушать базовые правила проекта
+      options:
+        - label: Предложение не требует ослабления правил Firestore
+        - label: Предложение не хранит правильные ответы в публично читаемых данных

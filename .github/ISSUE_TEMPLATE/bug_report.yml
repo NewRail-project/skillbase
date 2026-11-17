@@ -1,0 +1,59 @@
+name: Сообщение об ошибке
+description: Что-то в приложении работает не так
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Заполните форму так, чтобы ошибку можно было воспроизвести.
+        Не прикладывайте скриншоты с личными данными (email, ФИО участников).
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения
+      description: Что именно вы делали, начиная с открытия страницы
+      placeholder: |
+        1. Открыл(а) …
+        2. Нажал(а) …
+        3. …
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Ожидаемый результат
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Фактический результат
+      description: Включая текст ошибки из консоли браузера, если он есть
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Раздел платформы
+      options:
+        - Тесты (прохождение)
+        - Конструктор тестов / материалы
+        - Live-комнаты
+        - Журнал / аналитика
+        - Вход / регистрация / профиль
+        - Расписание / календарь
+        - Другое
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Окружение
+      description: Устройство, ОС, браузер и его версия (например: телефон, Android 14, Firefox 130)
+    validations:
+      required: true
