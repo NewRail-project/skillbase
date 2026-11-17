@@ -6,6 +6,7 @@ import {
   GRADE_STATUS, JOURNAL_CSV_COLUMNS, journalAverage, journalCsvRows
 } from "../../core/pair-grade.js";
 import { toCsv, safeFileName, downloadCsv } from "../../shared/csv.js";
+import { gradeLabel, earnedLabel } from "../../core/score-format.js";
 
 const LEVEL_LABEL = {
   strong: "Хорошо усвоил",
@@ -113,7 +114,7 @@ function emptyJournal() {
 
 function buildJournalTable(journal, grades, byUid, average) {
   const thead = h("thead", {}, h("tr", {},
-    ["№", "ФИО", "Статус", "Верно", "Неверно", "Пропуски", "Оценка за пару"]
+    ["№", "ФИО", "Статус", "Верно", "Неверно", "Пропуски", "Оценка (баллы)"]
       .map((t, i) => h("th", { class: i > 2 ? "num" : "" }, t))));
   const rows = journal.map(row => {
     const g = byUid.get(row.uid);
@@ -132,7 +133,7 @@ function buildJournalTable(journal, grades, byUid, average) {
   if (average != null) {
     rows.push(h("tr", { class: "journal-average-row" },
       h("td", { colspan: 6 }, "Средний балл по журналу"),
-      h("td", { class: "num" }, String(average))));
+      h("td", { class: "num" }, gradeLabel(average))));
   }
   return h("div", { class: "table-scroll" },
     h("table", { class: "live-table journal-table" },
@@ -140,11 +141,35 @@ function buildJournalTable(journal, grades, byUid, average) {
       h("tbody", {}, rows)));
 }
 
-function barRow(label, percent, extra = "") {
+// unit: "%" — доля (готовность по теме), "б." — оценка в баллах (шкала 0–100).
+function barRow(label, value, extra = "", unit = "%") {
+  const text = unit === "%" ? `${value}%` : gradeLabel(value);
   return h("div", { class: "bar-row" },
     h("span", { class: "bar-label" }, label),
-    h("span", { class: "bar-track" }, h("span", { class: "bar-fill", style: `width:${Math.max(0, Math.min(100, percent))}%` })),
-    h("span", { class: "bar-value" }, `${percent}%${extra}`));
+    h("span", { class: "bar-track" }, h("span", { class: "bar-fill", style: `width:${Math.max(0, Math.min(100, value))}%` })),
+    h("span", { class: "bar-value" }, `${text}${extra}`));
+}
+
+// Ученики таблицей: ФИО по алфавиту, верно/ошибки/пропуски, оценка в баллах.
+function studentsTable(students = [], byUid = null) {
+  const sorted = [...students].sort((x, y) => String(x.name || "").localeCompare(String(y.name || ""), "ru", { sensitivity: "base" }));
+  if (!sorted.length) return h("p", { class: "muted" }, "Пока нет участников.");
+  const showPoints = byUid && byUid.size;
+  const head = ["№", "ФИО", "Верно", "Ошибок", "Пропусков", ...(showPoints ? ["Баллы"] : []), "Оценка (баллы)"];
+  return h("div", { class: "table-scroll" },
+    h("table", { class: "live-table students-table" },
+      h("thead", {}, h("tr", {}, head.map((t, i) => h("th", { class: i > 1 ? "num" : "" }, t)))),
+      h("tbody", {}, sorted.map((s, i) => {
+        const g = byUid?.get(s.uid);
+        return h("tr", { "data-uid": s.uid || "" },
+          h("td", {}, String(i + 1)),
+          h("td", {}, s.name),
+          h("td", { class: "num" }, String(s.correct)),
+          h("td", { class: "num" }, String(s.wrong)),
+          h("td", { class: "num" }, String(s.skipped)),
+          ...(showPoints ? [h("td", { class: "num" }, g ? earnedLabel(g.earned, g.max) : "—")] : []),
+          h("td", { class: "num" }, gradeLabel(s.grade)));
+      }))));
 }
 
 // Блоки подробного отчёта. Один набор разметки обслуживает и старый
@@ -161,10 +186,10 @@ const REPORT_BLOCKS = {
       h("div", { class: "quick-actions" },
         stat(group.participants, "участников"),
         stat(group.finished, "завершили тест"),
-        stat(group.averageScore, "средний балл"),
+        stat(gradeLabel(group.averageScore), "средний балл"),
         stat(`${group.averagePercent}%`, "верных в среднем"),
-        stat(group.maxGrade, "максимум оценки"),
-        stat(group.minGrade, "минимум оценки")),
+        stat(gradeLabel(group.maxGrade), "максимум оценки"),
+        stat(gradeLabel(group.minGrade), "минимум оценки")),
       h("div", { class: "chart-row" },
         gaugeChart(group.averagePercent, "Готовность группы"),
         distributionChart(group.distribution))
@@ -193,11 +218,8 @@ const REPORT_BLOCKS = {
   students(report) {
     return [
       h("h3", {}, "Анализ учеников"),
-      h("div", { class: "bars" }, report.students.map(st => barRow(st.name, st.percent))),
-      h("ul", { class: "student-list" }, report.students.map(s => h("li", { class: `student student-${s.level}` },
-        h("b", {}, s.name), ` — ${LEVEL_LABEL[s.level] || ""}: `,
-        `верно ${s.correct}, ошибок ${s.wrong}, пропусков ${s.skipped}`,
-        s.weakTopics.length ? h("span", { class: "muted" }, `. Повторить: ${s.weakTopics.join(", ")}`) : null)))
+      h("div", { class: "bars" }, report.students.map(st => barRow(st.name, st.grade ?? st.percent, "", "б."))),
+      studentsTable(report.students)
     ];
   },
   topics(report) {
@@ -271,7 +293,7 @@ export function overviewPanel({ title, subject, topic, finishedLabel,
           h("dd", {}, String(observers ?? 0))),
         group ? h("div", { class: "overview-item" },
           h("dt", {}, "Средний результат"),
-          h("dd", {}, `${group.averageGrade ?? 0} · верных ${group.averagePercent ?? 0}%`)) : null,
+          h("dd", {}, group.averageGrade == null ? "—" : `${gradeLabel(group.averageGrade)}${group.averagePercent == null ? "" : ` · верных ${group.averagePercent}%`}`)) : null,
         group ? h("div", { class: "overview-item" },
           h("dt", {}, "Завершили тест"),
           h("dd", {}, `${group.finished ?? 0} из ${group.participants ?? 0}`)) : null),
@@ -291,38 +313,44 @@ export function studentsPanel(report, grades = []) {
   const students = report.students || [];
   const byUid = new Map((report.byUid ? [...report.byUid.values()] : grades).map(g => [g.uid, g]));
   const verdictMark = (b) => b.answered ? (b.correct ? "✓" : "✗") : "—";
-  const body = students.length
-    ? h("div", { class: "students-detail" }, students.map(s => {
-      const g = byUid.get(s.uid);
-      const breakdown = g?.breakdown || [];
-      return h("details", { class: "student-detail" },
-        h("summary", {},
-          h("b", {}, s.name),
-          h("span", { class: "student-detail-stats" },
-            `верно ${s.correct} · ошибок ${s.wrong} · пропусков ${s.skipped}`),
-          h("span", { class: "student-detail-grade" }, `${s.percent}% · оценка ${s.grade ?? "—"}`)),
-        breakdown.length
-          ? h("div", { class: "table-scroll" },
-            h("table", { class: "live-table" },
-              h("thead", {}, h("tr", {},
-                ["№", "Результат", "Баллы"].map(t => h("th", {}, t)))),
-              h("tbody", {}, breakdown.map(b => h("tr", { class: b.answered ? (b.correct ? "row-ok" : "row-bad") : "row-skip" },
-                h("td", {}, `В${b.position + 1}`),
-                h("td", {}, verdictMark(b) === "—" ? "пропуск" : b.correct ? "верно" : "неверно"),
-                h("td", {}, `${b.points}/${b.max}`))))))
-          : h("p", { class: "muted" }, "Вопросов в этой попытке нет — детализации нет."),
-        s.weakTopics.length
-          ? h("p", { class: "form-hint" }, `Повторить: ${s.weakTopics.join(", ")}`)
-          : null);
-    }))
-    : h("p", { class: "muted" }, "Пока нет участников.");
+  const detail = students.length
+    ? h("div", { class: "students-detail" }, [...students]
+      .sort((x, y) => String(x.name || "").localeCompare(String(y.name || ""), "ru", { sensitivity: "base" }))
+      .map(s => {
+        const g = byUid.get(s.uid);
+        const breakdown = g?.breakdown || [];
+        return h("details", { class: "student-detail" },
+          h("summary", {},
+            h("b", {}, s.name),
+            h("span", { class: "student-detail-stats" },
+              `верно ${s.correct} · ошибок ${s.wrong} · пропусков ${s.skipped}`),
+            h("span", { class: "student-detail-grade" }, gradeLabel(s.grade))),
+          breakdown.length
+            ? h("div", { class: "table-scroll" },
+              h("table", { class: "live-table" },
+                h("thead", {}, h("tr", {},
+                  ["№", "Результат", "Баллы"].map(t => h("th", {}, t)))),
+                h("tbody", {}, breakdown.map(b => h("tr", { class: b.answered ? (b.correct ? "row-ok" : "row-bad") : "row-skip" },
+                  h("td", {}, `В${b.position + 1}`),
+                  h("td", {}, verdictMark(b) === "—" ? "пропуск" : b.correct ? "верно" : "неверно"),
+                  h("td", {}, `${b.points}/${b.max}`))))))
+            : h("p", { class: "muted" }, "Вопросов в этой попытке нет — детализации нет."),
+          s.weakTopics.length
+            ? h("p", { class: "form-hint" }, `Повторить: ${s.weakTopics.join(", ")}`)
+            : null);
+      }))
+    : null;
+  const body = h("div", {},
+    studentsTable(students, byUid),
+    detail ? h("h3", { class: "sub-title" }, "Разбор ответов по вопросам") : null,
+    detail);
   return h("section", { class: "panel live-students", "aria-label": "Участники" },
     h("div", { class: "panel-head" },
       h("h2", {}, "Участники"),
       h("span", { class: "badge badge-neutral" }, `${students.length}`)),
     h("div", { class: "panel-body" },
       h("p", { class: "form-hint" },
-        "Процент — доля баллов от максимума. Оценка — учебная (не зависит от рейтинга и дуэлей)."),
+        "Оценка — в баллах (шкала 0–100), учебная: не зависит от рейтинга и дуэлей. «Баллы» — набрано из максимума."),
       body));
 }
 

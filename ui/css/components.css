@@ -492,3 +492,45 @@ a.discipline-card .badge { text-decoration: none; }
 .sub-title { font-size: .95rem; margin: var(--space-4) 0 var(--space-2); }
 .panel .stat-grid { margin-bottom: var(--space-3); }
 .stat-value { display: block; }
+
+/* ---------- Учебный рейтинг (#leaderboard): таблица ---------- */
+.rate-summary { margin: 0 0 var(--space-3); color: var(--text-2); font-size: .875rem; }
+.rate-table { width: 100%; border-collapse: collapse; font-size: .95rem; }
+.rate-table th { text-align: left; font-size: .8rem; font-weight: 600; color: var(--text-2); padding: var(--space-2) var(--space-2); border-bottom: 1px solid var(--border); white-space: nowrap; }
+.rate-table td { padding: var(--space-3) var(--space-2); border-bottom: 1px solid var(--border); vertical-align: middle; }
+.rate-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rate-col-name { font-weight: 600; overflow-wrap: anywhere; min-width: 8rem; }
+.rate-col-score { min-width: 6.5rem; }
+.rate-score { display: block; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rate-place {
+  display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
+  font-weight: 800; font-variant-numeric: tabular-nums; background: rgba(127,127,127,.2); color: var(--text);
+}
+.rate-medal-1 .rate-place { background: #f5c542; color: #2b2100; }
+.rate-medal-2 .rate-place { background: #cfd5dc; color: #1d2329; }
+.rate-medal-3 .rate-place { background: #d9a066; color: #2b1a05; }
+.rate-track { display: block; height: 6px; margin-top: 4px; border-radius: 999px; background: rgba(127,127,127,.25); overflow: hidden; }
+.rate-fill { display: block; height: 100%; border-radius: 999px; background: var(--ok, #2e9b5f); }
+.rate-fill.is-mid { background: var(--warn, #e0a100); }
+.rate-fill.is-low { background: var(--danger, #d64545); }
+/* Таблицы статистики (ФИО + оценка) */
+.analytics-table { width: 100%; border-collapse: collapse; font-size: .95rem; }
+.analytics-table th { text-align: left; font-size: .8rem; font-weight: 600; color: var(--text-2); padding: var(--space-2); border-bottom: 1px solid var(--border); white-space: nowrap; }
+.analytics-table td { padding: var(--space-2); border-bottom: 1px solid var(--border); vertical-align: middle; }
+.analytics-table td:first-child { font-weight: 600; overflow-wrap: anywhere; min-width: 8rem; }
+
+/* ---------- Списки тем / материалов / тестов: аккуратные строки ---------- */
+.list-row { align-items: flex-start; gap: var(--space-3); padding: var(--space-3) var(--space-3); }
+.list-row-title { font-size: 1rem; font-weight: 650; line-height: 1.3; }
+.list-row-title a { color: var(--text); text-decoration: none; }
+.list-row-title a:hover, .list-row-title a:focus-visible { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.list-row-sub { margin-top: 4px; line-height: 1.4; }
+.topic-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--space-2); }
+.topic-meta-item + .topic-meta-item::before { content: "·"; margin-right: var(--space-2); opacity: .6; }
+.topic-meta .badge { font-size: .75rem; }
+.topic-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); flex: none; }
+.btn-sm { min-height: 36px; padding: 0 var(--space-3); font-size: .875rem; }
+.btn-icon-sm { min-width: 36px; padding: 0; }
+@media (max-width: 640px) {
+  .list-row > .topic-actions { flex: 1 1 100%; }
+}

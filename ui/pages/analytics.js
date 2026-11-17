@@ -33,6 +33,7 @@ import {
   TOPIC_PASS_PERCENT
 } from "../../core/analytics-logic.js";
 import { lineChart, barChart, progressMeter } from "../components/charts.js";
+import { gradeLabel } from "../../core/score-format.js";
 import { loading } from "../components/loading.js";
 import { error as errorState } from "../components/error.js";
 
@@ -150,9 +151,10 @@ export default async function AnalyticsPage() {
     body.append(distributionSection(view));
     body.append(disciplinesSection(view));
     body.append(groupsSection(view));
-    body.append(studentsSection(view));
-    body.append(assignmentsSection(view));
     body.append(weakTopicsSection(view));
+    body.append(assignmentsSection(view));
+    // Сначала статистика, графики и полосы; ученики и оценки — таблицей в конце.
+    body.append(studentsSection(view));
   }
 
   // ---------- Фильтры ----------
@@ -241,7 +243,7 @@ export default async function AnalyticsPage() {
         stat("Учеников", String(o.studentsCount), `с попытками: ${o.studentsWithAttempts}`),
         stat("Тем", String(o.topicsCount)),
         stat("Попыток", String(o.attemptsCount), parts.join(" · ")),
-        stat("Средний балл", pct(o.averageScore), o.bestScore === null ? "" : `лучший: ${o.bestScore}%`)),
+        stat("Средний балл", gradeLabel(o.averageScore), o.bestScore === null ? "" : `лучший: ${gradeLabel(o.bestScore)}`)),
       view.isEmpty
         ? h("div", {},
           h("p", { class: "muted" }, "Нет данных. Попыток по выбранным фильтрам нет. Ослабьте фильтры или выберите другой период."),
@@ -280,7 +282,7 @@ export default async function AnalyticsPage() {
       ...view.disciplines.map(({ subject, data }) => h("div", { class: "analytics-subject" },
         h("div", { class: "section-title" },
           h("h3", {}, subject.title),
-          h("span", { class: "muted" }, data.averageScore === null ? "нет оценённых попыток" : `средний: ${data.averageScore}%`)),
+          h("span", { class: "muted" }, data.averageScore === null ? "нет оценённых попыток" : `средний: ${gradeLabel(data.averageScore)}`)),
         h("div", { class: "stat-grid" },
           stat("Учеников", String(data.studentsCount)),
           stat("Тем", String(data.topicsCount)),
@@ -294,7 +296,7 @@ export default async function AnalyticsPage() {
   function groupsSection(view) {
     const { bars, selected } = view.groups;
     const chart = bars.length
-      ? barChart(bars.map(r => ({ label: r.label, value: r.averageScore, hint: `${r.averageScore}% (${r.count})` })),
+      ? barChart(bars.map(r => ({ label: r.label, value: r.averageScore, hint: `${gradeLabel(r.averageScore)} (${r.count})` })),
         { ariaLabel: "Сравнение групп по среднему баллу" })
       : null;
     return panel("Группы",
@@ -309,51 +311,49 @@ export default async function AnalyticsPage() {
       ? barChart(selected.topicComparison.map(t => ({
         label: t.title,
         value: t.averageScore,
-        hint: `${t.averageScore}% (${t.count})`
+        hint: `${gradeLabel(t.averageScore)} (${t.count})`
       })), { ariaLabel: "Сравнение тем группы по среднему баллу" })
       : emptyHint("Оценённых попыток по темам группы нет.");
     return h("div", {},
       h("div", { class: "stat-grid" },
         stat("Учеников", String(selected.studentsCount)),
-        stat("Средний балл", pct(selected.averageScore)),
+        stat("Средний балл", gradeLabel(selected.averageScore)),
         stat("Активность (30 дн.)", pct(selected.activeStudentsPercent)),
         stat("Задания выполнены", pct(completed?.percent), completed ? `${completed.done} из ${completed.total}` : "")),
-      h("h3", { class: "sub-title" }, "Учебный рейтинг группы"),
-      rankingTable(selected.ranking, { withReport: false, empty: "Учеников группы нет." }),
       h("h3", { class: "sub-title" }, "Сравнение тем"),
       topicBars,
       h("div", { class: "btn-row" },
-        h("a", { class: "btn secondary", href: "#leaderboard" }, "Рейтинг по тестам")),
+        h("a", { class: "btn secondary", href: "#leaderboard" }, "Рейтинг студентов")),
       selected.lagging.length
         ? h("div", {},
-          h("h3", { class: "sub-title" }, `Отстающие (средний ниже ${TOPIC_PASS_PERCENT}%)`),
-          listRows(selected.lagging.map(r => ({ title: r.name, value: pct(r.averageScore) }))))
+          h("h3", { class: "sub-title" }, `Отстающие (средний ниже ${TOPIC_PASS_PERCENT} б.)`),
+          listRows(selected.lagging.map(r => ({ title: r.name, value: gradeLabel(r.averageScore) }))))
         : null,
       selected.inactive.length
         ? h("div", {},
           h("h3", { class: "sub-title" }, "Без активности (30+ дней)"),
           listRows(selected.inactive.map(r => ({ title: r.name, value: r.lastActivityMs ? dateRu(r.lastActivityMs) : "нет попыток" }))))
-        : null);
+        : null,
+      emptyHint("Оценки учеников группы — в таблице в конце страницы."));
   }
 
-  function rankingTable(rows, { withReport, empty }) {
+  // ФИО и оценки — таблицей, по алфавиту. Оценка — в баллах.
+  function rankingTable(rows, { empty }) {
     if (!rows.length) return emptyHint(empty);
     return h("div", { class: "analytics-table-wrap" },
       h("table", { class: "analytics-table" },
         h("thead", {}, h("tr", {},
-          h("th", {}, "Ученик"), h("th", {}, "Средний"), h("th", {}, "Попыток"), h("th", {}, "Лучший"),
-          h("th", {}, withReport ? "" : "Активность"))),
+          h("th", {}, "ФИО"), h("th", {}, "Средний балл"), h("th", {}, "Попыток"),
+          h("th", {}, "Лучший балл"), h("th", {}, ""))),
         h("tbody", {}, rows.map(r => h("tr", {},
           h("td", {}, r.name),
-          h("td", {}, pct(r.averageScore)),
+          h("td", {}, gradeLabel(r.averageScore)),
           h("td", {}, String(r.attemptsCount)),
-          h("td", {}, pct(r.bestScore)),
-          h("td", {}, withReport
-            ? h("button", {
-              type: "button", class: "btn secondary",
-              onclick: () => setFilter("userId", r.uid)
-            }, "Отчёт")
-            : (r.inactive ? "нет 30+ дней" : "есть")))))));
+          h("td", {}, gradeLabel(r.bestScore)),
+          h("td", {}, h("button", {
+            type: "button", class: "btn secondary",
+            onclick: () => setFilter("userId", r.uid)
+          }, "Отчёт")))))));
   }
 
   function studentsSection(view) {
@@ -362,26 +362,26 @@ export default async function AnalyticsPage() {
       const a = student.assignments;
       return panel(`Ученик: ${student.name}`,
         h("div", { class: "stat-grid" },
-          stat("Средний балл", pct(student.averageScore), student.bestScore === null ? "" : `лучший: ${student.bestScore}%`),
+          stat("Средний балл", gradeLabel(student.averageScore), student.bestScore === null ? "" : `лучший: ${gradeLabel(student.bestScore)}`),
           stat("Выполнено тестов", String(student.testsCompleted)),
           stat("Заданий выполнено", pct(a.percent), a.total ? `${a.done} из ${a.total}` : "заданий нет"),
           stat("Просрочено заданий", String(student.overdue.length))),
         student.subjectsProgress.length
           ? barChart(student.subjectsProgress.map(s => ({
-            label: s.title, value: s.averageScore, hint: `${s.averageScore}%`
+            label: s.title, value: s.averageScore, hint: gradeLabel(s.averageScore)
           })), { ariaLabel: "Результаты по дисциплинам" })
           : emptyHint("Оценённых попыток по выбранным фильтрам нет."),
-        student.strongTopics.length ? listRows(student.strongTopics.slice(0, 5).map(t => ({ title: `Сильная тема: ${t.title}`, value: `${t.averageScore}%` }))) : null,
-        student.weakTopics.length ? listRows(student.weakTopics.slice(0, 5).map(t => ({ title: `Слабая тема: ${t.title}`, value: `${t.averageScore}%` }))) : null,
+        student.strongTopics.length ? listRows(student.strongTopics.slice(0, 5).map(t => ({ title: `Сильная тема: ${t.title}`, value: gradeLabel(t.averageScore) }))) : null,
+        student.weakTopics.length ? listRows(student.weakTopics.slice(0, 5).map(t => ({ title: `Слабая тема: ${t.title}`, value: gradeLabel(t.averageScore) }))) : null,
         student.overdue.length ? listRows(student.overdue.map(x => ({ title: `Просрочено: ${x.testTitle}`, value: dateRu(x.deadlineMs) }))) : null,
         h("div", { class: "btn-row" },
           h("a", { class: "btn secondary", href: `#profile/${encodeURIComponent(student.uid)}` }, "Профиль ученика")));
     }
     // Рейтинг по учебным результатам (не Live-рейтинг): только ученики
     // выбранной области (группа/дисциплина), не вся организация.
-    return panel("Ученики",
-      rankingTable(view.students.rows, { withReport: true, empty: "Учеников по выбранным фильтрам нет." }),
-      emptyHint("Рейтинг учебный (средний балл попыток). Live-рейтинг комнат считается отдельно."));
+    return panel("Ученики и оценки",
+      rankingTable(view.students.rows, { empty: "Учеников по выбранным фильтрам нет." }),
+      emptyHint("Оценка — средний балл попыток (0–100). Места — на странице «Рейтинг». Live-рейтинг комнат считается отдельно."));
   }
 
   function assignmentsSection(view) {
@@ -410,7 +410,7 @@ export default async function AnalyticsPage() {
         h("div", { class: "list-row-main" },
           h("div", { class: "list-row-title" }, h("a", { href: `#topic-analytics/${encodeURIComponent(t.id)}` }, t.title)),
           h("div", { class: "list-row-sub" }, `попыток: ${t.count}`)),
-        h("div", { class: `badge ${t.averageScore < 60 ? "badge-danger" : t.averageScore < 75 ? "badge-warning" : "badge-success"}` }, `${t.averageScore}%`))))
+        h("div", { class: `badge ${t.averageScore < 60 ? "badge-danger" : t.averageScore < 75 ? "badge-warning" : "badge-success"}` }, gradeLabel(t.averageScore)))))
       : emptyHint("Недостаточно данных: нужны оценённые попытки с привязкой к темам.");
     return panel("Слабые темы",
       rows,

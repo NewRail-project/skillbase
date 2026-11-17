@@ -12,12 +12,13 @@ import { lt } from "../../core/i18n.js";
 import { empty } from "../components/empty.js";
 import {
   STATUS_LABEL, MATERIAL_STATUS_DRAFT, MATERIAL_STATUS_PUBLISHED,
-  MATERIAL_STATUS_ARCHIVED, visibleMaterials, sortMaterials, isPublished, materialLink
+  MATERIAL_STATUS_ARCHIVED, visibleMaterials, sortMaterials, isPublished, materialLink, canDeleteMaterial
 } from "../../core/material-library-logic.js";
 import {
   listMaterials, publishLibraryMaterial, archiveLibraryMaterial
 } from "../../core/material-library.js";
 import { getSubjects, getTopics } from "../../core/subjects.js";
+import { deleteMaterialFlow } from "../components/delete-flows.js";
 
 function role() {
   return State.profile?.role || "";
@@ -138,6 +139,19 @@ export default async function MaterialsPage() {
           }, "Вернуть из архива"));
         }
       }
+    }
+    // Удаление: автору и администратору (материал и его страницы/PDF).
+    if (staff && canDeleteMaterial(material, { uid: State.user.uid, role: State.profile.role, orgId: State.profile.orgId }).allowed) {
+      actions.appendChild(h("button", {
+        type: "button", class: "btn secondary danger-text",
+        "aria-label": `Удалить материал ${material.title || ""}`.trim(),
+        onclick: async () => {
+          if (await deleteMaterialFlow(material)) {
+            materials = materials.filter(m => m.id !== material.id);
+            paintList();
+          }
+        }
+      }, "Удалить"));
     }
     return h("article", { class: "card mat-card" },
       h("div", { class: "list-row-title" }, material.title || "Без названия"),

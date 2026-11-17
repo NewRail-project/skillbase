@@ -137,6 +137,25 @@ export async function archiveLibraryMaterial(id) {
   await updateLibraryMaterial(id, { status: "archived" });
 }
 
+// Полное удаление материала: страницы и PDF-кусочки лежат в подколлекциях,
+// Firestore не удаляет их вместе с документом — стираем сначала их (пока
+// родитель существует, правила сверяют orgId по нему), затем сам документ.
+// Прогресс чтения студентов (materialProgress) остаётся: его правила не
+// разрешают удалять, а на работу приложения он не влияет.
+export async function deleteLibraryMaterial(id) {
+  requireOrg();
+  if (!id) throw new Error("Материал не выбран.");
+  try {
+    for (const sub of ["pages", "files"]) {
+      const snap = await getDocs(collection(db, "materials", id, sub));
+      for (const part of snap.docs) await deleteDoc(part.ref);
+    }
+    await deleteDoc(doc(db, "materials", id));
+  } catch (e) {
+    throw accessError(e, "Недостаточно прав для удаления материала.");
+  }
+}
+
 // Сохранение книги целиком: перезаписывает страницы (core/materials.js).
 export async function saveLibraryMaterialPages(id, pages) {
   const errors = validateMaterial({ pageCount: pages.length, pages });

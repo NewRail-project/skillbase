@@ -37,9 +37,12 @@ export class El {
     }
   }
   replaceChildren(...items) { this.children = []; this.append(...items); }
+  remove() { if (this.parentNode) this.parentNode.children = this.parentNode.children.filter(c => c !== this); this.parentNode = null; }
   addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
   dispatch(type, extra = {}) {
     const event = { type, target: this, preventDefault() {}, ...extra };
+    // Как в браузере: и addEventListener, и свойство onchange/onclick/...
+    if (typeof this["on" + type] === "function") this["on" + type](event);
     for (const fn of this.listeners[type] || []) fn(event);
   }
   click() { this.dispatch("click"); }
@@ -60,7 +63,7 @@ export class El {
     return out;
   }
   get textContent() { return this.children.map(c => c.textContent).join(""); }
-  set textContent(value) { this.children = [new TextNode(value)]; }
+  set textContent(value) { this.children = value === "" ? [] : [new TextNode(value)]; }
   // select.value — значение выбранного option (как в браузере).
   get value() {
     if (this.tag !== "select") return this._value ?? "";

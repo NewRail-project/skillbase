@@ -888,8 +888,44 @@ export function analyticsView(data, filters = {}, { nowMs = Date.now() } = {}) {
     distribution: gradeDistribution(graded.map(a => a.percent)),
     disciplines,
     groups: { bars: groupBars, selected: f.groupId ? { ...group, completion } : null },
-    students: { rows: group.ranking, student },
+    // Таблица учеников — по алфавиту (ФИО), а не по месту: места — в рейтинге.
+    students: { rows: [...group.ranking].sort((x, y) => byRu(x.name, y.name)), student },
     assignments: { ...completion, shown: assignmentList.length },
     weakTopics
   };
+}
+
+// =====================================================================
+// Учебный рейтинг студентов (страница #leaderboard).
+// Средний балл оценённых попыток; Live-рейтинг комнат сюда не входит.
+// names: Map uid → ФИО из списка учеников (в попытке имя может быть пустым).
+// Места «спортивные»: равный средний балл — одно место (1, 1, 3).
+// =====================================================================
+export function rankedLeaderboard(attempts, {
+  orgId = null, subjectId = null, groupId = null, names = null
+} = {}) {
+  const graded = filterAttempts(attempts, { orgId, subjectId, groupId })
+    .filter(a => a.status === "graded" && Number.isFinite(a.percent) && a.guest !== true && a.userId);
+  const byUser = new Map();
+  for (const a of graded) {
+    if (!byUser.has(a.userId)) byUser.set(a.userId, { scores: [], userName: "" });
+    const entry = byUser.get(a.userId);
+    entry.scores.push(a.percent);
+    if (!entry.userName && a.userName) entry.userName = a.userName;
+  }
+  const lookup = uid => (names && typeof names.get === "function" ? names.get(uid) : null);
+  const rows = [...byUser.entries()].map(([userId, entry]) => ({
+    userId,
+    name: lookup(userId) || entry.userName || "Участник",
+    average: Math.round(entry.scores.reduce((s, x) => s + x, 0) / entry.scores.length),
+    best: Math.max(...entry.scores),
+    count: entry.scores.length
+  })).sort((a, b) => b.average - a.average || b.count - a.count || byRu(a.name, b.name));
+  let place = 0;
+  rows.forEach((row, i) => {
+    if (i === 0 || row.average !== rows[i - 1].average) place = i + 1;
+    row.place = place;
+    row.level = row.average >= 85 ? "high" : row.average >= TOPIC_PASS_PERCENT ? "mid" : "low";
+  });
+  return rows;
 }

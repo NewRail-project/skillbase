@@ -367,3 +367,32 @@ export function draftIsNewer(draft, updatedAtMs) {
   const savedAt = Number(draft?.savedAt) || 0;
   return savedAt > (Number(updatedAtMs) || 0) + 1000;
 }
+
+// ---------- Удаление материала ----------
+//
+// Удалить может автор материала или администратор его организации
+// (правила Firestore разрешают сотруднику организации; клиент строже).
+export function canDeleteMaterial(material, session = {}) {
+  const uid = session?.uid || "";
+  const role = session?.role || "";
+  const orgId = session?.orgId || "";
+  if (!uid) return { allowed: false, reason: "Нужно войти в аккаунт." };
+  if (!material || !material.id) return { allowed: false, reason: "Материал не выбран." };
+  if (role !== "teacher" && role !== "admin") {
+    return { allowed: false, reason: "Удалять материалы могут только преподаватели и администраторы." };
+  }
+  if (material.orgId && material.orgId !== orgId) {
+    return { allowed: false, reason: "Материал принадлежит другой организации." };
+  }
+  if (role === "admin" || material.authorId === uid) return { allowed: true };
+  return { allowed: false, reason: "Материал может удалить только его автор или администратор." };
+}
+
+// Тесты, привязанные к материалу (test.materialId). Пока такие есть,
+// материал удалять нельзя: гейт обучающих заданий ждёт его прочтения, и
+// после удаления студенты навсегда потеряли бы доступ к тесту.
+// Удалённые тесты (status "deleted") привязкой не считаются.
+export function materialDeleteBlockers(materialId, tests = []) {
+  if (!materialId) return [];
+  return (tests || []).filter(t => t && t.materialId === materialId && t.status !== "deleted");
+}

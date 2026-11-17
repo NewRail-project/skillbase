@@ -122,15 +122,17 @@ test("reportPanel: без sections ведёт себя как раньше (вс
 
 // ---------- Участники ----------
 
-test("участники: у каждого ФИО, верно/ошибки/пропуски, процент и оценка", () => {
+test("участники: таблица — ФИО по алфавиту, верно/ошибки/пропуски, баллы и оценка в баллах", () => {
   const panel = studentsPanel(report, grades);
   const text = JSON.stringify(panel);
   assert.ok(text.includes("Анна"));
   assert.ok(text.includes("Борис"));
   assert.ok(!text.includes("Смотрящий"), "наблюдатель не попадает в список участников");
-  assert.ok(text.includes("верно"));
-  assert.ok(text.includes("пропусков"));
-  assert.ok(text.includes("оценка"));
+  assert.ok(text.includes("Верно") && text.includes("Ошибок") && text.includes("Пропусков"));
+  assert.ok(text.includes("Баллы"), "набрано из максимума");
+  assert.ok(text.includes("Оценка (баллы)"));
+  assert.ok(text.includes("\"table\"") || text.includes("live-table"), "ФИО и оценки — в таблице");
+  assert.ok(text.indexOf("Анна") < text.indexOf("Борис"), "по алфавиту");
 });
 
 test("участники: детализация по вопросам — верно/неверно/пропуск на вопрос", () => {

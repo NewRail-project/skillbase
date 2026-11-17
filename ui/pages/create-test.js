@@ -1,3 +1,4 @@
+import { closeAbandonedRooms } from "../../core/rooms.js";
 import { h } from "../../shared/dom.js";
 import {
   CALLOUT_KINDS, pageTextLength, pageFillRatio, paginateText, validatePage
@@ -684,6 +685,7 @@ export default async function CreateTestPage() {
 
     let rooms = [];
     try {
+      await closeAbandonedRooms().catch(() => 0); // брошенные комнаты не считаем активными
       const rSnap = await getDocs(query(
         collection(db, "rooms"),
         where("testId", "==", test.id),

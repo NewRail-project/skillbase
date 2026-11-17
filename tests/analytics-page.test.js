@@ -41,8 +41,8 @@ test("страница: без фильтров считает только св
   assert.match(o["Попыток"].hint, /оценено: 9/);
   assert.match(o["Попыток"].hint, /на проверке: 1/);
   assert.match(o["Попыток"].hint, /в процессе \(не в счёт\): 1/);
-  assert.equal(o["Средний балл"].value, "64%");
-  assert.match(o["Средний балл"].hint, /лучший: 100%/);
+  assert.equal(o["Средний балл"].value, "64 б.");
+  assert.match(o["Средний балл"].hint, /лучший: 100 б\./);
   // Ученики: 5 студентов o1; «Чужой» (o2, та же группа g1) и преподаватель не попали.
   assert.equal(o["Учеников"].value, "5");
   assert.ok(!values(page, "user").includes("x1"));
@@ -59,7 +59,7 @@ test("дисциплина: список реальных дисциплин; в
   choose(sel(page, "subject"), "subjM");
   const o = overview(page);
   assert.equal(o["Попыток"].value, "6", "a1,a2,a3,a4 + a6(на проверке) + e1(время вышло)");
-  assert.equal(o["Средний балл"].value, "63%", "(90+40+50+70)/4 = 62,5 → 63");
+  assert.equal(o["Средний балл"].value, "63 б.", "(90+40+50+70)/4 = 62,5 → 63");
   // Нет «Физики» ни в блоке дисциплин, ни в слабых темах, ни в опциях тем.
   const disc = text(panelByTitle(page, "Дисциплины"));
   assert.ok(disc.includes("Математика") && !disc.includes("Физика") && !disc.includes("Химия"));
@@ -78,20 +78,21 @@ test("группа: список зависит от дисциплины; см�
   choose(sel(page, "group"), "g1");
   const o = overview(page);
   assert.equal(o["Попыток"].value, "4", "a1,a2,a3 + e1");
-  assert.equal(o["Средний балл"].value, "60%");
+  assert.equal(o["Средний балл"].value, "60 б.");
   assert.equal(o["Учеников"].value, "2");
   // Таблица учеников и выпадающий список — ровно ученики g1.
   assert.deepEqual(values(page, "user"), ["u1", "u2"]);
-  const table = rows(page, "Ученики").map(r => r[0]);
+  const table = rows(page, "Ученики и оценки").map(r => r[0]);
   assert.deepEqual(table, ["Анна", "Борис"]);
-  assert.ok(!text(panelByTitle(page, "Ученики")).includes("Вера"));
-  // Рейтинг группы (учебный): Анна (90+40)/2=65, Борис 50.
-  const ranking = rows(page, "Группы").filter(r => r.length === 5).map(r => r.slice(0, 4));
-  assert.deepEqual(ranking, [["Анна", "65%", "2", "90%"], ["Борис", "50%", "1", "50%"]]);
+  assert.ok(!text(panelByTitle(page, "Ученики и оценки")).includes("Вера"));
+  // Оценки учеников — таблицей, по алфавиту, в баллах: Анна (90+40)/2=65, Борис 50.
+  const grades = rows(page, "Ученики и оценки").map(r => r.slice(0, 4));
+  assert.deepEqual(grades, [["Анна", "65 б.", "2", "90 б."], ["Борис", "50 б.", "1", "50 б."]]);
+  assert.ok(!text(panelByTitle(page, "Группы")).includes("Учебный рейтинг группы"), "таблица не дублируется в блоке групп");
 
   choose(sel(page, "group"), "g2");
   assert.deepEqual(values(page, "user"), ["u3", "u4"]);
-  assert.deepEqual(rows(page, "Ученики").map(r => r[0]), ["Вера", "Глеб"]);
+  assert.deepEqual(rows(page, "Ученики и оценки").map(r => r[0]), ["Вера", "Глеб"]);
 });
 
 test("ученик: личная статистика; смена дисциплины сбрасывает несовместимые группу и ученика", async () => {
@@ -102,8 +103,8 @@ test("ученик: личная статистика; смена дисципл
   const panel = panelByTitle(page, "Ученик: Анна");
   assert.ok(panel, "появилась личная панель ученика");
   const s = statsOf(panel);
-  assert.equal(s["Средний балл"].value, "65%");
-  assert.match(s["Средний балл"].hint, /лучший: 90%/);
+  assert.equal(s["Средний балл"].value, "65 б.");
+  assert.match(s["Средний балл"].hint, /лучший: 90 б\./);
   assert.equal(s["Выполнено тестов"].value, "2");
   assert.ok(!text(panel).includes("Изучено материалов"), "нет выдуманного нуля по материалам");
   assert.equal(overview(page)["Попыток"].value, "2", "обзор считает только Анну");
@@ -122,10 +123,10 @@ test("тип проверки: реальные типы разделяют по
   assert.ok(!text(sel(page, "kind")).toLowerCase().includes("live"), "искусственной категории Live нет");
 
   const expectations = {
-    exam: { attempts: "2", avg: "70%" },     // a1 90, a3 50
-    training: { attempts: "1", avg: "80%" }, // b1
-    assignment: { attempts: "3", avg: "73%" },
-    free: { attempts: "8", avg: "60%" }      // 6 оценённых + a6 + e1
+    exam: { attempts: "2", avg: "70 б." },     // a1 90, a3 50
+    training: { attempts: "1", avg: "80 б." }, // b1
+    assignment: { attempts: "3", avg: "73 б." },
+    free: { attempts: "8", avg: "60 б." }      // 6 оценённых + a6 + e1
   };
   for (const [kind, want] of Object.entries(expectations)) {
     choose(sel(page, "kind"), kind);
@@ -147,11 +148,11 @@ test("все фильтры вместе: дисциплина → группа 
   choose(sel(page, "kind"), "exam");
   const o = overview(page);
   assert.equal(o["Попыток"].value, "1", "только a1");
-  assert.equal(o["Средний балл"].value, "90%");
+  assert.equal(o["Средний балл"].value, "90 б.");
   choose(sel(page, "kind"), "free");
   assert.equal(overview(page)["Попыток"].value, "1", "только a2");
-  assert.equal(overview(page)["Средний балл"].value, "40%");
-  assert.equal(statsOf(panelByTitle(page, "Ученик: Анна"))["Средний балл"].value, "40%");
+  assert.equal(overview(page)["Средний балл"].value, "40 б.");
+  assert.equal(statsOf(panelByTitle(page, "Ученик: Анна"))["Средний балл"].value, "40 б.");
 });
 
 test("пустая выборка: «Нет данных», прочерки вместо нулей, сброс возвращает данные", async () => {
@@ -159,7 +160,7 @@ test("пустая выборка: «Нет данных», прочерки в�
   choose(sel(page, "subject"), "subjE"); // у Химии нет ни одной попытки
   const o = overview(page);
   assert.equal(o["Попыток"].value, "0");
-  assert.equal(o["Средний балл"].value, "—", "null, а не 0%");
+  assert.equal(o["Средний балл"].value, "—", "null, а не 0 б.");
   assert.match(text(panelByTitle(page, "Обзор")), /Нет данных/);
   assert.match(text(panelByTitle(page, "Распределение оценок")), /нет/i);
   assert.deepEqual(values(page, "group"), [], "у дисциплины без попыток групп нет");
@@ -202,7 +203,7 @@ test("согласованность: карточки, диаграммы и т
     const groupSum = barHints(panelByTitle(page, "Группы")).reduce((sum, hint) => sum + Number(/\((\d+)\)/.exec(hint)[1]), 0);
     assert.equal(groupSum, graded, `${label}: группы = оценённые`);
     // Таблица учеников + гостевые = оценённые.
-    const tableSum = rows(page, "Ученики").reduce((sum, r) => sum + Number(r[2]), 0);
+    const tableSum = rows(page, "Ученики и оценки").reduce((sum, r) => sum + Number(r[2]), 0);
     // Гостей нет в ростере; в наборе у гостя ровно одна попытка и она оценена.
     const guest = /гостевые попытки: (\d+)/.exec(text(panelByTitle(page, "Обзор")));
     const guestGraded = guest ? Number(guest[1]) : 0;
@@ -215,7 +216,7 @@ test("согласованность: карточки, диаграммы и т
   choose(sel(page, "period"), "7");
   checkConsistency("7 дней");
   assert.equal(overview(page)["Попыток"].value, "7");
-  assert.equal(overview(page)["Средний балл"].value, "72%");
+  assert.equal(overview(page)["Средний балл"].value, "72 б.");
 });
 
 test("задания: статус выполнения не зависит от периода; ученик/группа сужают задания", async () => {
@@ -260,7 +261,7 @@ test("права: преподаватель с teacherGroups видит тол�
   const o = overview(page);
   assert.equal(o["Учеников"].value, "2");
   // g1: a1 90, a2 40, a3 50 (+ a6? нет, g2); оценённые 3 → 60%
-  assert.equal(o["Средний балл"].value, "60%");
+  assert.equal(o["Средний балл"].value, "60 б.");
   assert.equal(statsOf(panelByTitle(page, "Задания"))["Назначено"].value, "2");
 });
 
@@ -290,4 +291,19 @@ test("на смену фильтра страница не делает новы
   assert.equal(c("listOrgAttempts"), 1);
   assert.equal(c("listOrgUsers"), 1);
   assert.equal(c("listAssignments"), 1);
+});
+
+test("порядок страницы: сначала карточки, графики и полосы, таблица учеников и оценок — последней; ФИО по алфавиту", async () => {
+  const { page } = await open();
+  const titles = findAll(page, e => e.tag === "h2").map(text);
+  assert.equal(titles[titles.length - 1], "Ученики и оценки", `порядок: ${titles.join(" > ")}`);
+  assert.ok(titles.indexOf("Обзор") < titles.indexOf("Динамика успеваемости"));
+  assert.ok(titles.indexOf("Распределение оценок") < titles.indexOf("Дисциплины"));
+  assert.ok(titles.indexOf("Слабые темы") < titles.indexOf("Ученики и оценки"));
+  // Алфавит: Анна, Борис, Вера, Глеб, Дина.
+  assert.deepEqual(rows(page, "Ученики и оценки").map(r => r[0]), ["Анна", "Борис", "Вера", "Глеб", "Дина"]);
+  // Оценки — в баллах; «Дина» без попыток — прочерк, а не 0 б.
+  const dina = rows(page, "Ученики и оценки").find(r => r[0] === "Дина");
+  assert.deepEqual(dina.slice(1, 4), ["—", "0", "—"]);
+  assert.ok(!/\d+%/.test(text(panelByTitle(page, "Ученики и оценки"))), "в таблице нет процентов");
 });

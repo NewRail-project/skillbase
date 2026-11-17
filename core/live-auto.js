@@ -463,10 +463,49 @@ export function finishedPositions(plan, nowMs) {
 
 // ---------- Единое состояние комнаты ----------
 
+// ---------- Брошенные комнаты ----------
+//
+// Закрывается комната только кнопкой ведущего; если ведущий ушёл (закрыл
+// вкладку, потерял связь), она оставалась активной навсегда. Теперь ведущий,
+// пока открыта страница комнаты, раз в HOST_HEARTBEAT_MS пишет hostSeenAt, а
+// комната без признаков жизни дольше HOST_ABSENT_MS считается закрытой у
+// всех ролей (клиентская проверка; документ дочищается при следующем входе
+// ведущего: core/rooms.js closeAbandonedRooms).
+export const HOST_HEARTBEAT_MS = 30 * 1000;
+export const HOST_ABSENT_MS = 10 * 60 * 1000;
+
+function tsMs(value) {
+  if (!value) return 0;
+  if (typeof value.toMillis === "function") return value.toMillis();
+  if (typeof value.seconds === "number") return value.seconds * 1000;
+  const ms = typeof value === "number" ? value : new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+// Последний признак жизни комнаты: присутствие ведущего, любое обновление
+// документа или создание (для старых комнат без hostSeenAt).
+export function roomLastActiveMs(room) {
+  if (!room) return 0;
+  return Math.max(tsMs(room.hostSeenAt), tsMs(room.updatedAt), tsMs(room.createdAt));
+}
+
+// Ведущий-управляемая комната без ведущего дольше HOST_ABSENT_MS. Комнаты,
+// идущие по расписанию без ведущего (auto / self), брошенными считаются
+// только после завершения теста.
+export function isHostAbandoned(room, nowMs) {
+  if (!room || room.status !== "active" || !Number.isFinite(nowMs)) return false;
+  const last = roomLastActiveMs(room);
+  if (!last || nowMs - last <= HOST_ABSENT_MS) return false;
+  const selfRunning = isAutoRoom(room) || isSelfPaced(room);
+  if (!selfRunning) return true;
+  return room.liveState === "completed" || Boolean(room.autoEndedAt);
+}
+
 // waiting | in_progress | completed | closed — одинаково для всех ролей.
 export function roomLifecycle(room, nowMs) {
   if (!room) return null;
   if (room.status === "closed") return "closed";
+  if (isHostAbandoned(room, nowMs)) return "closed";
   if (isSelfPaced(room)) {
     // Нет общего расписания: состояние определяют только метки комнаты.
     if (room.liveState === "completed" || room.autoEndedAt) return "completed";
@@ -486,7 +525,8 @@ export function roomLifecycle(room, nowMs) {
 export function isRegistrationOpen(room, nowMs = Date.now()) {
   if (!room || room.status !== "active") return false;
   if (room.registrationOpen === false) return false;
-  return roomLifecycle(room, nowMs) !== "completed";
+  const lifecycle = roomLifecycle(room, nowMs);
+  return lifecycle !== "completed" && lifecycle !== "closed";
 }
 
 // Состояние клиента (то, что рисует страница комнаты).

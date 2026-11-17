@@ -1,3 +1,4 @@
+import { closeAbandonedRooms } from "../../core/rooms.js";
 import { h } from "../../shared/dom.js";
 import { State, isStaff } from "../../core/auth.js";
 import { t, lt, roleLabel } from "../../core/i18n.js";
@@ -315,9 +316,9 @@ function renderStudentHome(page, profile) {
         : null;
 
       setHeroStat("graded", gradedCount);
-      setHeroStat("avg", avg === null ? "—" : avg + "%");
+      setHeroStat("avg", avg === null ? "—" : avg + " б.");
       tGraded.set(gradedCount, gradedCount ? "Продолжайте в том же ритме" : t("home.learner.startFirst"));
-      tAvg.set(avg === null ? "—" : avg + "%",
+      tAvg.set(avg === null ? "—" : avg + " б.",
         avg === null ? "Появится после проверки" : avg >= 60 ? "по последним проверенным" : "Есть над чем поработать");
 
       fillChartPanel(chartPanel, recent);
@@ -427,7 +428,7 @@ function renderStaffHome(page, profile) {
   const tTests = statTile(lt("home.staff.tileTests"), "Загружаем…");
   const tAttempts = statTile("попыток", "Загружаем…");
   const tPending = statTile("ожидают проверки", "Загружаем…");
-  const tAvg = statTile("средний результат", "Загружаем…");
+  const tAvg = statTile("средний балл", "Загружаем…");
 
   const testsPanel = listPanel({
     title: lt("home.staff.myTests"),
@@ -481,7 +482,7 @@ function renderStaffHome(page, profile) {
       setHeroStat("attempts", total);
       tAttempts.set(total, pending ? `ожидают проверки: ${pending}` : "все проверены");
       tPending.set(pending, pending ? "Проверьте в разделе «Результаты»" : "всё проверено");
-      tAvg.set(avg === null ? "—" : avg + "%", graded.length ? "по последним проверенным" : "нет данных");
+      tAvg.set(avg === null ? "—" : avg + " б.", graded.length ? "по последним проверенным" : "нет данных");
 
       fillChartPanel(chartPanel, recent);
       fillPanel(recentPanel, recent.slice(0, 5).map(a => {
@@ -543,6 +544,7 @@ function renderStaffHome(page, profile) {
 
           let rooms = [];
           try {
+            await closeAbandonedRooms().catch(() => 0); // брошенные комнаты не считаем активными
             const rSnap = await getDocs(query(
               collection(db, "rooms"),
               where("testId", "==", test.id),
@@ -648,6 +650,8 @@ function guestView() {
 }
 
 export default async function HomePage() {
+  // Фоново закрываем брошенные Live-комнаты ведущего (ведущий ушёл, комната висела).
+  if (isStaff()) closeAbandonedRooms().catch(() => 0);
   const page = h("div", { class: "page" });
 
   if (!State.user || !State.profile) {

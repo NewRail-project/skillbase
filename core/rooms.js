@@ -16,6 +16,7 @@ import {
   joinPlayerFields, SERVER_TIMESTAMP
 } from "./rooms-logic.js";
 import { normalizeKeys } from "./scoring.js";
+import { isHostAbandoned } from "./live-auto.js";
 import {
   LIVE_MODE_AUTO, LIVE_MODE_MANUAL, ROLE_OBSERVER, ROLE_PLAYER,
   buildAutoSettings, resolveRequestedRole, offsetFromProbe,
@@ -139,6 +140,37 @@ export async function closeRoom(code) {
     closedAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });
+}
+
+// Признак присутствия ведущего (пока открыта страница комнаты). Правила
+// разрешают ведущему менять любые поля комнаты, кроме hostId. Тихо
+// игнорирует ошибки сети: следующий удар сердца догонит.
+export async function touchHostPresence(code) {
+  const roomCode = normalizeRoomCode(code);
+  if (!roomCode || !navigator.onLine) return false;
+  try {
+    await updateDoc(roomRef(roomCode), { hostSeenAt: serverTimestamp() });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+// Закрыть свои брошенные комнаты (ведущего нет дольше HOST_ABSENT_MS).
+// Вызывается при открытии главной и перед удалением теста, чтобы такие
+// комнаты не висели «активными». Возвращает число закрытых.
+export async function closeAbandonedRooms(hostId = State.user?.uid) {
+  if (!hostId) return 0;
+  let closed = 0;
+  try {
+    const snap = await getDocs(query(collection(db, "rooms"),
+      where("hostId", "==", hostId), where("status", "==", "active")));
+    for (const d of snap.docs) {
+      if (!isHostAbandoned({ id: d.id, ...d.data() }, Date.now())) continue;
+      try { await closeRoom(d.id); closed += 1; } catch (_) { /* закроем в следующий раз */ }
+    }
+  } catch (_) { /* нет доступа/сети — не критично */ }
+  return closed;
 }
 
 // Ведущий открывает/закрывает регистрацию участников.

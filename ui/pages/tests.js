@@ -1,3 +1,4 @@
+import { closeAbandonedRooms } from "../../core/rooms.js";
 import { h } from "../../shared/dom.js";
 import { State, isStaff } from "../../core/auth.js";
 import { listMyTests, listPublishedTests, deleteTest } from "../../core/editor.js";
@@ -85,6 +86,7 @@ function testCard(test, staff) {
       // Комнаты: ищем активные комнаты этого теста, где я ведущий.
       let rooms = [];
       try {
+        await closeAbandonedRooms().catch(() => 0); // брошенные комнаты не считаем активными
         const rSnap = await getDocs(query(
           collection(db, "rooms"),
           where("testId", "==", test.id),

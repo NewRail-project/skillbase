@@ -8,7 +8,7 @@ import { State, isStaff } from "../../core/auth.js";
 import { loadCss } from "../../shared/load-css.js";
 import {
   subscribeRoom, subscribeOwnState, openQuestion, closeQuestion, saveAnswer,
-  closeRoom, questionDurationSec, sendReaction, subscribeReactions,
+  closeRoom, touchHostPresence, questionDurationSec, sendReaction, subscribeReactions,
   getMyRoomRole, startAutoTest, finishAutoTest, setRegistrationOpen,
   revealAutoQuestion, writeScoreBoard, syncServerClock,
   subscribeDuels, ensureDuelsDoc, updateDuelsDoc, saveDuelAnswer, readDuelAnswers,
@@ -33,7 +33,7 @@ import {
   deriveConnectionState, roleOfPlayer, questionIndexAt, keysByPosition,
   finalizablePositions, finishedPositions, ratingRows, changedScores,
   summarizeRating, questionAccuracy, isRegistrationOpen, serverNow,
-  formatClockMs
+  formatClockMs, HOST_HEARTBEAT_MS
 } from "../../core/live-auto.js";
 import { router, leaveWithHash } from "../../shared/app.js";
 import {
@@ -193,6 +193,7 @@ function reset() {
     memberConfirmed: false, // членство подтверждено (или это ведущий)
     roomLoaded: false,
     removed: false,
+    isHost: false,         // страница открыта ведущим (закрывает комнату при уходе)
     timedOut: false,
     errors: {},            // room / own / players — ошибки подписок
     duels: null,           // rooms/{code}/duels/final — состояние дуэлей за места
@@ -202,11 +203,24 @@ function reset() {
 }
 reset();
 
+let hostBeat = null; // таймер присутствия ведущего
+
 function stopInterval(timer) {
   try { clearInterval(timer); } catch (e) { /* уже остановлен */ }
 }
 
+// Ведущий ушёл со страницы комнаты (другой раздел, «назад»): комната
+// закрывается. Переход внутри комнаты (#room/КОД/screen — проектор) и
+// перезагрузка страницы комнату не закрывают: при перезагрузке cleanup не
+// вызывается, а присутствие ведущего подтверждает hostSeenAt.
 export function cleanup() {
+  const current = local;
+  if (hostBeat) { stopInterval(hostBeat); hostBeat = null; }
+  if (current && current.isHost && current.code && current.room?.status === "active") {
+    const stay = String(window.location.hash || "").replace(/^#\/?/, "").toLowerCase()
+      .startsWith(`room/${current.code.toLowerCase()}`);
+    if (!stay) closeRoom(current.code).catch(() => { /* закроется как брошенная */ });
+  }
   reset();
 }
 
@@ -563,6 +577,13 @@ export default async function RoomPage() {
   local.receivedMs = Date.now();
 
   const isHost = isStaff() && probeResult.hostId === State.user?.uid;
+  local.isHost = isHost;
+  if (isHost && probeResult.status === "active") {
+    // Присутствие ведущего: без него комната считается брошенной.
+    touchHostPresence(code);
+    if (hostBeat) stopInterval(hostBeat);
+    hostBeat = setInterval(() => touchHostPresence(code), HOST_HEARTBEAT_MS);
+  }
 
   // Тест и ключи грузятся параллельно; недоступное (ключи у студента)
   // не ломает отрисовку.

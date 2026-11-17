@@ -7,6 +7,7 @@ import { icons } from "../../shared/icons.js";
 import { t as tr, lt } from "../../core/i18n.js";
 import { gradeDistribution, performanceDynamics, averagePercent } from "../../core/analytics-logic.js";
 import { barChart, lineChart } from "../components/charts.js";
+import { gradeLabel, attemptResultLabel } from "../../core/score-format.js";
 
 function formatDate(value) {
   if (!value) return "—";
@@ -66,22 +67,23 @@ function analyticsPanel(rows) {
     byTest.get(r.test).push(r.percent);
   }
   const testBars = [...byTest].map(([label, list]) => ({ label, value: averagePercent(list) }))
+    .map(x => ({ ...x, hint: gradeLabel(x.value) }))
     .filter(x => x.value !== null).sort((a, b) => b.value - a.value).slice(0, 8);
 
   const best = new Map();
   for (const r of graded) best.set(r.student, Math.max(best.get(r.student) ?? 0, r.percent));
   const leaders = [...best].sort((a, b) => b[1] - a[1]).slice(0, 5)
-    .map(([label, value]) => ({ label, value }));
+    .map(([label, value]) => ({ label, value, hint: gradeLabel(value) }));
   const needHelp = [...best].filter(([, v]) => v < 50).sort((a, b) => a[1] - b[1]).slice(0, 5)
-    .map(([label, value]) => ({ label, value }));
+    .map(([label, value]) => ({ label, value, hint: gradeLabel(value) }));
 
   const section = (title, node) => h("section", { class: "panel" },
     h("div", { class: "panel-head" }, h("h2", {}, title)),
     h("div", { class: "panel-body" }, node));
   const wrap = h("div", { class: "analytics-after-test" },
     h("div", { class: "stat-grid" },
-      h("div", { class: "stat" }, h("div", { class: "stat-value" }, `${Math.max(...percents)}%`), h("div", { class: "stat-label" }, "лучший результат")),
-      h("div", { class: "stat" }, h("div", { class: "stat-value" }, `${Math.min(...percents)}%`), h("div", { class: "stat-label" }, "худший результат")),
+      h("div", { class: "stat" }, h("div", { class: "stat-value" }, gradeLabel(Math.max(...percents))), h("div", { class: "stat-label" }, "лучший результат")),
+      h("div", { class: "stat" }, h("div", { class: "stat-value" }, gradeLabel(Math.min(...percents))), h("div", { class: "stat-label" }, "худший результат")),
       h("div", { class: "stat" }, h("div", { class: "stat-value" }, String(new Set(graded.map(r => r.student)).size)), h("div", { class: "stat-label" }, "участников"))),
     dist ? section("Распределение оценок", barChart(dist.buckets.map(b => ({ label: b.label, value: b.count, hint: String(b.count) })),
       { ariaLabel: "Распределение оценок", max: Math.max(1, ...dist.buckets.map(b => b.count)) })) : null,
@@ -89,7 +91,7 @@ function analyticsPanel(rows) {
       { ariaLabel: "Динамика среднего балла по неделям" })) : null,
     testBars.length > 1 ? section("Сравнение тестов", barChart(testBars, { ariaLabel: "Средний балл по тестам" })) : null,
     leaders.length ? section("Лучшие результаты", barChart(leaders, { ariaLabel: "Лучшие результаты" })) : null,
-    needHelp.length ? section("Нужна помощь (ниже 50%)", barChart(needHelp, { ariaLabel: "Ученики с низким результатом" })) : null);
+    needHelp.length ? section("Нужна помощь (ниже 50 б.)", barChart(needHelp, { ariaLabel: "Ученики с низким результатом" })) : null);
   const details = h("details", { class: "analytics-details", open: "open" },
     h("summary", { class: "btn secondary" }, "Аналитика по тестам"), wrap);
   return details;
@@ -151,7 +153,7 @@ export default async function ResultsPage() {
       h("thead", {}, h("tr", {},
         h("th", {}, lt("res.colUser")),
         h("th", {}, lt("res.colTest")),
-        h("th", {}, "Результат"),
+        h("th", {}, "Оценка (баллы)"),
         h("th", {}, "Статус"),
         h("th", {}, "Отправлено"),
         h("th", {}, "Проверка")
@@ -178,7 +180,7 @@ export default async function ResultsPage() {
           h("div", { class: "list-row-sub" }, r.email || "—")
         ),
         h("td", {}, r.test || "—"),
-        h("td", {}, r.percent === null ? "—" : `${r.score} / ${r.total} · ${r.percent}%`),
+        h("td", {}, attemptResultLabel({ percent: r.percent, score: r.score, total: r.total })),
         h("td", {}, h("span", { class: "badge " + badge }, statusLabel)),
         h("td", { class: "muted" }, r.submitted),
         h("td", {},
@@ -259,8 +261,8 @@ export default async function ResultsPage() {
         h("div", { class: "stat-label" }, "проверено")
       ),
       h("div", { class: "stat" },
-        h("div", { class: "stat-value" }, avg === null ? "—" : avg + "%"),
-        h("div", { class: "stat-label" }, "средний результат")
+        h("div", { class: "stat-value" }, gradeLabel(avg)),
+        h("div", { class: "stat-label" }, "средний балл")
       ),
       h("div", { class: "stat" },
         h("div", { class: "stat-value" }, String(pending)),

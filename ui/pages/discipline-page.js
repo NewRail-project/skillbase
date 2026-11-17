@@ -16,7 +16,9 @@ import { listMyTests, listPublishedTests } from "../../core/editor.js";
 import { listOrgAttempts } from "../../core/attempts.js";
 import { listOrgUsers } from "../../core/admins.js";
 import { disciplineAnalytics } from "../../core/analytics-logic.js";
-import { materialLink } from "../../core/material-library-logic.js";
+import { materialLink, canDeleteMaterial } from "../../core/material-library-logic.js";
+import { canDeleteTest } from "../../core/test-delete-logic.js";
+import { deleteMaterialFlow, deleteTestFlow } from "../components/delete-flows.js";
 import { formDialog } from "../components/form-dialog.js";
 import { confirmAction } from "../components/confirm.js";
 import { toast } from "../components/toast.js";
@@ -127,8 +129,14 @@ export default async function DisciplinePage() {
           ? h("ul", { class: "list" }, visible.map((t, i) => topicRow(t, i, visible.length, now)))
           : h("div", { class: "empty-state" }, h("p", { class: "muted" },
               staff ? "Тем пока нет — добавьте первую." : "Тем пока нет."))),
-      linkedPanel("Материалы", linked.materials, m => materialLink(window.location.hash, m.id)),
-      linkedPanel("Тесты", linked.tests, t => `#quiz/${encode(t.id)}`)
+      linkedPanel("Материалы", linked.materials, m => materialLink(window.location.hash, m.id), {
+        canDelete: m => staff && canDeleteMaterial(m, sessionInfo()).allowed,
+        onDelete: m => deleteMaterialFlow(m)
+      }),
+      linkedPanel("Тесты", linked.tests, t => `#quiz/${encode(t.id)}`, {
+        canDelete: t => staff && canDeleteTest(t, sessionInfo()).allowed,
+        onDelete: t => deleteTestFlow(t)
+      })
     ].filter(Boolean));
   }
 
@@ -170,14 +178,28 @@ export default async function DisciplinePage() {
             h("b", {}, value), h("span", {}, label))))));
   }
 
-  function linkedPanel(title, items, hrefOf) {
+  const sessionInfo = () => ({ uid: State.user?.uid, role: State.profile?.role, orgId: State.profile?.orgId });
+
+  // actions.canDelete/onDelete — кнопка «Удалить» (только сотрудникам с правом).
+  async function removeItem(actions, item) {
+    if (await actions.onDelete(item)) await load();
+  }
+
+  function linkedPanel(title, items, hrefOf, actions = null) {
     if (!items.length) return null;
     return h("section", { class: "panel" },
       h("div", { class: "panel-head" }, h("h2", {}, title)),
       h("ul", { class: "list" }, items.map(item => h("li", { class: "list-row" },
         h("div", { class: "list-row-main" },
           h("div", { class: "list-row-title" }, h("a", { href: hrefOf(item) }, item.title || "Без названия")),
-          item.topicId ? h("div", { class: "list-row-sub" }, topics.find(t => t.id === item.topicId)?.title || "") : null)))));
+          item.topicId ? h("div", { class: "list-row-sub" }, topics.find(t => t.id === item.topicId)?.title || "") : null),
+        actions && actions.canDelete(item)
+          ? h("div", { class: "topic-actions" }, h("button", {
+            type: "button", class: "btn secondary btn-sm danger-text",
+            "aria-label": `Удалить: ${item.title || "Без названия"}`,
+            onclick: () => removeItem(actions, item)
+          }, "Удалить"))
+          : null))));
   }
 
   function topicRow(t, index, total, now) {
@@ -194,16 +216,22 @@ export default async function DisciplinePage() {
     if (dateMs(t.lessonDate) !== null) dates.push(`занятие ${formatTopicDate(t.lessonDate)}`);
     if (dateMs(t.dueDate) !== null) dates.push(`сдать до ${formatTopicDate(t.dueDate)}`);
     dates.push(`группы: ${groups.length ? groups.join(", ") : "—"}`);
-    return h("li", { class: "list-row" },
+    // Название — крупно и не как «ссылка»; статус и даты — одной строкой
+    // под ним; действия — отдельным компактным рядом (на телефоне — под
+    // названием, на широком экране — справа).
+    return h("li", { class: "list-row topic-row" },
       h("div", { class: "list-row-main" },
         h("div", { class: "list-row-title" }, h("a", { href: `#topic/${encode(topic.id)}` }, t.title)),
-        h("div", { class: "list-row-sub" }, dates.join(" · "))),
-      h("div", { class: "btn-row" }, ...badges,
-        staff ? h("a", { class: "btn secondary", href: `#topic-analytics/${encode(topic.id)}` }, "Статистика") : null,
-        staff ? h("button", { type: "button", class: "btn secondary", "aria-label": "Выше", disabled: index === 0,
-          onclick: () => move(t, -1) }, "↑") : null,
-        staff ? h("button", { type: "button", class: "btn secondary", "aria-label": "Ниже", disabled: index === total - 1,
-          onclick: () => move(t, 1) }, "↓") : null));
+        h("div", { class: "list-row-sub topic-meta" }, ...badges,
+          ...dates.map(d => h("span", { class: "topic-meta-item" }, d)))),
+      staff
+        ? h("div", { class: "topic-actions" },
+          h("a", { class: "btn secondary btn-sm", href: `#topic-analytics/${encode(topic.id)}` }, "Статистика"),
+          h("button", { type: "button", class: "btn secondary btn-sm btn-icon-sm", "aria-label": "Выше", disabled: index === 0,
+            onclick: () => move(t, -1) }, "↑"),
+          h("button", { type: "button", class: "btn secondary btn-sm btn-icon-sm", "aria-label": "Ниже", disabled: index === total - 1,
+            onclick: () => move(t, 1) }, "↓"))
+        : null);
   }
 
   async function move(topic, delta) {
