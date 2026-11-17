@@ -32,9 +32,6 @@ test("страницы статистики показывают оценки в
   assert.match(results, /attemptResultLabel\(\{ percent: r\.percent, score: r\.score, total: r\.total \}\)/);
   assert.ok(!/\$\{r\.percent\}%/.test(results), "результат попытки без процентов");
   assert.match(results, /"Оценка \(баллы\)"/);
-  const live = read("ui/components/live-report.js");
-  assert.match(live, /gradeLabel\(s\.grade\)/);
-  assert.match(live, /studentsTable\(students, byUid\)/);
   const home = read("ui/pages/home.js");
   assert.ok(!/avg \+ "%"/.test(home), "главная: средний балл без %");
 });

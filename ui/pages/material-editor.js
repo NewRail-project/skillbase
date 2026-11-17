@@ -106,6 +106,9 @@ function blockPreview(block) {
   }
 }
 
+// Страница-заглушка для материала, состоящего из одного PDF (≥ PAGE_MIN_TEXT символов).
+const PDF_ONLY_PAGE_TEXT = "Этот материал размещён в виде PDF-файла. Чтобы прочитать его, нажмите кнопку «PDF» вверху экрана: файл откроется в новой вкладке. Если файл не открывается, обновите страницу или обратитесь к преподавателю, который создал материал. Текст этой страницы служит заглушкой — его можно заменить кратким описанием материала.";
+
 export default async function MaterialEditorPage() {
   const page = h("div", { class: "page material-editor-page" });
   const materialId = decodeURIComponent((State.routeParam || "").split("/")[0] || "");
@@ -302,6 +305,15 @@ export default async function MaterialEditorPage() {
   const createBtn = h("button", { type: "button", class: "btn primary" }, "Создать материал");
   createBtn.addEventListener("click", async () => {
     paintSaveStatus("");
+    // Материал только из PDF: правила Firestore требуют хотя бы одну страницу,
+    // поэтому, если текста нет, создаём страницу-заглушку со ссылкой на файл.
+    if (pendingPdf && !state.pages.some(blocks => !validatePage(blocks).length)) {
+      state.pages.length = 0;
+      state.pages.push([{ type: "paragraph", text: PDF_ONLY_PAGE_TEXT }]);
+      pageIndex = 0;
+      paintPageEditor();
+      paintPagesNav();
+    }
     const metaErrors = validateMaterialMeta({ ...state, pages: state.pages }, true);
     const badPages = state.pages
       .map((blocks, i) => (validatePage(blocks).length ? i + 1 : null))
@@ -324,6 +336,11 @@ export default async function MaterialEditorPage() {
       pdfUploadBtn.disabled = false;
       await saveToFirestore(true);
       toast("Материал создан", "success");
+      if (pendingPdf) {
+        const file = pendingPdf;
+        pendingPdf = null;
+        await attachPdf(file);
+      }
     } catch (err) {
       paintSaveStatus(err?.message || "Не удалось создать материал.", true);
     } finally {
@@ -707,26 +724,24 @@ export default async function MaterialEditorPage() {
   appendBtn.addEventListener("click", () => applyBulk("append"));
 
   // ---------- PDF ----------
-  const pdfInput = h("input", { type: "file", accept: ".pdf,application/pdf" });
+  // Поле файла скрыто: открывается кнопкой «Загрузить PDF» (раньше торчал
+  // «голый» input, а сама кнопка у нового материала была неактивна без
+  // объяснения — выглядело как «PDF не прикрепляется»).
+  const pdfInput = h("input", { type: "file", accept: ".pdf,application/pdf,application/octet-stream", style: "display:none" });
+  let pendingPdf = null; // PDF, выбранный до создания материала
   const pdfInfo = h("div", { class: "form-hint" }, state.pdf ? `Вложение: ${state.pdf.name}` : "PDF не вложен.");
-  const pdfUploadBtn = h("button", { type: "button", class: "btn secondary", disabled: isNew ? "disabled" : "" }, "Загрузить PDF");
+  const pdfUploadBtn = h("button", { type: "button", class: "btn secondary" }, "Загрузить PDF");
   const pdfRemoveBtn = h("button", { type: "button", class: "btn danger", disabled: state.pdf ? "" : "disabled" }, "Убрать PDF");
 
   pdfUploadBtn.addEventListener("click", () => pdfInput.click());
-  pdfInput.addEventListener("change", async () => {
-    const file = pdfInput.files?.[0];
-    if (!file) return;
-    if (!state.id) {
-      paintSaveStatus("Сначала создайте материал — PDF сохраняется в его документ.", true);
-      return;
-    }
+  // Загрузка PDF в уже созданный материал.
+  async function attachPdf(file) {
     try {
       paintSaveStatus("Загружаем PDF…");
       const pdf = await readPdfFile(file);
       const total = pdfChunkCount(pdf.size);
       paintSaveStatus(`Загружаем PDF: 0/${total}…`);
-      // Этап 5: ход загрузки по кусочкам (раньше — молчаливое ожидание,
-      // а «total» был захардкожен как 256 КБ, вне связи с PDF_CHUNK_BIN).
+      // Ход загрузки по кусочкам (раньше — молчаливое ожидание).
       await saveLibraryPdf(state.id, pdf, (done, all) => {
         paintSaveStatus(`Загружаем PDF: ${done}/${all}…`);
       });
@@ -735,10 +750,31 @@ export default async function MaterialEditorPage() {
       pdfRemoveBtn.disabled = false;
       paintSaveStatus(`PDF загружен: ${total} частей.`);
       toast("PDF загружен", "success");
+      return true;
     } catch (err) {
       // Введённый текст и страницы не трогаем: ошибка PDF не сбрасывает
       // состояние редактора, черновик в localStorage сохраняется.
       paintSaveStatus(err?.message || "PDF не загружен.", true);
+      return false;
+    }
+  }
+
+  pdfInput.addEventListener("change", async () => {
+    const file = pdfInput.files?.[0];
+    if (!file) return;
+    try {
+      if (!state.id) {
+        // Материал ещё не создан: проверяем файл сразу и прикрепим при создании.
+        await readPdfFile(file);
+        pendingPdf = file;
+        pdfInfo.textContent = `PDF выбран: ${file.name} — прикрепится при создании материала.`;
+        paintSaveStatus("PDF готов. Введите название и нажмите «Создать материал» — файл прикрепится автоматически.");
+        return;
+      }
+      await attachPdf(file);
+    } catch (err) {
+      pendingPdf = null;
+      paintSaveStatus(err?.message || "PDF не принят.", true);
     } finally {
       pdfInput.value = "";
     }

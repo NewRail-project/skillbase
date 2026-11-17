@@ -929,3 +929,49 @@ export function rankedLeaderboard(attempts, {
   });
   return rows;
 }
+
+// =====================================================================
+// Таблица учеников темы: ФИО по алфавиту, баллы и статус прохождения.
+// Обычные (не Live) прохождения. students — ростер назначенных; ученики
+// с попытками, но вне ростера (перешли в другую группу), тоже показываются
+// по имени из попытки; гости — нет. Нет попыток → «не приступал», а не 0.
+// =====================================================================
+export function topicStudentRows({ attempts = [], students = [] } = {}) {
+  const byUser = new Map();
+  for (const a of attempts) {
+    if (!a?.userId || a.guest === true) continue;
+    if (!byUser.has(a.userId)) byUser.set(a.userId, []);
+    byUser.get(a.userId).push(a);
+  }
+  const roster = new Map(students.map(s => [s.uid, s]));
+  const uids = new Set([...roster.keys(), ...byUser.keys()]);
+  const rows = [...uids].map(uid => {
+    const list = byUser.get(uid) || [];
+    const graded = list.filter(a => a.status === "graded" && Number.isFinite(a.percent));
+    const best = graded.reduce((m, a) => (!m || a.percent > m.percent ? a : m), null);
+    const latest = [...graded].sort((x, y) => (attemptTimeValue(y) || 0) - (attemptTimeValue(x) || 0))[0] || null;
+    let status = "none";
+    if (best) status = best.percent >= TOPIC_PASS_PERCENT ? "passed" : "failed";
+    else if (list.some(a => a.status === "submitted")) status = "pending";
+    else if (list.some(a => a.status === "in_progress")) status = "in_progress";
+    return {
+      uid,
+      name: roster.get(uid)?.fullName || list.find(a => a.userName)?.userName || "Участник",
+      status,
+      attemptsCount: list.filter(a => ANALYTICS_STATUSES.includes(a.status)).length,
+      gradedCount: graded.length,
+      averageScore: averagePercent(graded.map(a => a.percent)),
+      bestScore: best ? best.percent : null,
+      bestEarned: best && Number.isFinite(best.score) ? best.score : null,
+      bestMax: best && Number.isFinite(best.total) ? best.total : null,
+      latestScore: latest ? latest.percent : null,
+      latestMs: latest ? attemptTimeValue(latest) : null
+    };
+  });
+  return rows.sort((a, b) => byRu(a.name, b.name));
+}
+
+export const TOPIC_STATUS_LABELS = {
+  passed: "Сдал", failed: "Не сдал", pending: "Ждёт проверки",
+  in_progress: "В процессе", none: "Не приступал"
+};

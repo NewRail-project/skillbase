@@ -189,7 +189,15 @@ export function isValidPdfName(name) {
 
 // Допустимые MIME-типы. Пустая строка разрешена: часть браузеров и
 // вебвью не выставляет type, но присылает корректную подпись.
-const PDF_MIME_TYPES = ["application/pdf", "application/x-pdf", ""];
+// Настоящую проверку делает подпись «%PDF-» (pdfHeaderOk). MIME — лишь
+// первичный фильтр от очевидно чужих файлов, поэтому допускаем и типичные
+// «общие» значения: файловые менеджеры телефонов, мессенджеры и облака часто
+// отдают PDF как application/octet-stream, и раньше такой PDF не прикреплялся.
+const PDF_MIME_TYPES = [
+  "application/pdf", "application/x-pdf", "application/acrobat", "application/vnd.pdf",
+  "text/pdf", "text/x-pdf", "application/octet-stream", "binary/octet-stream",
+  "application/download", "application/force-download", ""
+];
 
 export function pdfMimeOk(type) {
   return PDF_MIME_TYPES.includes(String(type ?? "").toLowerCase());

@@ -1,4 +1,3 @@
-import { closeAbandonedRooms } from "../../core/rooms.js";
 import { h } from "../../shared/dom.js";
 import { State, isStaff } from "../../core/auth.js";
 import { t, lt, roleLabel } from "../../core/i18n.js";
@@ -544,7 +543,6 @@ function renderStaffHome(page, profile) {
 
           let rooms = [];
           try {
-            await closeAbandonedRooms().catch(() => 0); // брошенные комнаты не считаем активными
             const rSnap = await getDocs(query(
               collection(db, "rooms"),
               where("testId", "==", test.id),
@@ -650,8 +648,6 @@ function guestView() {
 }
 
 export default async function HomePage() {
-  // Фоново закрываем брошенные Live-комнаты ведущего (ведущий ушёл, комната висела).
-  if (isStaff()) closeAbandonedRooms().catch(() => 0);
   const page = h("div", { class: "page" });
 
   if (!State.user || !State.profile) {
