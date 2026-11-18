@@ -292,7 +292,6 @@ function renderStudentHome(page, profile) {
       deadlinesPanel,
       quickActions([
         { icon: icons.clipboard, label: lt("nav.assignments"), hint: lt("home.quick.assignmentsHint"), href: "#assignments" },
-        { icon: icons.book, label: lt("home.quick.catalog"), hint: lt("home.quick.catalogHint"), href: "#tests" },
         { icon: icons.qr, label: lt("nav.join"), hint: lt("home.quick.joinHint"), href: "#join" },
         { icon: icons.users, label: "Профиль", hint: "Данные и тема", href: "#profile" }
       ])

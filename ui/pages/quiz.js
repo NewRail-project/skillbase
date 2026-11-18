@@ -167,8 +167,8 @@ export default async function QuizPage() {
   // #trial/<testId> — пробное прохождение преподавателем: тот же файл,
   // отдельный маршрут (роли проверяет роутер: только staff).
   const trial = State.route === "trial";
-  const back = h("a", { class: "btn secondary", href: trial ? `#quiz/${encodeURIComponent(testId)}` : "#tests" },
-    trial ? lt("quiz.backToTest") : "К каталогу");
+  const back = h("a", { class: "btn secondary", href: trial ? `#quiz/${encodeURIComponent(testId)}` : (isStaff() ? "#tests" : "#assignments") },
+    trial ? lt("quiz.backToTest") : (isStaff() ? "К каталогу" : "К заданиям"));
 
   if (!testId) {
     page.append(errorPanel(lt("quiz.notSpecified"), lt("quiz.notSpecifiedHint"), back));

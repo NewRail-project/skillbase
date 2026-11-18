@@ -16,14 +16,14 @@ const GROUPS = [
       { id: "home", label: lt("nav.home"), icon: icons.home, route: "#/" },
       { id: "about", label: lt("nav.about"), icon: icons.info, route: "#about" },
       { id: "assignments", label: lt("nav.assignments"), icon: icons.tasks, route: "#assignments", auth: true },
-      { id: "tests", label: lt("nav.tests"), icon: icons.testList, route: "#tests", auth: true },
+      { id: "tests", label: lt("nav.tests"), icon: icons.testList, route: "#tests", auth: true, roles: ["teacher", "admin"] },
 { id: "results", label: lt("nav.results"), icon: icons.results, route: "#results", auth: true, roles: ["teacher", "admin"] },
       { id: "analytics", label: lt("nav.analytics"), icon: icons.analytics, route: "#analytics", auth: true, roles: ["teacher", "admin"] },
       // Предметы
       { id: "disciplines", label: lt("nav.disciplines"), icon: icons.disciplines, route: "#disciplines", auth: true },
       // Расписание: даты занятий и сроков (этап 4). Видно всем ролям.
       { id: "calendar", label: lt("nav.calendar"), icon: icons.calendar, route: "#calendar", auth: true },
-      { id: "materials", label: lt("nav.materials"), icon: icons.materials, route: "#materials", auth: true },
+      { id: "materials", label: lt("nav.materials"), icon: icons.materials, route: "#materials", auth: true, roles: ["teacher", "admin"] },
       { id: "leaderboard", label: lt("nav.leaderboard"), icon: icons.rating, route: "#leaderboard", auth: true, roles: ["teacher", "admin"] },
     ]
   },

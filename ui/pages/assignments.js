@@ -3,7 +3,7 @@
 // просрочено, срок сегодня), сортировка по срочности, перед стартом
 // тест показывает название и материал задания.
 import { h } from "../../shared/dom.js";
-import { State } from "../../core/auth.js";
+import { State, isStaff } from "../../core/auth.js";
 import { getStudentAssignments } from "../../core/assign.js";
 import { listMyAttempts } from "../../core/attempts.js";
 import {
@@ -109,7 +109,7 @@ export default async function Assignments() {
       h("p", { class: "page-sub" }, lt("asg.sub"))
     ),
     h("div", { class: "page-head-actions" },
-      h("a", { class: "btn secondary", href: "#tests" }, lt("asg.catalog")),
+      ...(isStaff() ? [h("a", { class: "btn secondary", href: "#tests" }, lt("asg.catalog"))] : []),
       h("a", { class: "btn secondary", href: "#join" }, "Войти по коду")
     )
   ));
@@ -122,7 +122,7 @@ export default async function Assignments() {
       h("div", { class: "empty-state-icon", innerHTML: icons.clipboard }),
       h("h2", {}, lt("asg.noGroup")),
       h("p", { class: "muted" }, lt("asg.noGroupHint")),
-      h("a", { class: "btn secondary", href: "#tests" }, "Открыть каталог")
+      ...(isStaff() ? [h("a", { class: "btn secondary", href: "#tests" }, "Открыть каталог")] : [])
     ));
     return page;
   }

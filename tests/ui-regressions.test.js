@@ -90,3 +90,31 @@ test("боковое меню: у каждого пункта своя икон�
   assert.equal(new Set(names).size, names.length, `иконки повторяются: ${names.join(", ")}`);
   for (const icon of names) assert.ok(icons[icon], `иконка ${icon} объявлена`);
 });
+
+test("служебные каталоги: «Тесты» и «Материалы» закрыты от студентов и гостей", () => {
+  // 1. Роутер: маршруты помечены staffOnly, прямой переход ведёт на главную.
+  const app = read("shared/app.js");
+  for (const id of ["tests", "materials"]) {
+    assert.match(app, new RegExp(`"${id}":\\s*\\{[^}]*staffOnly: true`),
+      `маршрут #${id} должен быть staffOnly`);
+  }
+  assert.match(app, /route\.staffOnly && !STAFF\.includes\(State\.profile\?\.role\)[\s\S]{0,120}window\.location\.hash = "#\/"/,
+    "роутер должен возвращать студента и гостя с #tests/#materials на главную");
+  // 2. Меню: пункты видны только сотрудникам.
+  const sidebar = read("ui/components/sidebar.js");
+  for (const id of ["tests", "materials"]) {
+    assert.match(sidebar, new RegExp(`id: "${id}"[^}]*roles: \\["teacher", "admin"\\]`),
+      `пункт меню ${id} должен скрываться от студентов`);
+  }
+  // 3. Студенческие страницы не ведут в каталог напрямую: ссылки либо
+  //    убраны, либо показываются только сотрудникам.
+  const home = read("ui/pages/home.js");
+  assert.ok(!home.includes('href: "#tests"'), "главная студента не должна ссылаться на #tests");
+  const assignments = read("ui/pages/assignments.js");
+  for (const line of assignments.split("\n").filter(l => l.includes('"#tests"'))) {
+    assert.match(line, /isStaff\(\)/, "ссылка на #tests в заданиях — только сотрудникам");
+  }
+  // 4. После теста студент возвращается к заданиям, сотрудник — в каталог.
+  const quiz = read("ui/pages/quiz.js");
+  assert.match(quiz, /isStaff\(\) \? "#tests" : "#assignments"/);
+});

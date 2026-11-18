@@ -7,7 +7,7 @@
 // выбор хранится на устройстве. Из лобби Live-комнаты открывается как
 // #material/<testId>/free/<код комнаты> и возвращает обратно в комнату.
 import { h } from "../../shared/dom.js";
-import { State } from "../../core/auth.js";
+import { State, isStaff } from "../../core/auth.js";
 import { loadMaterial, loadMaterialProgress, saveMaterialProgress } from "../../core/materials.js";
 import { materialProgress } from "../../core/material-logic.js";
 import {
@@ -118,7 +118,7 @@ export default async function MaterialPage() {
   // #material/<id>/preview/materials — «К редактору» вернёт в каталог.
   const fromLibrary = freeMode && back.mode !== "room";
   const backHash = previewMode ? `#create-test/${testId}`
-    : freeMode ? (back.mode === "back" || back.mode === "room" ? back.hash : "#materials")
+    : freeMode ? (back.mode === "back" || back.mode === "room" ? back.hash : (isStaff() ? "#materials" : "#/"))
       : `#quiz/${testId}`;
   const prefs = loadPrefs();
   page.dataset.rd = prefs.mode;

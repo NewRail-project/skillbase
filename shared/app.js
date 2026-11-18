@@ -47,7 +47,7 @@ const routes = {
   // Первоначальная настройка профиля после первого входа через Google.
   "setup":        { file: "ui/pages/setup-profile.js",     title: "Настройка профиля",    auth: true },
   "profile":      { file: "ui/pages/profile.js",           title: "Профиль",              auth: true },
-  "tests":        { file: "ui/pages/tests.js",             title: "Каталог тестов",       tkey: "title.tests",       auth: true },
+  "tests":        { file: "ui/pages/tests.js",             title: "Каталог тестов",       tkey: "title.tests",       auth: true, staffOnly: true },
   "create-test":  { file: "ui/pages/create-test.js",       title: "Создать тест",         tkey: "title.create",      auth: true, roles: STAFF },
   "quiz":         { file: "ui/pages/quiz.js",              title: "Тест",                 tkey: "title.quiz",        auth: true, guest: true },
   // Пробное прохождение: преподаватель проходит собственный тест как
@@ -95,7 +95,7 @@ const routes = {
   // Расписание: даты занятий, публикаций, сроков и заданий (этап 4).
   "calendar":     { file: "ui/pages/calendar.js",          title: "Расписание",           auth: true },
   // Библиотека материалов: единый каталог книг и PDF (этап 3).
-  "materials":    { file: "ui/pages/materials.js",         title: "Материалы",            tkey: "title.materials",   auth: true },
+  "materials":    { file: "ui/pages/materials.js",         title: "Материалы",            tkey: "title.materials",   auth: true, staffOnly: true },
   // Рейтинг: агрегат попыток организации (staff). Страница существовала,
   // но не была подключена к маршрутизатору — ссылка в меню вела на 404.
   "leaderboard":  { file: "ui/pages/leaderboard.js",        title: "Рейтинг",              tkey: "title.leaderboard", auth: true, roles: STAFF },
@@ -263,6 +263,17 @@ export async function router() {
         State.user?.isAnonymous === true)) {
     saveReturnTo(window.location.hash || "#/");
     window.location.hash = "#setup";
+    return;
+  }
+
+  // Служебные каталоги (тесты, материалы) — только сотрудникам. Студент или
+  // гость по прямой ссылке или ручному вводу маршрута возвращается на
+  // главную: у студентов те же учебные материалы открываются внутри
+  // дисциплин, тем и назначений (#material/<id>, #quiz/<id>), эти маршруты
+  // не помечены staffOnly. Проверка стоит после ожидания профиля, поэтому
+  // роль здесь уже известна.
+  if (route && route.staffOnly && !STAFF.includes(State.profile?.role)) {
+    window.location.hash = "#/";
     return;
   }
 
