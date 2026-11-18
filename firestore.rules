@@ -207,7 +207,11 @@ service cloud.firestore {
         && (!("materialId" in request.resource.data) || request.resource.data.materialId is string || request.resource.data.materialId == null)
         && (!("requireMaterial" in request.resource.data) || request.resource.data.requireMaterial is bool);
 
-      allow delete: if false;
+      // Физическое удаление: автор или администратор организации.
+      // Попытки, оценки и журнал живут в отдельных коллекциях и не
+      // удаляются — исторические результаты сохраняются.
+      allow delete: if isStaffOf(resource.data.orgId)
+        && (resource.data.authorId == request.auth.uid || role() == "admin");
     }
 
     // Снимки опубликованных версий. Создаёт публикатор, читают сотрудники
@@ -232,7 +236,10 @@ service cloud.firestore {
         && request.resource.data.orgId == versionTest().orgId
         && request.resource.data.status == "published";
 
-      allow update, delete: if false;
+      // Удаление версий — вместе с самим тестом (см. allow delete tests);
+      // само поле версии неизменяемо.
+      allow update: if false;
+      allow delete: if isVersionStaff();
     }
 
     // ---------- testKeys ----------
@@ -261,7 +268,9 @@ service cloud.firestore {
 
       allow update: if isStaffOf(resource.data.orgId);
 
-      allow delete: if false;
+      // Ключи стираются вместе с тестом (физическое удаление теста).
+      // Ключи ответов студенту и гостю по-прежнему недоступны.
+      allow delete: if isStaffOf(resource.data.orgId);
     }
 
     // ---------- activeAttempts ----------
@@ -765,8 +774,9 @@ service cloud.firestore {
     // групп) на предметы и темы НЕ переносится: это общая структура
     // организации без данных студентов и без привязки к группам —
     // сужать права по группам здесь не на чем.
-    // Удаление запрещено — вместо него архивирование (status = "archived"),
-    // чтобы темы предмета не пропадали незаметно.
+    // Архивирование (status = "archived") — мягкое скрытие; физическое
+    // удаление разрешено сотруднику организации и выполняется клиентом
+    // каскадно с отсоединением ссылок (см. core/subjects.js).
 
     match /subjects/{subjectId} {
       // Поля названия и порядка: непустой заголовок до 120 символов
@@ -813,8 +823,11 @@ service cloud.firestore {
            "createdBy", "createdAt", "updatedAt"])
         && subjectFieldsOk();
 
-      // Архивирование вместо удаления.
-      allow delete: if false;
+      // Архивирование — мягкое скрытие через update (status = "archived").
+      // Физическое удаление предмета — осознанное действие сотрудника
+      // организации: клиент каскадно удаляет его темы и отсоединяет
+      // ссылки (см. core/subjects.js), попытки и оценки не затрагиваются.
+      allow delete: if isStaffOf(resource.data.orgId);
     }
 
     match /topics/{topicId} {
@@ -907,10 +920,10 @@ service cloud.firestore {
         && topicFieldsOk()
         && topicScheduleOk();
 
-      // Физическое удаление запрещено: «удаление» — архивирование
-      // (status = archived) с проверкой зависимостей на клиенте. История
-      // попыток, тесты и материалы сохраняют привязку к topicId.
-      allow delete: if false;
+      // Физическое удаление темы — сотрудник организации. Клиент
+      // отсоединяет ссылки тестов и материалов (topicId → null), общие
+      // материалы и тесты не удаляются, попытки и оценки сохраняются.
+      allow delete: if isStaffOf(resource.data.orgId);
     }
 
 

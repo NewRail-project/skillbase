@@ -249,6 +249,10 @@
 .room-material-cta { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; margin-top: var(--space-3); }
 .room-material-cta-text { display: grid; gap: 2px; min-width: 0; flex: 1 1 14rem; }
 .room-material-cta .btn { flex: 0 0 auto; }
+/* Несколько материалов темы: вертикальный список кнопок — читается
+   одинаково на телефоне и на проекторе. */
+.room-material-cta .btn-col { display: grid; gap: var(--space-2); flex: 1 1 14rem; min-width: 0; }
+.room-material-cta .btn-col .btn { justify-content: start; text-align: left; overflow-wrap: anywhere; }
 
 /* ============================================================
    Топ и подиум: сдержанные «металлы» вместо жирной заливки.

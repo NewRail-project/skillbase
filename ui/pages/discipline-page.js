@@ -5,6 +5,7 @@
 import { h } from "../../shared/dom.js";
 import { State, isStaff } from "../../core/auth.js";
 import { getSubject, getTopics, createTopic, updateSubject, moveTopic } from "../../core/subjects.js";
+import { deleteTopicFlow, deleteSubjectFlow } from "../components/delete-flows.js";
 import {
   TITLE_MAX, DESCRIPTION_MAX, STATUS_ARCHIVED, STATUS_ACTIVE,
   TOPIC_STATUS_DRAFT, TOPIC_STATUS_PLANNED, TOPIC_STATUS_PUBLISHED, TOPIC_STATUS_ARCHIVED,
@@ -230,7 +231,9 @@ export default async function DisciplinePage() {
           h("button", { type: "button", class: "btn secondary btn-sm btn-icon-sm", "aria-label": "Выше", disabled: index === 0,
             onclick: () => move(t, -1) }, "↑"),
           h("button", { type: "button", class: "btn secondary btn-sm btn-icon-sm", "aria-label": "Ниже", disabled: index === total - 1,
-            onclick: () => move(t, 1) }, "↓"))
+            onclick: () => move(t, 1) }, "↓"),
+          h("button", { type: "button", class: "btn secondary btn-sm danger-text",
+            onclick: async () => { if (await deleteTopicFlow(topic)) await load(); } }, "Удалить"))
         : null);
   }
 

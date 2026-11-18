@@ -444,38 +444,54 @@ export async function setTestStatus(testId, status) {
 }
 
 /**
- * Удаление теста: переводит в статус DELETED_STATUS, закрывает активные
- * задания и Live-комнаты автора согласно плану.
+ * Физическое удаление теста: стирает документ теста, ключи ответов
+ * (testKeys), снимки версий и прикреплённый материал (страницы книги
+ * и PDF-кусочки). Задания из плана удаляются физически, открытые
+ * Live-комнаты закрываются. Попытки, оценки и записи журнала живут
+ * в отдельных коллекциях и не затрагиваются — история сохраняется.
  */
 export async function deleteTest(testId, plan = {}) {
-  const batch = writeBatch(db);
+  // Подколлекции стираются первыми: пока родитель существует, правила
+  // сверяют orgId по нему (тот же порядок, что в deleteLibraryMaterial).
+  // Несуществующий материал и пустые подколлекции пропускаются.
+  const deletes = [];
+  const updates = [];
 
-  // 1. Статус теста
-  batch.update(doc(db, "tests", testId), {
-    status: "deleted",
-    updatedAt: serverTimestamp(),
-    "settings.showCorrectAfterQuestion": false
-  });
+  const versions = await getDocs(collection(db, "tests", testId, "versions"));
+  versions.forEach(v => deletes.push(v.ref));
 
-  // 2. Закрытие заданий
-  if (plan.closeAssignmentIds?.length) {
-    plan.closeAssignmentIds.forEach(id => {
-      batch.update(doc(db, "assignments", id), {
-        status: "closed",
-        updatedAt: serverTimestamp()
-      });
-    });
+  const materialSnap = await getDoc(doc(db, "materials", testId)).catch(() => null);
+  if (materialSnap?.exists()) {
+    for (const sub of ["pages", "files"]) {
+      const parts = await getDocs(collection(db, "materials", testId, sub));
+      parts.forEach(p => deletes.push(p.ref));
+    }
+    deletes.push(doc(db, "materials", testId));
   }
 
-  // 3. Закрытие Live-комнат
-  if (plan.closeRoomCodes?.length) {
-    plan.closeRoomCodes.forEach(code => {
-      batch.update(doc(db, "rooms", String(code)), {
-        status: "closed",
-        updatedAt: serverTimestamp()
-      });
-    });
-  }
+  // Задания: физическое удаление (правила разрешают автору задания
+  // или админу организации — тот же критерий, что в deletionPlan).
+  (plan.deleteAssignmentIds || []).forEach(id =>
+    deletes.push(doc(db, "assignments", id)));
 
-  await batch.commit();
+  // Открытые Live-комнаты закрываются, а не стираются: снимок истории
+  // комнаты остаётся доступным на странице истории.
+  (plan.closeRoomCodes || []).forEach(code =>
+    updates.push({
+      ref: doc(db, "rooms", String(code)),
+      data: { status: "closed", updatedAt: serverTimestamp() }
+    }));
+
+  // Сами документы: тест + ключи ответов — в последнюю партию.
+  deletes.push(doc(db, "tests", testId), doc(db, "testKeys", testId));
+
+  // Лимит батча Firestore — 500 операций: коммитим партиями.
+  for (let i = 0; i < deletes.length; i += 450) {
+    const batch = writeBatch(db);
+    deletes.slice(i, i + 450).forEach(ref => batch.delete(ref));
+    if (i + 450 >= deletes.length) {
+      updates.forEach(u => batch.update(u.ref, u.data));
+    }
+    await batch.commit();
+  }
 }

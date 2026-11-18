@@ -126,6 +126,95 @@ export function subjectReadAccessError(user, profile) {
   return null;
 }
 
+// ---------- Физическое удаление ----------
+//
+// Тема удаляется вместе с собой (расписание, публикация — поля документа),
+// но ссылки на тесты и материалы ОТсоединяются (topicId → null), а сами
+// тесты и материалы остаются: тест — в каталоге, материал — в библиотеке.
+// Так защищаются «общие» объекты (тест может использоваться в заданиях и
+// Live-комнатам, материал — другими тестами), а попытки, оценки, журнал
+// и прогресс чтения сохраняются. Осиротевших ссылок не остаётся.
+//
+// Кто может отсоединить: правила разрешают update теста автору или админу
+// организации; материал — только автору (authorId, даже админ не может).
+export function topicDeletionPlan({ topic, session = {}, tests = [], materials = [] }) {
+  const uid = session?.uid || "";
+  const isAdmin = session?.role === "admin";
+  const orgId = session?.orgId || "";
+  const topicId = topic?.id || "";
+  const linkedTests = (tests || []).filter(t => t && t.topicId === topicId);
+  const linkedMaterials = (materials || []).filter(m => m && m.topicId === topicId);
+
+  return {
+    topicId,
+    // Свои тесты (или все — админу своей организации): topicId → null.
+    detachTestIds: linkedTests
+      .filter(t => t.authorId === uid || (isAdmin && t.orgId === orgId))
+      .map(t => t.id),
+    // Тесты других авторов: останутся с несуществующей темой —
+    // сотруднику показывается предупреждение, молча не трогаем.
+    foreignTestIds: linkedTests
+      .filter(t => !(t.authorId === uid || (isAdmin && t.orgId === orgId)))
+      .map(t => t.id),
+    // Материалы отсоединяет только автор (ограничение правил материалов).
+    detachMaterialIds: linkedMaterials
+      .filter(m => m.authorId === uid)
+      .map(m => m.id),
+    foreignMaterialIds: linkedMaterials
+      .filter(m => m.authorId !== uid)
+      .map(m => m.id)
+  };
+}
+
+// План удаления дисциплины: сама дисциплина и все её темы, ссылки тестов
+// и материалов тем отсоединяются тем же способом.
+export function subjectDeletionPlan({ subject, session = {}, topics = [], tests = [], materials = [] }) {
+  const subjectId = subject?.id || "";
+  const ownTopics = (topics || []).filter(t => t && t.subjectId === subjectId);
+  const topicIds = ownTopics.map(t => t.id);
+  const uid = session?.uid || "";
+  const isAdmin = session?.role === "admin";
+  const orgId = session?.orgId || "";
+
+  const linkedTests = (tests || []).filter(t => t && topicIds.includes(t.topicId));
+  const linkedMaterials = (materials || []).filter(m => m && topicIds.includes(m.topicId));
+
+  return {
+    subjectId,
+    topicIds,
+    detachTestIds: linkedTests
+      .filter(t => t.authorId === uid || (isAdmin && t.orgId === orgId))
+      .map(t => t.id),
+    foreignTestIds: linkedTests
+      .filter(t => !(t.authorId === uid || (isAdmin && t.orgId === orgId)))
+      .map(t => t.id),
+    detachMaterialIds: linkedMaterials
+      .filter(m => m.authorId === uid)
+      .map(m => m.id),
+    foreignMaterialIds: linkedMaterials
+      .filter(m => m.authorId !== uid)
+      .map(m => m.id)
+  };
+}
+
+// Сводка зависимостей для окна подтверждения: человекочитаемые счётчики
+// и предупреждения о том, что нельзя отсоединить молча.
+export function deletionPlanSummary(plan) {
+  const notes = [];
+  const ownTopics = plan.topicIds?.length || 0;
+  if (ownTopics) notes.push(`Будет удалено тем: ${ownTopics}`);
+  if (plan.detachTestIds?.length) notes.push(`Тесты останутся, ссылка на тему будет снята: ${plan.detachTestIds.length}`);
+  if (plan.detachMaterialIds?.length) notes.push(`Материалы останутся в библиотеке, ссылка на тему будет снята: ${plan.detachMaterialIds.length}`);
+  if (plan.foreignTestIds?.length) {
+    notes.push(`Тесты других преподавателей останутся со ссылкой на удалённую тему: ${plan.foreignTestIds.length}`);
+  }
+  if (plan.foreignMaterialIds?.length) {
+    notes.push(`Материалы других авторов останутся со ссылкой на удалённую тему: ${plan.foreignMaterialIds.length}`);
+  }
+  notes.push("Попытки, оценки и журнал сохранятся.");
+  return notes;
+}
+
 function systemFieldError(data, labels) {
   for (const key of Object.keys(labels)) {
     if (data[key] !== undefined) return labels[key];

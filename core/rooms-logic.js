@@ -549,3 +549,22 @@ export function questionDurationSec(test, settings) {
   return null;
 }
 
+
+// Кандидаты кнопки «Прочитать материал» в лобби комнаты: основной материал
+// теста и опубликованные материалы его темы (materials с topicId). Один и
+// тот же материал не дублируется. Формат, TXT и PDF читаются одной и той же
+// читалкой #material/<id>/free/<код>, возврат — в комнату.
+export function roomMaterialTargets({ hasMaterial = false, testId = "", topicMaterials = [] } = {}) {
+  const targets = [];
+  const seen = new Set();
+  if (hasMaterial && testId) {
+    targets.push({ id: testId, title: "", main: true });
+    seen.add(testId);
+  }
+  for (const m of topicMaterials || []) {
+    if (!m?.id || seen.has(m.id)) continue;
+    seen.add(m.id);
+    targets.push({ id: m.id, title: m.title || "Материал", main: false });
+  }
+  return targets;
+}

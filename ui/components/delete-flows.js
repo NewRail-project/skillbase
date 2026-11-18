@@ -1,15 +1,24 @@
-// ui/components/delete-flows.js — удаление теста и материала кнопкой.
-// Один поток на все страницы: проверка прав → предупреждения →
-// подтверждение → удаление → сообщение. Возвращает true, если удалено.
+// ui/components/delete-flows.js — удаление учебных объектов кнопкой.
+// Один поток на все страницы: проверка прав → план зависимостей →
+// предупреждения → подтверждение → удаление → сообщение. Возвращает
+// true, если удалено.
 //
-// Тест удаляется «мягко» (статус deleted, как в каталоге тестов): попытки и
-// статистика остаются. Материал удаляется целиком вместе со страницами и PDF.
+// Тест удаляется физически (документ, ключи ответов, версии, материал);
+// попытки, оценки и журнал сохраняются. Материал удаляется целиком
+// вместе со страницами и PDF. Темы и дисциплины удаляются каскадно
+// с отсоединением ссылок тестов и материалов (план — subjects-logic).
 import { State } from "../../core/auth.js";
 import { listMyTests, deleteTest } from "../../core/editor.js";
 import { canDeleteTest, deletionPlan, explainDeleteError } from "../../core/test-delete-logic.js";
 import { listAssignments } from "../../core/assign.js";
 import { deleteLibraryMaterial } from "../../core/material-library.js";
 import { canDeleteMaterial, materialDeleteBlockers } from "../../core/material-library-logic.js";
+import { getTopics, deleteTopic, deleteSubject } from "../../core/subjects.js";
+import {
+  topicDeletionPlan, subjectDeletionPlan,
+  deletionPlanSummary, subjectWriteAccessError
+} from "../../core/subjects-logic.js";
+import { listMaterials } from "../../core/material-library.js";
 import { getDocs, query, collection, db, where } from "../../shared/firebase.js";
 import { confirmAction } from "./confirm.js";
 import { toast } from "./toast.js";
@@ -34,8 +43,8 @@ export async function deleteTestFlow(test) {
   const plan = deletionPlan({ test, session: { uid: State.user.uid, role: State.profile.role }, assignments, rooms });
 
   const details = [];
-  if (plan.closeAssignmentIds.length) {
-    details.push(h("p", { class: "warning-msg" }, `Будет закрыто активных заданий: ${plan.closeAssignmentIds.length}`));
+  if (plan.deleteAssignmentIds.length) {
+    details.push(h("p", { class: "warning-msg" }, `Будет удалено активных заданий: ${plan.deleteAssignmentIds.length}`));
   }
   if (plan.closeRoomCodes.length) {
     details.push(h("p", { class: "warning-msg" }, `Будет закрыто активных Live-комнат: ${plan.closeRoomCodes.length}`));
@@ -90,5 +99,112 @@ export async function deleteMaterialFlow(material) {
   } catch (err) {
     toast(err?.message || "Не удалось удалить материал.", "error");
     return false;
+  }
+}
+
+// Общая проверка прав на темы и дисциплины: зеркало правил (isStaff +
+// orgId). Возвращает понятную ошибку тостом и false.
+function subjectAccessDenied() {
+  const denied = subjectWriteAccessError(State.user, State.profile);
+  if (denied) { toast(denied, "error"); return true; }
+  return false;
+}
+
+// Зависимости темы/дисциплины: тесты и материалы организации. Без списка
+// зависимостей удаление не начинается — молча удалять ссылки нельзя.
+async function deletionDependencies() {
+  let tests = [];
+  let materials = [];
+  try {
+    [tests, materials] = await Promise.all([
+      listMyTests(State.user.uid, State.profile.orgId, State.profile.role),
+      listMaterials()
+    ]);
+  } catch (err) {
+    toast("Не удалось проверить связанные тесты и материалы. Удаление не выполнено — попробуйте ещё раз.", "error");
+    return null;
+  }
+  return { tests, materials };
+}
+
+// Список заметок плана — узлами для окна подтверждения.
+function planDetails(notes) {
+  return notes.map(text => h("p", { class: "warning-msg" }, text));
+}
+
+// Защита от повторного нажатия: удаление идёт, вторая попытка игнорируется.
+let subjectDeleteBusy = false;
+
+function beginSubjectDelete() {
+  if (subjectDeleteBusy) return false;
+  subjectDeleteBusy = true;
+  return true;
+}
+
+/**
+ * Удаление темы: план (отсоединение тестов и материалов) → подтверждение
+ * с перечнем последствий → физическое удаление. Возвращает true, если тема удалена.
+ */
+export async function deleteTopicFlow(topic) {
+  if (!topic?.id || subjectAccessDenied()) return false;
+
+  const deps = await deletionDependencies();
+  if (!deps) return false;
+  const plan = topicDeletionPlan({ topic, session: session(), ...deps });
+
+  const ok = await confirmAction({
+    title: `Удалить тему «${topic.title || "Без названия"}»?`,
+    text: "Тема будет удалена без возможности восстановления: расписание, публикация и настройки темы пропадут. Тесты и материалы темы останутся, ссылка на тему будет снята.",
+    details: planDetails(deletionPlanSummary(plan)),
+    confirmLabel: "Удалить", tone: "danger"
+  });
+  if (!ok) return false;
+  if (!beginSubjectDelete()) return false;
+  try {
+    await deleteTopic(topic.id, plan);
+    toast("Тема удалена", "success");
+    return true;
+  } catch (err) {
+    toast(err?.message || "Не удалось удалить тему.", "error");
+    return false;
+  } finally {
+    subjectDeleteBusy = false;
+  }
+}
+
+/**
+ * Удаление дисциплины: каскадно удаляет её темы (с их планами отсоединения)
+ * и саму дисциплину после подтверждения. Возвращает true, если удалена.
+ */
+export async function deleteSubjectFlow(subject) {
+  if (!subject?.id || subjectAccessDenied()) return false;
+
+  let topics = [];
+  try {
+    topics = await getTopics(subject.id);
+  } catch (_) {
+    topics = [];
+  }
+  const deps = await deletionDependencies();
+  if (!deps) return false;
+  const plan = subjectDeletionPlan({ subject, session: session(), topics, ...deps });
+
+  const ok = await confirmAction({
+    title: `Удалить дисциплину «${subject.title || "Без названия"}»?`,
+    text: "Дисциплина и все её темы будут удалены без возможности восстановления. Тесты и материалы тем останутся, ссылка на тему будет снята.",
+    details: planDetails(deletionPlanSummary(plan)),
+    confirmLabel: "Удалить", tone: "danger"
+  });
+  if (!ok) return false;
+  if (!beginSubjectDelete()) return false;
+  try {
+    await deleteSubject(subject.id, plan);
+    toast("Дисциплина удалена", "success");
+    return true;
+  } catch (err) {
+    toast(err?.message || "Не удалось удалить дисциплину.", "error");
+    return false;
+  } finally {
+    subjectDeleteBusy = false;
   }
 }

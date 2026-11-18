@@ -3,7 +3,8 @@
 // Проверки входных данных — subjects-logic.js (чистые функции, тестируются
 // в Node). Основная граница безопасности — firestore.rules: они дублируют
 // те же ограничения и отклоняют некорректные записи независимо от клиента.
-// Удаления нет: архивирование выполняется через update со status "archived".
+// Физическое удаление — deleteTopic/deleteSubject: каскад с отсоединением
+// ссылок по плану (subjects-logic), попытки и оценки не затрагиваются.
 import {
   collection, query, where, orderBy, getDocs,
   doc, setDoc, updateDoc, getDoc, serverTimestamp, writeBatch, db
@@ -344,4 +345,69 @@ export async function moveTopic(id, delta) {
   await batch.commit();
   refCache.clear();
   return { moved: id, neighbor: neighbor.id };
+}
+
+// ---------- Физическое удаление ----------
+
+// Проверка владельца документа: читать чужой документ правила не дают,
+// поэтому отказ с понятным текстом, как в updateSubject.
+async function loadOwnDoc(col, id, what) {
+  if (!id) throw new Error(`${what} не выбран${what === "Тема" ? "а" : ""}.`);
+  let snap;
+  try {
+    snap = await getDoc(doc(db, col, id));
+  } catch (e) {
+    throw accessError(e, `Нет доступа: ${what.toLowerCase()} другой организации.`);
+  }
+  if (!snap.exists()) throw new Error(`${what} не найден${what === "Тема" ? "а" : ""}.`);
+  if (snap.data().orgId !== State.profile?.orgId) {
+    throw new Error(`Нет доступа: ${what.toLowerCase()} другой организации.`);
+  }
+  return snap;
+}
+
+// Отсоединение ссылок по плану: тесты (topicId → null) доступны автору
+// или админу организации, материалы — только автору (правила материалов).
+function detachLinks(batch, plan = {}) {
+  const stamp = serverTimestamp();
+  (plan.detachTestIds || []).forEach(id =>
+    batch.update(doc(db, "tests", id), { topicId: null, updatedAt: stamp }));
+  (plan.detachMaterialIds || []).forEach(id =>
+    batch.update(doc(db, "materials", id), { topicId: null, updatedAt: stamp }));
+}
+
+/**
+ * Физическое удаление темы: сам документ и отсоединение ссылок по плану.
+ * Тесты, материалы, попытки и оценки не удаляются — только ссылки снимаются.
+ */
+export async function deleteTopic(id, plan = {}) {
+  const denied = subjectWriteAccessError(State.user, State.profile);
+  if (denied) throw new Error(denied);
+  await loadOwnDoc("topics", id, "Тема");
+
+  const batch = writeBatch(db);
+  detachLinks(batch, plan);
+  batch.delete(doc(db, "topics", id));
+  await batch.commit();
+  refCache.clear();
+  return { deleted: id };
+}
+
+/**
+ * Физическое удаление дисциплины: дисциплина и все её темы по плану,
+ * ссылки тестов и материалов отсоединяются. Попытки и оценки сохраняются.
+ */
+export async function deleteSubject(id, plan = {}) {
+  const denied = subjectWriteAccessError(State.user, State.profile);
+  if (denied) throw new Error(denied);
+  await loadOwnDoc("subjects", id, "Предмет");
+
+  const batch = writeBatch(db);
+  detachLinks(batch, plan);
+  (plan.topicIds || []).forEach(topicId =>
+    batch.delete(doc(db, "topics", topicId)));
+  batch.delete(doc(db, "subjects", id));
+  await batch.commit();
+  refCache.clear();
+  return { deleted: id, topics: (plan.topicIds || []).length };
 }

@@ -2,9 +2,11 @@
 // Не зависит от Firebase: решения о правах и план очистки проверяются
 // в Node (tests/test-delete.test.js), как assignment-logic.js.
 
-// Статус мягкого удаления: документ tests остаётся в Firestore ради
-// попыток, истории и аналитики, но исчезает из каталога и страницы
-// «Мои тесты» (см. listMyTests / listPublishedTests).
+// Удаление теста — физическое: документ tests, ключи ответов (testKeys),
+// версии и прикреплённый материал стираются. Попытки, оценки и записи
+// журнала хранятся в отдельных коллекциях и остаются — история сохраняется.
+// Константа осталась для фильтров списков: в Firestore могут быть легаси-
+// документы со статусом "deleted" от прежних мягких удалений.
 export const DELETED_STATUS = "deleted";
 
 // Кто имеет право удалить тест: автор или администратор его организации.
@@ -43,9 +45,9 @@ export function canDeleteTest(test, session = {}) {
   };
 }
 
-// План очистки связанных документов: какие активные задания закрыть,
+// План очистки связанных документов: какие активные задания удалить,
 // какие открытые Live-комнаты закрыть (и какие закрыть не удастся).
-// Правила Firestore: закрыть задание может его преподаватель или админ
+// Правила Firestore: удалить задание может его преподаватель или админ
 // организации; закрыть комнату — только её ведущий.
 export function deletionPlan({ test, session = {}, assignments = [], rooms = [] }) {
   const uid = session?.uid || "";
@@ -56,10 +58,10 @@ export function deletionPlan({ test, session = {}, assignments = [], rooms = [] 
     r && r.testId === test.id && r.status !== "closed");
 
   return {
-    closeAssignmentIds: openAssignments
+    deleteAssignmentIds: openAssignments
       .filter(a => isAdmin || a.teacherId === uid)
       .map(a => a.id),
-    // Задания другого преподавателя: без прав админа закрыть нельзя.
+    // Задание другого преподавателя: без прав админа удалить нельзя.
     foreignAssignmentIds: openAssignments
       .filter(a => !isAdmin && a.teacherId !== uid)
       .map(a => a.id),
@@ -71,13 +73,6 @@ export function deletionPlan({ test, session = {}, assignments = [], rooms = [] 
       .filter(r => r.hostId !== uid)
       .map(r => ({ code: r.code || r.id, hostName: r.hostName || "" }))
   };
-}
-
-// Настройки теста после удаления: доступ студента к ключам по настройке
-// showCorrectAfterQuestion закрывается (настройка и так требует активной
-// попытки, но при удалении теста не оставляем даже теоретический доступ).
-export function sanitizedSettingsAfterDelete(settings) {
-  return { ...(settings && typeof settings === "object" ? settings : {}), showCorrectAfterQuestion: false };
 }
 
 // Понятное объяснение ошибки удаления для тоста: не скрываем причину.

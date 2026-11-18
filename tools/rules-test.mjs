@@ -1175,8 +1175,8 @@ function subjectCases() {
             functionMocks: profileMocks("teacher1", "teacher")
         },
         {
-            name: "Темы: физическое удаление запрещено даже администратору",
-            expectation: "DENY",
+            name: "Темы: администратор организации удаляет тему",
+            expectation: "ALLOW",
             request: {
                 auth: { uid: "admin1" },
                 path: `${DB}/topics/t1`,
@@ -1190,6 +1190,7 @@ function subjectCases() {
 
 function testCases() {
     return [
+        ...learningDeleteCases(),
         {
             name: "Студент читает свой профиль",
             expectation: "ALLOW",
@@ -4468,6 +4469,176 @@ function duelCases() {
     ];
 }
 
+// ---------- физическое удаление учебных объектов ----------
+// Новые правила: тесты и ключи удаляет автор/админ организации,
+// версии — вместе с тестом, темы и предметы — сотрудник организации.
+// Студентам и гостям удаление по-прежнему запрещено.
+function learningDeleteCases() {
+    return [
+        {
+            name: "Удаление: автор удаляет свой тест",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/tests/t1`,
+                method: "delete"
+            },
+            resource: { data: testDoc() },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Удаление: чужой преподаватель не удаляет тест",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/tests/t-other`,
+                method: "delete"
+            },
+            resource: { data: testDoc({ authorId: "teacher2" }) },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Удаление: админ организации удаляет тест автора",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "admin1" },
+                path: `${DB}/tests/t1`,
+                method: "delete"
+            },
+            resource: { data: testDoc() },
+            functionMocks: profileMocks("admin1", "admin")
+        },
+        {
+            name: "Удаление: студент не удаляет тест",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/tests/t1`,
+                method: "delete"
+            },
+            resource: { data: testDoc() },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Удаление: сотрудник организации удаляет ключи теста",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/testKeys/t1`,
+                method: "delete"
+            },
+            resource: {
+                data: { orgId: ORG, authorId: "teacher1", items: { q1: "A" } }
+            },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Удаление: студент не удаляет ключи теста",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/testKeys/t1`,
+                method: "delete"
+            },
+            resource: {
+                data: { orgId: ORG, authorId: "teacher1", items: { q1: "A" } }
+            },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Удаление: публикатор удаляет версию теста",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/tests/t1/versions/1`,
+                method: "delete"
+            },
+            resource: { data: { orgId: ORG, authorId: "teacher1", status: "published" } },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: { data: testDoc() } }
+                }
+            ]
+        },
+        {
+            name: "Удаление: чужой сотрудник не удаляет версию теста",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher2" },
+                path: `${DB}/tests/t1/versions/1`,
+                method: "delete"
+            },
+            resource: { data: { orgId: ORG, authorId: "teacher1", status: "published" } },
+            functionMocks: [
+                ...profileMocks("teacher2", "teacher"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: { data: testDoc() } }
+                }
+            ]
+        },
+        {
+            name: "Удаление: преподаватель удаляет тему своей организации",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/topics/t1`,
+                method: "delete"
+            },
+            resource: { data: topicDoc() },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Удаление: преподаватель не удаляет тему чужой организации",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/topics/t-other`,
+                method: "delete"
+            },
+            resource: { data: topicDoc({ orgId: "other-org" }) },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Удаление: студент не удаляет тему",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/topics/t1`,
+                method: "delete"
+            },
+            resource: { data: topicDoc() },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Удаление: преподаватель удаляет предмет своей организации",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/subjects/s1`,
+                method: "delete"
+            },
+            resource: { data: subjectDoc() },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Удаление: студент не удаляет предмет",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/subjects/s1`,
+                method: "delete"
+            },
+            resource: { data: subjectDoc() },
+            functionMocks: profileMocks("student1", "student")
+        }
+    ];
+}
+
 async function main() {
     const rules = readFileSync(
         join(ROOT, "firestore.rules"),
@@ -4519,45 +4690,60 @@ async function main() {
         }
     };
 
-    const response = await fetch(
-        `https://firebaserules.googleapis.com/v1/projects/${project}:test`,
-        {
-            method: "POST",
-            headers: {
-                authorization: `Bearer ${token}`,
-                "content-type": "application/json"
-            },
-            body: JSON.stringify(body)
-        }
-    );
-
-    const json = await response.json();
-
-    if (!response.ok) {
-        console.error(
-            "Rules API:",
-            response.status,
-            JSON.stringify(json, null, 2)
-        );
-        process.exitCode = 1;
-        return;
+    // Rules API принимает не более 250 кейсов на запрос: большой набор
+    // отправляется партиями, результаты агрегируются.
+    const CHUNK = 200;
+    const chunks = [];
+    for (let i = 0; i < testSuite.length; i += CHUNK) {
+        chunks.push({
+            ...body,
+            testSuite: { testCases: testSuite.slice(i, i + CHUNK) }
+        });
     }
 
-    if (json.issues?.length) {
-        for (const issue of json.issues) {
-            console.error(
-                `Проблема правил [${issue.severity || "UNKNOWN"}]:`,
-                issue.description || JSON.stringify(issue)
-            );
-        }
+    let results = [];
+    for (const chunk of chunks) {
+        const response = await fetch(
+            `https://firebaserules.googleapis.com/v1/projects/${project}:test`,
+            {
+                method: "POST",
+                headers: {
+                    authorization: `Bearer ${token}`,
+                    "content-type": "application/json"
+                },
+                body: JSON.stringify(chunk)
+            }
+        );
 
-        if (json.issues.some((issue) => issue.severity === "ERROR")) {
+        const json = await response.json();
+
+        if (!response.ok) {
+            console.error(
+                "Rules API:",
+                response.status,
+                JSON.stringify(json, null, 2)
+            );
             process.exitCode = 1;
             return;
         }
+
+        if (json.issues?.length) {
+            for (const issue of json.issues) {
+                console.error(
+                    `Проблема правил [${issue.severity || "UNKNOWN"}]:`,
+                    issue.description || JSON.stringify(issue)
+                );
+            }
+
+            if (json.issues.some((issue) => issue.severity === "ERROR")) {
+                process.exitCode = 1;
+                return;
+            }
+        }
+
+        results = results.concat(json.testResults || []);
     }
 
-    const results = json.testResults || [];
     let failed = 0;
 
     console.log(`Проект: ${project}`);

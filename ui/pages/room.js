@@ -25,7 +25,7 @@ import {
   questionTimeMs, answeredCount, myAnswerVerdict, buildJoinUrl, computeScores,
   streakFromReveals, verdictsFromTrail, streakTier, streakEvent, scoreBreakdown,
   speedRatio, formatBreakdown, normalizePlayerTimes,
-  roomRenderSignature, roomCrowdSignature
+  roomRenderSignature, roomCrowdSignature, roomMaterialTargets
 } from "../../core/rooms-logic.js";
 import {
   CONN, ROLE_OBSERVER, ROLE_PLAYER, RATING_STATUS_LABEL,
@@ -37,7 +37,8 @@ import {
 } from "../../core/live-auto.js";
 import { router, leaveWithHash } from "../../shared/app.js";
 import {
-  db, doc, getDoc, onSnapshot, collection, updateDoc, serverTimestamp
+  db, doc, getDoc, onSnapshot, collection, updateDoc, serverTimestamp,
+  getDocs, query, where
 } from "../../shared/firebase.js";
 import { loadPublicProfiles } from "../../core/profile.js";
 import { avatarChip as avatarChipEl } from "../components/avatar.js";
@@ -188,6 +189,7 @@ function reset() {
     room: null, players: [], scores: [], reveals: {}, reactions: [],
     profiles: new Map(), test: null, keys: null, keysReady: false,
     hasMaterial: false,    // у теста есть учебный материал (кнопка «Прочитать»)
+    topicMaterials: [],    // опубликованные материалы темы теста (лобби)
     receivedMs: 0, code: "", playersLoaded: false,
     profilesDone: new Set(), // uid, для которых профиль уже запрашивался
     // Независимые источники состояния подключения:
@@ -606,6 +608,24 @@ export default async function RoomPage() {
     local.test = testDoc;
     local.keys = keys;
     local.keysReady = true;
+    // Материалы темы лобби: опубликованные книги и PDF с topicId теста.
+    // Читают правила: студентам — только опубликованные и вне активной
+    // попытки; в лобби попытки ещё нет, гость исключён выше по hasMaterial.
+    local.topicMaterials = [];
+    if (testDoc?.topicId && !State.user?.isAnonymous) {
+      try {
+        const topicMatSnap = await getDocs(query(
+          collection(db, "materials"),
+          where("topicId", "==", testDoc.topicId)
+        ));
+        // Книги из редактора тестов поля status не имеют — это «опубликовано».
+        local.topicMaterials = topicMatSnap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter(m => (m.status ?? "published") === "published");
+      } catch (topicMatErr) {
+        console.error("Материалы темы лобби:", topicMatErr);
+      }
+    }
     // Предмет/тема для вкладки «Обзор»: только у ведущего (имена из
     // справочников организации), не блокирует отрисовку.
     if (testDoc) resolveFinalMeta(testDoc);
@@ -2499,16 +2519,36 @@ function playerView() {
 function materialButton() {
   const room = local.room;
   if (!room || room.phase === "opened") return null;
-  // Нет книги у теста или читать нельзя (гость): кнопку не показываем.
-  if (!local.hasMaterial || State.user?.isAnonymous) return null;
+  // Гостю правила материал не отдают: кнопку не показываем.
+  if (State.user?.isAnonymous) return null;
+  // Кандидаты: материал теста + опубликованные материалы его темы.
+  // Ни одного — кнопки нет; один — прежняя кнопка; несколько — список.
+  const targets = roomMaterialTargets({
+    hasMaterial: local.hasMaterial,
+    testId: room.testId || "",
+    topicMaterials: local.topicMaterials || []
+  });
+  if (!targets.length) return null;
   // Добровольное чтение (#material/<id>/free/<код>): выйти можно в любой
-  // момент, «К тесту» возвращает обратно в эту комнату.
-  const href = `#material/${encodeURIComponent(room.testId || "")}/free/${encodeURIComponent(room.code || local.code || "")}`;
+  // момент, «К тесту» возвращает обратно в эту комнату — контекст лобби
+  // сохраняется независимо от того, какой материал выбран.
+  const href = id => `#material/${encodeURIComponent(id)}/free/${encodeURIComponent(room.code || local.code || "")}`;
+  if (targets.length === 1) {
+    return h("div", { class: "panel room-material-cta" },
+      h("div", { class: "room-material-cta-text" },
+        h("b", {}, lt("room.waitRead")),
+        h("span", { class: "muted" }, "Откроется читалка, из неё можно вернуться в комнату.")),
+      h("a", { class: "btn primary", href: href(targets[0].id) }, lt("room.readMaterial")));
+  }
   return h("div", { class: "panel room-material-cta" },
     h("div", { class: "room-material-cta-text" },
       h("b", {}, lt("room.waitRead")),
-      h("span", { class: "muted" }, "Откроется читалка, из неё можно вернуться в комнату.")),
-    h("a", { class: "btn primary", href }, lt("room.readMaterial")));
+      h("span", { class: "muted" }, "Материалы темы: выберите книгу или PDF. Из читалки можно вернуться в комнату.")),
+    h("div", { class: "btn-col" },
+      targets.map(t => h("a", {
+        class: "btn secondary",
+        href: href(t.id)
+      }, t.main ? lt("room.readMaterial") : (t.title || "Материал")))));
 }
 
 function waitPanel(text) {

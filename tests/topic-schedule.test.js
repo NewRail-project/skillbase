@@ -311,8 +311,12 @@ test("безопасность: студенческий запрос тем п�
   assert.ok(INDEXES.includes('"groupId"'), "индекс topics c groupId в firestore.indexes.json");
 });
 
-test("безопасность: физическое удаление тем запрещено правилами", () => {
+test("безопасность: физическое удаление тем — только сотруднику организации", () => {
   const rules = readFileSync(path.join(ROOT, "firestore.rules"), "utf8");
   const topicsBlock = rules.slice(rules.indexOf("match /topics/"), rules.indexOf("match /rooms/"));
-  assert.match(topicsBlock, /allow delete: if false/);
+  // Удаление темы осознанное действие сотрудника; клиент отсоединяет
+  // ссылки тестов и материалов (core/subjects.js), история сохраняется.
+  assert.match(topicsBlock, /allow delete: if isStaffOf\(resource\.data\.orgId\)/);
+  assert.ok(!/allow delete: if \(resource == null\)/.test(topicsBlock),
+    "удаление не открыто никому кроме сотрудника организации");
 });

@@ -6,6 +6,7 @@ import { h } from "../../shared/dom.js";
 import { isStaff } from "../../core/auth.js";
 import { lt } from "../../core/i18n.js";
 import { getSubjects, getTopics, createSubject, updateSubject } from "../../core/subjects.js";
+import { deleteSubjectFlow } from "../components/delete-flows.js";
 import { TITLE_MAX, DESCRIPTION_MAX, STATUS_ARCHIVED, STATUS_ACTIVE, activeTopics, disciplineProgress, shortDescription, nextScheduledTopic } from "../../core/subjects-logic.js";
 import { formatTopicDate, dateMs } from "../../core/schedule-logic.js";
 import { formDialog } from "../components/form-dialog.js";
@@ -133,7 +134,11 @@ export default async function DisciplineCatalogPage() {
       }, archived ? "Вернуть" : "В архив"),
       h("button", {
         type: "button", class: "btn secondary btn-sm", onclick: () => openEdit(subject)
-      }, "Изменить")
+      }, "Изменить"),
+      h("button", {
+        type: "button", class: "btn secondary btn-sm danger-text",
+        onclick: async () => { if (await deleteSubjectFlow(subject)) await load(); }
+      }, "Удалить")
     ];
   }
 

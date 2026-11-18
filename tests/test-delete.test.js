@@ -5,7 +5,6 @@ import {
   DELETED_STATUS,
   canDeleteTest,
   deletionPlan,
-  sanitizedSettingsAfterDelete,
   explainDeleteError
 } from "../core/test-delete-logic.js";
 
@@ -50,7 +49,7 @@ test("Автор из другой организации — отказ", () =>
   assert.equal(canDeleteTest(moved, author).allowed, false);
 });
 
-test("deletionPlan: закрывает свои активные задания", () => {
+test("deletionPlan: удаляет свои активные задания", () => {
   const plan = deletionPlan({
     test: ownTest,
     session: author,
@@ -62,12 +61,12 @@ test("deletionPlan: закрывает свои активные задания"
     ],
     rooms: []
   });
-  assert.deepEqual(plan.closeAssignmentIds, ["a1"]);
+  assert.deepEqual(plan.deleteAssignmentIds, ["a1"]);
   // Задание другого преподавателя попадает в отчёт, а не удаляется молча.
   assert.deepEqual(plan.foreignAssignmentIds, ["a2"]);
 });
 
-test("deletionPlan: администратор закрывает задания всей организации", () => {
+test("deletionPlan: администратор удаляет задания всей организации", () => {
   const plan = deletionPlan({
     test: ownTest,
     session: orgAdmin,
@@ -77,7 +76,7 @@ test("deletionPlan: администратор закрывает задания
     ],
     rooms: []
   });
-  assert.deepEqual(plan.closeAssignmentIds.sort(), ["a1", "a2"]);
+  assert.deepEqual(plan.deleteAssignmentIds.sort(), ["a1", "a2"]);
   assert.deepEqual(plan.foreignAssignmentIds, []);
 });
 
@@ -121,25 +120,10 @@ test("deletionPlan: повторное удаление ничего лишне�
       { code: "AB12", testId: "test-1", hostId: "t-author", status: "closed" }
     ]
   });
-  assert.deepEqual(plan.closeAssignmentIds, []);
+  assert.deepEqual(plan.deleteAssignmentIds, []);
   assert.deepEqual(plan.closeRoomCodes, []);
   assert.deepEqual(plan.foreignAssignmentIds, []);
   assert.deepEqual(plan.foreignRooms, []);
-});
-
-test("sanitizedSettingsAfterDelete: закрывает доступ к ключам, остальное сохраняет", () => {
-  const clean = sanitizedSettingsAfterDelete({
-    showCorrectAfterQuestion: true,
-    allowRetake: false,
-    timePerQuestion: 30
-  });
-  assert.equal(clean.showCorrectAfterQuestion, false);
-  assert.equal(clean.allowRetake, false);
-  assert.equal(clean.timePerQuestion, 30);
-});
-
-test("sanitizedSettingsAfterDelete: работает без настроек", () => {
-  assert.deepEqual(sanitizedSettingsAfterDelete(null), { showCorrectAfterQuestion: false });
 });
 
 test("explainDeleteError: понятные причины, без скрытия", () => {
