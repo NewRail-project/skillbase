@@ -231,6 +231,101 @@ function playerMock(uid, observer) {
     ];
 }
 
+// ---------- Моки Skillbase Battle ----------
+
+// Документ комнаты в battle-режиме: ведущий teacher1.
+function battleRoomDocData(overrides = {}) {
+    return {
+        key: "ABC123",
+        code: "ABC123",
+        orgId: ORG,
+        hostId: "teacher1",
+        status: "active",
+        mode: "battle",
+        ...overrides
+    };
+}
+
+// Моки комнаты r1 в battle-режиме.
+function battleRoomMocks(overrides = {}) {
+    return [
+        {
+            function: "get",
+            args: [{ exactValue: `${DB}/rooms/r1` }],
+            result: { value: { data: battleRoomDocData(overrides) } }
+        }
+    ];
+}
+
+// Документ battle: активный раунд 1 в фазе голосования.
+function battleDocData(overrides = {}) {
+    return {
+        key: "battle",
+        orgId: ORG,
+        hostId: "teacher1",
+        status: "active",
+        currentRound: { index: 1, status: "voting" },
+        ...overrides
+    };
+}
+
+// Моки документа rooms/r1/battle.
+function battleDocMocks(overrides = {}) {
+    return [
+        {
+            function: "get",
+            args: [{ exactValue: `${DB}/rooms/r1/battle` }],
+            result: { value: { data: battleDocData(overrides) } }
+        }
+    ];
+}
+
+// Документ участника с battle-полями (по умолчанию — игрок team1).
+function battlePlayerData(uid, overrides = {}) {
+    return {
+        uid,
+        playerId: uid,
+        name: "Player",
+        observer: false,
+        role: "player",
+        joinedAt: ISO,
+        teamId: "team1",
+        isCaptain: false,
+        isReserve: false,
+        ...overrides
+    };
+}
+
+// Моки игрока: exists + get для inRoomAnyRole/battlePlayerDoc.
+function battlePlayerMocks(uid, overrides = {}) {
+    const path = `${DB}/rooms/r1/players/${uid}`;
+    return [
+        { function: "exists", args: [{ exactValue: path }], result: { value: true } },
+        { function: "get", args: [{ exactValue: path }], result: { value: { data: battlePlayerData(uid, overrides) } } }
+    ];
+}
+
+// Моки «пользователь не в комнате»: оба exists ложны.
+function notInRoomMocks(uid) {
+    return [
+        { function: "exists", args: [{ exactValue: `${DB}/rooms/r1/players/${uid}` }], result: { value: false } },
+        { function: "exists", args: [{ exactValue: `${DB}/rooms/r1/observers/${uid}` }], result: { value: false } }
+    ];
+}
+
+// Документ голоса "{roundId}_{uid}".
+function battleVoteData(uid, overrides = {}) {
+    return {
+        voteId: `1_${uid}`,
+        uid,
+        roundId: 1,
+        teamId: "team1",
+        selected: [0],
+        at: ISO,
+        ...overrides
+    };
+}
+
 function testDoc(overrides = {}) {
     return {
         id: "t1",
@@ -1184,6 +1279,770 @@ function subjectCases() {
             },
             resource: { data: topicDoc() },
             functionMocks: profileMocks("admin1", "admin")
+        }
+    ];
+}
+
+// Кейсы правил Skillbase Battle: battle-документ, голоса, решения
+// капитанов, замены, события, battle-поля players, очки, ключи вопросов.
+function battleCases() {
+    const at = ISO;
+    return [
+        // ---------- rooms/r1/battle ----------
+        {
+            name: "Battle: ведущий создаёт battle-документ",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/rooms/r1/battle`,
+                method: "create",
+                resource: {
+                    data: { key: "battle", orgId: ORG, hostId: "teacher1", status: "active" }
+                }
+            },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                ...battleRoomMocks()
+            ]
+        },
+        {
+            name: "Battle: студент не создаёт battle-документ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/battle`,
+                method: "create",
+                resource: {
+                    data: { key: "battle", orgId: ORG, hostId: "student1", status: "active" }
+                }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...battleRoomMocks()
+            ]
+        },
+        {
+            name: "Battle: преподаватель не-ведущий не создаёт battle-документ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher2" },
+                path: `${DB}/rooms/r1/battle`,
+                method: "create",
+                resource: {
+                    data: { key: "battle", orgId: ORG, hostId: "teacher2", status: "active" }
+                }
+            },
+            functionMocks: [
+                ...profileMocks("teacher2", "teacher"),
+                ...battleRoomMocks()
+            ]
+        },
+        {
+            name: "Battle: ведущий обновляет battle-документ",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/rooms/r1/battle`,
+                method: "update",
+                requestResource: true
+            },
+            resource: { data: battleDocData() },
+            newDoc: battleDocData({ status: "finished" }),
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                ...battleRoomMocks()
+            ]
+        },
+        {
+            name: "Battle: участник не меняет battle-документ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/battle`,
+                method: "update",
+                requestResource: true
+            },
+            resource: { data: battleDocData() },
+            newDoc: battleDocData({ status: "finished" }),
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...battleRoomMocks()
+            ]
+        },
+        {
+            name: "Battle: пользователь чужой организации не читает battle-документ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/battle`,
+                method: "get"
+            },
+            resource: { data: battleDocData({ orgId: "other-org" }) },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...battleRoomMocks(),
+                ...notInRoomMocks("student1")
+            ]
+        },
+        {
+            name: "Battle: участник комнаты читает battle-документ",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/battle`,
+                method: "get"
+            },
+            resource: { data: battleDocData() },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...battleRoomMocks(),
+                ...battlePlayerMocks("student1")
+            ]
+        },
+        // ---------- rooms/r1/votes ----------
+        {
+            name: "Battle: участник голосует за свою команду",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/votes/1_student1`,
+                method: "create",
+                resource: { data: battleVoteData("student1") },
+                time: at
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...battleRoomMocks(),
+                ...battleDocMocks(),
+                ...battlePlayerMocks("student1")
+            ]
+        },
+        {
+            name: "Battle: голос за чужую команду — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/votes/1_student1`,
+                method: "create",
+                resource: { data: battleVoteData("student1", { teamId: "team2" }) },
+                time: at
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...battleRoomMocks(),
+                ...battleDocMocks(),
+                ...battlePlayerMocks("student1")
+            ]
+        },
+        {
+            name: "Battle: голос от имени другого пользователя — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/votes/1_student1`,
+                method: "create",
+                resource: { data: battleVoteData("student1", { uid: "student2" }) },
+                time: at
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...battleRoomMocks(),
+                ...battleDocMocks(),
+                ...battlePlayerMocks("student1")
+            ]
+        },
+        {
+            name: "Battle: голос после закрытия раунда — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/votes/1_student1`,
+                method: "create",
+                resource: { data: battleVoteData("student1") },
+                time: at
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...battleRoomMocks(),
+                ...battleDocMocks({ currentRound: { index: 1, status: "revealing" } }),
+                ...battlePlayerMocks("student1")
+            ]
+        },
+        {
+            name: "Battle: смена своего голоса пока голосование открыто — разрешено",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/votes/1_student1`,
+                method: "update",
+                requestResource: true,
+                time: at
+            },
+            resource: { data: battleVoteData("student1") },
+            newDoc: battleVoteData("student1", { selected: [1] }),
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...battleRoomMocks(),
+                ...battleDocMocks(),
+                ...battlePlayerMocks("student1")
+            ]
+        },
+        {
+            name: "Battle: смена голоса после закрытия раунда — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/votes/1_student1`,
+                method: "update",
+                requestResource: true,
+                time: at
+            },
+            resource: { data: battleVoteData("student1") },
+            newDoc: battleVoteData("student1", { selected: [1] }),
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...battleRoomMocks(),
+                ...battleDocMocks({ currentRound: { index: 1, status: "revealing" } }),
+                ...battlePlayerMocks("student1")
+            ]
+        },
+        {
+            name: "Battle: смена чужого голоса — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/votes/1_student2`,
+                method: "update",
+                requestResource: true,
+                time: at
+            },
+            resource: { data: battleVoteData("student2") },
+            newDoc: battleVoteData("student2", { selected: [1] }),
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...battleRoomMocks(),
+                ...battleDocMocks(),
+                ...battlePlayerMocks("student1")
+            ]
+        },
+        {
+            name: "Battle: смена голоса с переносом в другую команду — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/votes/1_student1`,
+                method: "update",
+                requestResource: true,
+                time: at
+            },
+            resource: { data: battleVoteData("student1") },
+            newDoc: battleVoteData("student1", { teamId: "team2" }),
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...battleRoomMocks(),
+                ...battleDocMocks(),
+                ...battlePlayerMocks("student1")
+            ]
+        },
+        {
+            name: "Battle: удаление голоса — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/votes/1_student1`,
+                method: "delete"
+            },
+            resource: { data: battleVoteData("student1") },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...battleRoomMocks(),
+                ...battleDocMocks(),
+                ...battlePlayerMocks("student1")
+            ]
+        },
+        {
+            name: "Battle: запасной не голосует",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/votes/1_student1`,
+                method: "create",
+                resource: { data: battleVoteData("student1") },
+                time: at
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...battleRoomMocks(),
+                ...battleDocMocks(),
+                ...battlePlayerMocks("student1", { isReserve: true })
+            ]
+        },
+        {
+            name: "Battle: наблюдатель не голосует",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/votes/1_student1`,
+                method: "create",
+                resource: { data: battleVoteData("student1") },
+                time: at
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...battleRoomMocks(),
+                ...battleDocMocks(),
+                ...battlePlayerMocks("student1", { observer: true, role: "observer" })
+            ]
+        },
+        {
+            name: "Battle: пользователь вне комнаты не голосует",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/votes/1_student1`,
+                method: "create",
+                resource: { data: battleVoteData("student1") },
+                time: at
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...battleRoomMocks(),
+                ...battleDocMocks(),
+                ...notInRoomMocks("student1")
+            ]
+        },
+        {
+            name: "Battle: капитан читает голос своей команды",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "captain1" },
+                path: `${DB}/rooms/r1/votes/1_student1`,
+                method: "get"
+            },
+            resource: { data: battleVoteData("student1") },
+            functionMocks: [
+                ...profileMocks("captain1", "student"),
+                ...battleRoomMocks(),
+                ...battlePlayerMocks("captain1", { isCaptain: true, teamId: "team1" })
+            ]
+        },
+        {
+            name: "Battle: капитан чужой команды не читает голос",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "captain2" },
+                path: `${DB}/rooms/r1/votes/1_student1`,
+                method: "get"
+            },
+            resource: { data: battleVoteData("student1") },
+            functionMocks: [
+                ...profileMocks("captain2", "student"),
+                ...battleRoomMocks(),
+                ...battlePlayerMocks("captain2", { isCaptain: true, teamId: "team2" })
+            ]
+        },
+        {
+            name: "Battle: обычный участник не читает чужой голос",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student2" },
+                path: `${DB}/rooms/r1/votes/1_student1`,
+                method: "get"
+            },
+            resource: { data: battleVoteData("student1") },
+            functionMocks: [
+                ...profileMocks("student2", "student"),
+                ...battleRoomMocks(),
+                ...battlePlayerMocks("student2")
+            ]
+        },
+        // ---------- rooms/r1/captainDecisions ----------
+        {
+            name: "Battle: капитан создаёт решение в фазе ответа",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "captain1" },
+                path: `${DB}/rooms/r1/captainDecisions/1_captain1`,
+                method: "create",
+                resource: {
+                    data: {
+                        decisionId: "1_captain1",
+                        uid: "captain1",
+                        roundId: 1,
+                        teamId: "team1",
+                        decision: 0,
+                        at
+                    }
+                },
+                time: at
+            },
+            functionMocks: [
+                ...profileMocks("captain1", "student"),
+                ...battleRoomMocks(),
+                ...battleDocMocks({ currentRound: { index: 1, status: "answering" } }),
+                ...battlePlayerMocks("captain1", { isCaptain: true, teamId: "team1" })
+            ]
+        },
+        {
+            name: "Battle: не-капитан не создаёт решение",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/captainDecisions/1_student1`,
+                method: "create",
+                resource: {
+                    data: {
+                        decisionId: "1_student1",
+                        uid: "student1",
+                        roundId: 1,
+                        teamId: "team1",
+                        decision: 0,
+                        at
+                    }
+                },
+                time: at
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...battleRoomMocks(),
+                ...battleDocMocks({ currentRound: { index: 1, status: "answering" } }),
+                ...battlePlayerMocks("student1")
+            ]
+        },
+        {
+            name: "Battle: капитан не пишет решение за чужую команду",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "captain2" },
+                path: `${DB}/rooms/r1/captainDecisions/1_captain2`,
+                method: "create",
+                resource: {
+                    data: {
+                        decisionId: "1_captain2",
+                        uid: "captain2",
+                        roundId: 1,
+                        teamId: "team1",
+                        decision: 0,
+                        at
+                    }
+                },
+                time: at
+            },
+            functionMocks: [
+                ...profileMocks("captain2", "student"),
+                ...battleRoomMocks(),
+                ...battleDocMocks({ currentRound: { index: 1, status: "answering" } }),
+                ...battlePlayerMocks("captain2", { isCaptain: true, teamId: "team2" })
+            ]
+        },
+        // ---------- rooms/r1/substitutions ----------
+        {
+            name: "Battle: ведущий делает замену",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/rooms/r1/substitutions/1_teacher1_x`,
+                method: "create",
+                resource: {
+                    data: {
+                        subId: "1_teacher1_x",
+                        roundId: 1,
+                        fromUid: "player1",
+                        toUid: "reserve1",
+                        teamId: "team1",
+                        by: "teacher1",
+                        reason: "strategy",
+                        at
+                    }
+                },
+                time: at
+            },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                ...battleRoomMocks(),
+                ...battleDocMocks(),
+                ...battlePlayerMocks("player1", { teamId: "team1", isReserve: false }),
+                ...battlePlayerMocks("reserve1", { teamId: "team1", isReserve: true })
+            ]
+        },
+        {
+            name: "Battle: капитан делает замену в своей команде",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "captain1" },
+                path: `${DB}/rooms/r1/substitutions/1_captain1_x`,
+                method: "create",
+                resource: {
+                    data: {
+                        subId: "1_captain1_x",
+                        roundId: 1,
+                        fromUid: "player1",
+                        toUid: "reserve1",
+                        teamId: "team1",
+                        by: "captain1",
+                        reason: "strategy",
+                        at
+                    }
+                },
+                time: at
+            },
+            functionMocks: [
+                ...profileMocks("captain1", "student"),
+                ...battleRoomMocks(),
+                ...battleDocMocks(),
+                ...battlePlayerMocks("captain1", { isCaptain: true, teamId: "team1" }),
+                ...battlePlayerMocks("player1", { teamId: "team1", isReserve: false }),
+                ...battlePlayerMocks("reserve1", { teamId: "team1", isReserve: true })
+            ]
+        },
+        {
+            name: "Battle: обычный участник не делает замену",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/substitutions/1_student1_x`,
+                method: "create",
+                resource: {
+                    data: {
+                        subId: "1_student1_x",
+                        roundId: 1,
+                        fromUid: "player1",
+                        toUid: "reserve1",
+                        teamId: "team1",
+                        by: "student1",
+                        reason: "strategy",
+                        at
+                    }
+                },
+                time: at
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...battleRoomMocks(),
+                ...battleDocMocks(),
+                ...battlePlayerMocks("student1"),
+                ...battlePlayerMocks("player1", { teamId: "team1", isReserve: false }),
+                ...battlePlayerMocks("reserve1", { teamId: "team1", isReserve: true })
+            ]
+        },
+        {
+            name: "Battle: замена от имени другого пользователя — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "captain1" },
+                path: `${DB}/rooms/r1/substitutions/1_captain1_x`,
+                method: "create",
+                resource: {
+                    data: {
+                        subId: "1_captain1_x",
+                        roundId: 1,
+                        fromUid: "player1",
+                        toUid: "reserve1",
+                        teamId: "team1",
+                        by: "student1",
+                        reason: "strategy",
+                        at
+                    }
+                },
+                time: at
+            },
+            functionMocks: [
+                ...profileMocks("captain1", "student"),
+                ...battleRoomMocks(),
+                ...battleDocMocks(),
+                ...battlePlayerMocks("captain1", { isCaptain: true, teamId: "team1" }),
+                ...battlePlayerMocks("player1", { teamId: "team1", isReserve: false }),
+                ...battlePlayerMocks("reserve1", { teamId: "team1", isReserve: true })
+            ]
+        },
+        {
+            name: "Battle: нельзя вывести запасного вместо активного игрока",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/rooms/r1/substitutions/1_teacher1_y`,
+                method: "create",
+                resource: {
+                    data: {
+                        subId: "1_teacher1_y",
+                        roundId: 1,
+                        fromUid: "reserve1",
+                        toUid: "reserve2",
+                        teamId: "team1",
+                        by: "teacher1",
+                        reason: "strategy",
+                        at
+                    }
+                },
+                time: at
+            },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                ...battleRoomMocks(),
+                ...battleDocMocks(),
+                ...battlePlayerMocks("reserve1", { teamId: "team1", isReserve: true }),
+                ...battlePlayerMocks("reserve2", { teamId: "team1", isReserve: true })
+            ]
+        },
+        {
+            name: "Battle: нельзя вывести активного игрока вместо запасного",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/rooms/r1/substitutions/1_teacher1_z`,
+                method: "create",
+                resource: {
+                    data: {
+                        subId: "1_teacher1_z",
+                        roundId: 1,
+                        fromUid: "player1",
+                        toUid: "player2",
+                        teamId: "team1",
+                        by: "teacher1",
+                        reason: "strategy",
+                        at
+                    }
+                },
+                time: at
+            },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                ...battleRoomMocks(),
+                ...battleDocMocks(),
+                ...battlePlayerMocks("player1", { teamId: "team1", isReserve: false }),
+                ...battlePlayerMocks("player2", { teamId: "team1", isReserve: false })
+            ]
+        },
+        // ---------- rooms/r1/events ----------
+        {
+            name: "Battle: ведущий пишет событие",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/rooms/r1/events/1_x`,
+                method: "create",
+                resource: {
+                    data: { eventId: "1_x", type: "round_start", roundId: 1, data: {}, at }
+                },
+                time: at
+            },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                ...battleRoomMocks()
+            ]
+        },
+        {
+            name: "Battle: участник не пишет событие",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/events/1_x`,
+                method: "create",
+                resource: {
+                    data: { eventId: "1_x", type: "round_start", roundId: 1, data: {}, at }
+                },
+                time: at
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...battleRoomMocks()
+            ]
+        },
+        // ---------- battle-поля players ----------
+        {
+            name: "Battle: ведущий пишет battle-поля участника",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/rooms/r1/players/student1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: {
+                data: battlePlayerData("student1", { teamId: null, isCaptain: false, isReserve: false })
+            },
+            newDoc: battlePlayerData("student1", { teamId: "team1", isCaptain: true, updatedAt: at }),
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                ...battleRoomMocks()
+            ]
+        },
+        {
+            name: "Battle: участник не пишет battle-поля себе",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/players/student1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: {
+                data: battlePlayerData("student1", { teamId: null, isCaptain: false, isReserve: false })
+            },
+            newDoc: battlePlayerData("student1", { teamId: "team1", isCaptain: true, updatedAt: at }),
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...battleRoomMocks()
+            ]
+        },
+        // ---------- очки ----------
+        {
+            name: "Battle: участник не меняет свой балл",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/rooms/r1/scores/student1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: { data: { uid: "student1", score: 10 } },
+            newDoc: { uid: "student1", score: 100, updatedAt: at },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                ...battleRoomMocks()
+            ]
+        },
+        {
+            name: "Battle: ведущий начисляет battle-балл",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/rooms/r1/scores/student1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: { data: { uid: "student1", score: 10 } },
+            newDoc: { uid: "student1", score: 85, updatedAt: at },
+            functionMocks: [
+                ...profileMocks("teacher1", "teacher"),
+                ...battleRoomMocks()
+            ]
+        },
+        // ---------- закрытые ключи вопросов ----------
+        {
+            name: "Battle: игрок без попытки не читает testKeys",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/testKeys/t1`,
+                method: "get"
+            },
+            resource: {
+                data: { orgId: ORG, authorId: "teacher1", items: { q1: "A" } }
+            },
+            functionMocks: [
+                ...profileMocks("student1", "student"),
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/tests/t1` }],
+                    result: { value: { data: { settings: { showCorrectAfterQuestion: true }, orgId: ORG, status: "published" } } }
+                },
+                {
+                    function: "get",
+                    args: [{ exactValue: `${DB}/activeAttempts/student1` }],
+                    result: { value: { data: { testId: "t2" } } }
+                }
+            ]
         }
     ];
 }
@@ -4066,7 +4925,8 @@ function testCases() {
         ...subjectCases(),
         ...liveAutoCases(),
         ...duelCases(),
-        ...roomHistoryCases()
+        ...roomHistoryCases(),
+        ...battleCases()
     ];
 }
 

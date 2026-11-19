@@ -47,7 +47,9 @@ const toPlain = (value) => {
 export function buildRoomHistorySnapshot({
   room = null, test = null, players = [], scores = [], duels = null,
   keysByPos = [], questions = [], positions = null,
-  grades = null, report = null, meta = { subject: "", topic: "" }
+  grades = null, report = null, meta = { subject: "", topic: "" },
+  // Готовый снимок битвы (core/battle-snapshot.js); у старых комнат его нет.
+  battle = null
 } = {}) {
   const code = room?.code || room?.id || "";
   const built = grades && report
@@ -115,7 +117,8 @@ export function buildRoomHistorySnapshot({
       earned: g.earned, max: g.max, answered: g.answered, total: g.total,
       correctCount: g.correctCount, breakdown: g.breakdown || []
     })),
-    journal: journalRows(built.grades)
+    journal: journalRows(built.grades),
+    ...(battle ? { battle } : {})
   };
 }
 

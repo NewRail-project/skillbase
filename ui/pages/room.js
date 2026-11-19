@@ -68,6 +68,8 @@ import {
   studentsPanel, recommendationsPanel
 } from "../components/live-report.js";
 import { getSubject, getTopic } from "../../core/subjects.js";
+import { buildBattlePrep } from "../../ui/components/battle-prep.js";
+import { updateTest } from "../../core/editor.js";
 
 let unsubs = [];
 let autoTimer = null;   // автозакрытие у ведущего (ручной режим)
@@ -3314,6 +3316,9 @@ function lobbyPanel(room, who) {
   const text = who === "observer"
     ? "Вы подключены как наблюдатель. Рейтинг и ход теста появятся после старта."
     : "Вы подключены. Тест начнётся, когда ведущий нажмёт «" + tr("room.start") + "» — вопросы пойдут сами.";
+  // Битва недоступна, если теста нет или режим не battle.
+  const test = local.test || {};
+  const isBattleMode = Boolean(test.settings && test.settings.battleMode);
   return h("div", { class: "panel" },
     h("div", { class: "empty-state" },
       h("div", { class: "empty-state-icon", innerHTML: icons.clock }),
@@ -3326,7 +3331,26 @@ function lobbyPanel(room, who) {
         : h("p", { class: "form-hint" }, local.errors.players
           ? "Список участников недоступен, но вы подключены."
           : "Загружаем список участников…"),
-      h("p", { class: "muted" }, settingsSummary(room))));
+      // Панель подготовки Командной битвы (показывается только хосту при battle-режиме).
+      isBattleMode && local.isHost && battlePrepPanel(room)));
+}
+
+// --- Битва: панель подготовки команд ------------------------------------------
+// Вся логика и разметка — ui/components/battle-prep.js (room.js только
+// поставляет данные Live: участников и итоговый рейтинг).
+
+function battlePrepPanel(room) {
+  const players = (local.players || [])
+    .filter((p) => !p.observer && p.role !== "observer" && p.isAdminPlayer !== true)
+    .map((p) => ({ uid: p.uid, displayName: p.displayName || p.name || p.uid }));
+  const ranking = ratingSource().map((row) => ({ uid: row.uid, score: row.score || 0 }));
+  return buildBattlePrep({
+    players,
+    ranking,
+    settings: (local.test?.settings || {}).battleSettings || {},
+    onToast: (message, kind) => toast(message, kind),
+    onStart: () => toast("Составы сформированы. Запуск игрового процесса подключается на следующем этапе.", "info")
+  });
 }
 
 function autoPlayerView() {

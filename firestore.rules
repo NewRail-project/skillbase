@@ -1132,6 +1132,19 @@ function isGuest() {
           && request.resource.data.joinedAt == resource.data.joinedAt
           && request.resource.data.observer == resource.data.observer;
 
+        // Ведущий battle-комнаты публикует battle-поля участников
+        // (команда, капитан, резерв, статистика). Состав меняет только
+        // ведущий: обычный участник эти поля не пишет — их нет в hasOnly
+        // правила update выше.
+        allow update: if isRoomHost()
+          && roomDoc().get("mode", "") == "battle"
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+            ["teamId", "isCaptain", "isReserve", "battleStats", "updatedAt"])
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.playerId == resource.data.playerId
+          && request.resource.data.joinedAt == resource.data.joinedAt
+          && request.resource.data.observer == resource.data.observer;
+
         // Ответ на текущий вопрос — отдельным документом
         // players/{uid}/answers/{qid}: создать можно только если он ещё
         // не существует (перезапись невозможна в принципе), только во
@@ -1278,6 +1291,218 @@ function isGuest() {
           allow update, delete: if false;
         }
       }
+
+      // ---------- Skillbase Battle: хранение данных командной битвы ----------
+      // Battle — режим Live-комнаты (rooms/{code}.mode == "battle").
+      // Данные живут в подколлекциях rooms/{code}/*: battle (один документ),
+      // votes, captainDecisions, substitutions, events. Правильные ответы
+      // НЕ хранятся в battle-документе: вопросы — из tests/{testId},
+      // ключи — из testKeys/{testId} (restricted), раскрытие — через
+      // rooms/{code}/reveals/{qid} (существующий механизм).
+      //
+      // Доступ:
+      //   battle          — читают все в комнате, пишет только ведущий
+      //   votes           — читает голосующий + капитан его команды + ведущий,
+      //                     пишет только голосующий для своей команды
+      //   captainDecisions— читает капитан + участники команды + ведущий,
+      //                     пишет только капитан своей команды
+      //   substitutions   — читают все в комнате, пишет капитан или ведущий
+      //   events          — читают все в комнате, пишет только ведущий
+      //
+      // Старые комнаты (без mode == "battle") не затрагиваются: правила
+      // battle-подколлекций проверяют mode комнаты и наличие battle-документа.
+
+      // Документ battle (rooms/{code}/battle).
+      function battleDoc() {
+        return get(/databases/$(database)/documents/rooms/$(roomId)/battle).data;
+      }
+
+      // Документ участника комнаты.
+      function battlePlayerDoc(uid) {
+        return get(
+          /databases/$(database)/documents/rooms/$(roomId)/players/$(uid)
+        ).data;
+      }
+
+      function isBattleRoom() {
+        return roomDoc().get("mode", "") == "battle";
+      }
+
+      function isCaptainOf(uid) {
+        return battlePlayerDoc(uid).get("isCaptain", false) == true;
+      }
+
+      function isBattleReserve(uid) {
+        return battlePlayerDoc(uid).get("isReserve", false) == true;
+      }
+
+      function battleTeamOf(uid) {
+        return battlePlayerDoc(uid).get("teamId", "");
+      }
+
+      function isBattleObserver(uid) {
+        return battlePlayerDoc(uid).get("observer", false) == true
+          || battlePlayerDoc(uid).get("role", "player") == "observer";
+      }
+
+      // Извлечение roundId из ID документа "{roundId}_{uid}".
+      function voteRoundId(voteId) {
+        return voteId.matches("^[0-9]+_.+$")
+          ? int(voteId.split("_")[0])
+          : -1;
+      }
+
+      match /battle {
+        // Чтение: все в комнате (host, players, observers).
+        allow read: if isRoomHost() || inRoomAnyRole();
+
+        // Запись: только ведущий, только в battle-режиме, только свой документ.
+        allow create: if isRoomHost()
+          && isBattleRoom()
+          && request.resource.data.key == "battle"
+          && request.resource.data.orgId == roomDoc().orgId
+          && request.resource.data.hostId == request.auth.uid;
+
+        allow update: if isRoomHost()
+          && isBattleRoom()
+          && resource.data.key == "battle"
+          && roomDoc().orgId == resource.data.orgId
+          && request.resource.data.orgId == resource.data.orgId
+          && request.resource.data.hostId == resource.data.hostId;
+
+        // Удаление: запрещено (история в roomHistory).
+        allow delete: if false;
+      }
+
+      match /votes/{voteId} {
+        // Чтение: голосующий (свой голос), капитан его команды, ведущий.
+        allow read: if isRoomHost()
+          || resource.data.get("uid", "") == request.auth.uid
+          || (inRoomAnyRole()
+            && isCaptainOf(request.auth.uid)
+            && battleTeamOf(request.auth.uid) == resource.data.get("teamId", ""));
+
+        // Запись: только голосующий, только для своей команды, только в
+        // фазе голосования текущего раунда. Один голос на раунд (ID):
+        // повторное создание — update, он запрещён ниже. Наблюдатель и
+        // запасной не голосуют.
+        allow create: if (hasProfile() || isGuest())
+          && inRoomAnyRole()
+          && voteId.matches("^[0-9]+_" + request.auth.uid + "$")
+          && request.resource.data.uid == request.auth.uid
+          && voteRoundId(voteId) >= 0
+          && isBattleRoom()
+          && !isBattleObserver(request.auth.uid)
+          && !isBattleReserve(request.auth.uid)
+          && battleTeamOf(request.auth.uid)
+            == request.resource.data.get("teamId", "")
+          && battleDoc().get("currentRound", {}).get("status", "") == "voting"
+          && battleDoc().get("currentRound", {}).get("index", -1)
+            == voteRoundId(voteId)
+          && request.resource.data.keys().hasOnly(
+            ["voteId", "uid", "roundId", "teamId", "selected", "at"])
+          && request.resource.data.at == request.time;
+
+        // Смена голоса (ТЗ §8.2): владелец голоса может обновить его,
+        // пока раунд в фазе голосования. Документ один на раунд и игрока
+        // (ID), поэтому дублей не возникает. Команда, раунд и автор
+        // неизменны; чужой голос и правка после закрытия запрещены.
+        allow update: if (hasProfile() || isGuest())
+          && inRoomAnyRole()
+          && resource.data.uid == request.auth.uid
+          && voteId.matches("^[0-9]+_" + request.auth.uid + "$")
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.teamId == resource.data.teamId
+          && request.resource.data.roundId == resource.data.roundId
+          && isBattleRoom()
+          && !isBattleObserver(request.auth.uid)
+          && !isBattleReserve(request.auth.uid)
+          && battleTeamOf(request.auth.uid)
+            == request.resource.data.get("teamId", "")
+          && battleDoc().get("currentRound", {}).get("status", "") == "voting"
+          && battleDoc().get("currentRound", {}).get("index", -1)
+            == voteRoundId(voteId)
+          && request.resource.data.keys().hasOnly(
+            ["voteId", "uid", "roundId", "teamId", "selected", "at"])
+          && request.resource.data.at == request.time;
+
+        // Удаление голоса запрещено.
+        allow delete: if false;
+      }
+
+      match /captainDecisions/{decisionId} {
+        // Чтение: капитан (свой), участники его команды, ведущий.
+        allow read: if isRoomHost()
+          || resource.data.get("uid", "") == request.auth.uid
+          || (inRoomAnyRole()
+            && battleTeamOf(request.auth.uid)
+              == battleTeamOf(resource.data.get("uid", "")));
+
+        // Запись: только капитан своей команды, только в фазе ответа.
+        allow create: if hasProfile()
+          && inRoomAnyRole()
+          && decisionId.matches("^[0-9]+_" + request.auth.uid + "$")
+          && request.resource.data.uid == request.auth.uid
+          && isCaptainOf(request.auth.uid)
+          && request.resource.data.get("teamId", "")
+            == battleTeamOf(request.auth.uid)
+          && voteRoundId(decisionId) >= 0
+          && isBattleRoom()
+          && battleDoc().get("currentRound", {}).get("status", "") == "answering"
+          && battleDoc().get("currentRound", {}).get("index", -1)
+            == voteRoundId(decisionId)
+          && request.resource.data.keys().hasOnly(
+            ["decisionId", "uid", "roundId", "teamId", "decision", "at"])
+          && request.resource.data.at == request.time;
+
+        // Обновление/удаление: запрещено.
+        allow update, delete: if false;
+      }
+
+      match /substitutions/{subId} {
+        // Чтение: все в комнате.
+        allow read: if isRoomHost() || inRoomAnyRole();
+
+        // Запись: ведущий (у него может не быть documents игрока) или
+        // капитан той же команды. Состав проверяется: заменяемый — активный
+        // игрок команды, замена — запасной.
+        allow create: if (hasProfile() || isGuest())
+          && (
+            isRoomHost()
+            || (inRoomAnyRole()
+              && isCaptainOf(request.auth.uid)
+              && battleTeamOf(request.auth.uid)
+                == request.resource.data.get("teamId", ""))
+          )
+          && request.resource.data.by == request.auth.uid
+          && isBattleRoom()
+          && battleDoc().get("status", "") == "active"
+          && battleTeamOf(request.resource.data.get("fromUid", ""))
+            == request.resource.data.get("teamId", "")
+          && !isBattleReserve(request.resource.data.get("fromUid", ""))
+          && isBattleReserve(request.resource.data.get("toUid", ""))
+          && request.resource.data.at == request.time
+          && request.resource.data.keys().hasOnly(
+            ["subId", "roundId", "fromUid", "toUid", "teamId", "by", "reason", "at"]);
+
+        // Обновление/удаление: запрещено.
+        allow update, delete: if false;
+      }
+
+      match /events/{eventId} {
+        // Чтение: все в комнате.
+        allow read: if isRoomHost() || inRoomAnyRole();
+
+        // Запись: только ведущий.
+        allow create: if isRoomHost()
+          && isBattleRoom()
+          && request.resource.data.at == request.time
+          && request.resource.data.keys().hasOnly(
+            ["eventId", "type", "roundId", "data", "at"]);
+
+        // Обновление/удаление: запрещено.
+        allow update, delete: if false;
+      }
     }
 
     // ---------- roomHistory ----------
@@ -1302,10 +1527,11 @@ function isGuest() {
         && request.resource.data.keys().hasOnly(
           ["key", "code", "orgId", "hostId", "hostName", "testId", "testTitle",
            "subjectName", "topicName", "createdAtMs", "finishedAtMs", "version",
-           "overview", "rating", "duels", "report", "studentsDetail", "journal", "savedAt"]);
+           "overview", "rating", "duels", "report", "studentsDetail", "journal", "savedAt", "battle"]);
 
       allow update, delete: if false;
     }
+
     // ---------- journalEntries ----------
     // Итоговые оценки по темам/предметам.
     match /journalEntries/{docId} {
