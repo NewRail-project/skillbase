@@ -624,11 +624,29 @@ export default async function CreateTestPage() {
       subjectSel.value = bound.subjectId;
       await paintTopics(bound.subjectId, bound.topicId);
     } catch (err) { console.error("Предметы для привязки теста:", err); }
+    // Привязанный материал обязан присутствовать в списке всегда — даже
+    // архивированный, пропавший из каталога или при ошибке загрузки.
+    // Иначе select остаётся пустым, и любое сохранение теста молча запишет
+    // materialId: null, снимая связь без действия пользователя.
+    let all = [];
+    const keepBound = (shown) => {
+      if (!bound.materialId || shown.some(m => m.id === bound.materialId)) return;
+      const known = all.find(m => m.id === bound.materialId);
+      materialSel.appendChild(h("option", { value: bound.materialId }, known
+        ? `${known.title || "Материал"}${known.status === "archived" ? " (архив)" : ""}`
+        : "Привязанный материал (нет в каталоге)"));
+    };
     try {
-      const mats = (await listMaterials()).filter(m => m.status !== "archived");
+      all = await listMaterials();
+      const mats = all.filter(m => m.status !== "archived");
       mats.forEach(m => materialSel.appendChild(h("option", { value: m.id }, m.title || "Материал")));
+      keepBound(mats);
       materialSel.value = bound.materialId;
-    } catch (err) { console.error("Материалы для привязки теста:", err); }
+    } catch (err) {
+      console.error("Материалы для привязки теста:", err);
+      keepBound([]);
+      materialSel.value = bound.materialId;
+    }
   })();
   subjectSel.addEventListener("change", () => paintTopics(subjectSel.value));
 

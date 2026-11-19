@@ -15,7 +15,7 @@
 // конфликтов: одновременных записей нет (флаг в полёте), после ошибки
 // локальный черновик сохраняется и предлагается к восстановлению.
 import { h } from "../../shared/dom.js";
-import { State } from "../../core/auth.js";
+import { State, isAdmin } from "../../core/auth.js";
 import { toast } from "../components/toast.js";
 import { confirmAction } from "../components/confirm.js";
 import {
@@ -25,7 +25,7 @@ import {
 import {
   validateMaterialMeta, normalizeStatus, draftKeyFor, serializeEditorDraft,
   parseEditorDraft, draftIsNewer, LEVEL_CHAPTER, LEVEL_SUB,
-  pdfChunkCount
+  pdfChunkCount, MATERIAL_STATUS_PUBLISHED
 } from "../../core/material-library-logic.js";
 import {
   loadLibraryMaterial, createLibraryMaterial, updateLibraryMaterial,
@@ -375,7 +375,11 @@ export default async function MaterialEditorPage() {
       state.subjectId = material.subjectId || "";
       state.topicId = material.topicId || "";
       state.order = material.order != null ? Number(material.order) : null;
-      state.status = normalizeStatus(material.status, "draft");
+      // Книги из редактора тестов и старые материалы поля status не имеют:
+      // isPublished() и правила для студентов считают их опубликованными.
+      // Редактор обязан показывать то же — иначе открытие и любое сохранение
+      // записывали бы status="draft", и студенты потеряли бы материал.
+      state.status = normalizeStatus(material.status ?? MATERIAL_STATUS_PUBLISHED);
       state.authorId = material.authorId || "";
       state.updatedAtMs = material.updatedAt?.toMillis?.() || 0;
       state.pdf = material.pdfName ? {
@@ -864,12 +868,13 @@ export default async function MaterialEditorPage() {
   } else {
     const ok = await loadExisting();
     if (!ok) return page;
-    // Правила разрешают изменять материал только автору; другие
-    // сотрудники могут читать и предпросматривать.
-    if (state.authorId && state.authorId !== State.user.uid) {
+    // Правила разрешают изменять материал его автору или администратору
+    // организации (та же модель, что у tests и удаления материалов);
+    // остальные сотрудники читают и предпросматривают.
+    if (state.authorId && state.authorId !== State.user.uid && !isAdmin()) {
       saveBtn.disabled = true;
       createBtn.style.display = "none";
-      paintSaveStatus("Материал другого автора — запись доступна только ему.", true);
+      paintSaveStatus("Материал другого автора — изменить его может автор или администратор организации.", true);
     }
     paintMeta();
     await loadTopics(state.subjectId, state.topicId);

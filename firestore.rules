@@ -373,24 +373,40 @@ service cloud.firestore {
           && !exists(/databases/$(database)/documents/activeAttempts/$(request.auth.uid))
         );
 
-      allow create, update: if isStaff()
-        && request.resource.data.orgId == myOrg()
-        && request.resource.data.authorId == request.auth.uid
-        && request.resource.data.pageCount is int
-        && request.resource.data.pageCount >= 1
-        // Карточка самостоятельного материала: статус, привязка к
-        // предмету/теме и порядок — типизированные поля, чужие значения
-        // в правила не проходят даже через клиент API.
-        && (!("status" in request.resource.data)
-          || request.resource.data.status in ["draft", "published", "archived"])
-        && (!("subjectId" in request.resource.data)
-          || request.resource.data.subjectId is string
-          || request.resource.data.subjectId == null)
-        && (!("topicId" in request.resource.data)
-          || request.resource.data.topicId is string
-          || request.resource.data.topicId == null)
-        && (!("order" in request.resource.data)
-          || request.resource.data.order is int);
+      // Общая часть записи карточки: сотрудник, своя организация,
+      // pageCount — целое ≥ 1. Типизированные поля карточки: чужие значения
+      // не проходят даже через клиент API.
+      function materialCardOk() {
+        return isStaff()
+          && request.resource.data.orgId == myOrg()
+          && request.resource.data.pageCount is int
+          && request.resource.data.pageCount >= 1
+          && (!("status" in request.resource.data)
+            || request.resource.data.status in ["draft", "published", "archived"])
+          && (!("subjectId" in request.resource.data)
+            || request.resource.data.subjectId is string
+            || request.resource.data.subjectId == null)
+          && (!("topicId" in request.resource.data)
+            || request.resource.data.topicId is string
+            || request.resource.data.topicId == null)
+          && (!("order" in request.resource.data)
+            || request.resource.data.order is int);
+      }
+
+      // Создание: сотрудник пишет материал под своим authorId — подставить
+      // чужого автора нельзя даже администратору.
+      allow create: if materialCardOk()
+        && request.resource.data.authorId == request.auth.uid;
+
+      // Изменение: автор или администратор организации — та же модель,
+      // что у tests и у удаления материалов (раньше администратор мог
+      // чужой материал удалить, но не отредактировать). Владение не
+      // меняется: authorId обязан остаться прежним, админ правит материал
+      // коллеги, но не переписывает его на себя.
+      allow update: if materialCardOk()
+        && (request.resource.data.authorId == request.auth.uid
+          || isAdminOf(myOrg()))
+        && request.resource.data.authorId == resource.data.authorId;
 
       allow delete: if isStaffOf(resource.data.orgId);
 

@@ -37,20 +37,32 @@ export class El {
     }
   }
   replaceChildren(...items) { this.children = []; this.append(...items); }
+  removeChild(child) {
+    const i = this.children.indexOf(child);
+    if (i >= 0) this.children.splice(i, 1);
+    child.parentNode = null;
+    return child;
+  }
   remove() { if (this.parentNode) this.parentNode.children = this.parentNode.children.filter(c => c !== this); this.parentNode = null; }
   addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
   dispatch(type, extra = {}) {
+    // Как в браузере: у disabled-элемента клик не доходит до обработчика.
+    if (type === "click" && this.disabled) return;
     const event = { type, target: this, preventDefault() {}, ...extra };
     // Как в браузере: и addEventListener, и свойство onchange/onclick/...
     if (typeof this["on" + type] === "function") this["on" + type](event);
     for (const fn of this.listeners[type] || []) fn(event);
   }
   click() { this.dispatch("click"); }
-  // Простые селекторы: "tag" и ".class" — достаточно страницам проекта.
+  focus() { if (typeof document !== "undefined") document.activeElement = this; }
+  querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+  // Простые селекторы: "tag", ".class" и "#id" — достаточно страницам проекта.
   matches(selector) {
-    return selector.startsWith(".")
-      ? this.className.split(/\s+/).includes(selector.slice(1))
-      : this.tag === selector;
+    if (selector.startsWith(".")) {
+      return this.className.split(/\s+/).includes(selector.slice(1));
+    }
+    if (selector.startsWith("#")) return this.attrs.id === selector.slice(1);
+    return this.tag === selector;
   }
   closest(selector) {
     for (let el = this; el; el = el.parentNode) if (el.nodeType === 1 && el.matches(selector)) return el;
@@ -78,11 +90,17 @@ export class El {
 }
 
 export function installFakeDom() {
-  globalThis.document = {
+  const doc = {
     createElement: tag => new El(tag),
     createElementNS: (_ns, tag) => new El(tag),
-    createTextNode: text => new TextNode(text)
+    createTextNode: text => new TextNode(text),
+    // Модальные окна вешают снятие обработчика на document — в Node это no-op.
+    addEventListener() {},
+    removeEventListener() {},
+    activeElement: null
   };
+  doc.body = new El("body");
+  globalThis.document = doc;
 }
 
 // ---------- Помощники запросов к дереву ----------

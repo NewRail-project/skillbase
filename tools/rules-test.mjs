@@ -4385,6 +4385,7 @@ function testCases() {
                     data: { orgId: ORG, authorId: "teacher1", pageCount: 1, subjectId: null, topicId: null, order: 0 }
                 }
             },
+            existingDoc: { orgId: ORG, authorId: "teacher1", pageCount: 1, subjectId: "s1", topicId: "t1", order: 3 },
             functionMocks: profileMocks("teacher1", "teacher")
         },
         {
@@ -4424,7 +4425,57 @@ function testCases() {
                     data: { orgId: ORG, authorId: "teacher1", pageCount: 1, status: "published" }
                 }
             },
+            existingDoc: { orgId: ORG, authorId: "teacher1", pageCount: 1, status: "draft" },
             functionMocks: profileMocks("teacher2", "teacher")
+        },
+        {
+            name: "Материалы: администратор организации изменяет чужой материал",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "admin1" },
+                path: `${DB}/materials/m-1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: { orgId: ORG, authorId: "teacher1", pageCount: 1, status: "draft" },
+            newDoc: {
+                orgId: ORG, authorId: "teacher1", pageCount: 1,
+                status: "published", subjectId: null, topicId: null, order: 0,
+                updatedAt: ISO
+            },
+            functionMocks: profileMocks("admin1", "admin")
+        },
+        {
+            name: "Материалы: администратор не переписывает authorId чужого материала",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "admin1" },
+                path: `${DB}/materials/m-1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: { orgId: ORG, authorId: "teacher1", pageCount: 1, status: "published" },
+            newDoc: {
+                orgId: ORG, authorId: "admin1", pageCount: 1,
+                status: "published", updatedAt: ISO
+            },
+            functionMocks: profileMocks("admin1", "admin")
+        },
+        {
+            name: "Материалы: администратор другой организации не изменяет материал",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "admin2" },
+                path: `${DB}/materials/m-1`,
+                method: "update",
+                requestResource: true
+            },
+            existingDoc: { orgId: ORG, authorId: "teacher1", pageCount: 1, status: "published" },
+            newDoc: {
+                orgId: ORG, authorId: "teacher1", pageCount: 1,
+                status: "archived", updatedAt: ISO
+            },
+            functionMocks: profileMocks("admin2", "admin", "other-org")
         },
         // ---------- Этап 3: PDF-вложения (materials/{id}/files/{n}) ----------
         {

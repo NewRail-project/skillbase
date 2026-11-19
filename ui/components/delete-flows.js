@@ -8,7 +8,7 @@
 // вместе со страницами и PDF. Темы и дисциплины удаляются каскадно
 // с отсоединением ссылок тестов и материалов (план — subjects-logic).
 import { State } from "../../core/auth.js";
-import { listMyTests, deleteTest } from "../../core/editor.js";
+import { listMyTests, listPublishedTests, deleteTest } from "../../core/editor.js";
 import { canDeleteTest, deletionPlan, explainDeleteError } from "../../core/test-delete-logic.js";
 import { closeAbandonedRooms } from "../../core/rooms.js";
 import { listAssignments } from "../../core/assign.js";
@@ -74,9 +74,20 @@ export async function deleteMaterialFlow(material) {
   if (!can.allowed) { toast(can.reason, "error"); return false; }
 
   // Привязанные тесты: без материала их обязательное чтение не завершить.
+  // listMyTests для преподавателя отдаёт только его собственные тесты (так
+  // требуют правила Firestore), поэтому дополнительно читаем опубликованные
+  // тесты организации — их участникам читать разрешено, и чужой тест с
+  // обязательным материалом тоже должен удерживать удаление. Администратору
+  // listMyTests и так отдаёт всю организацию.
   let tests = [];
   try {
-    tests = await listMyTests(State.user.uid, State.profile.orgId, State.profile.role);
+    const orgId = State.profile.orgId;
+    tests = await listMyTests(State.user.uid, orgId, State.profile.role);
+    if (State.profile.role !== "admin") {
+      const known = new Set(tests.map(t => t.id));
+      const published = await listPublishedTests(orgId);
+      tests = [...tests, ...published.filter(t => !known.has(t.id))];
+    }
   } catch (_) {
     toast("Не удалось проверить, привязан ли материал к тестам. Попробуйте ещё раз.", "error");
     return false;

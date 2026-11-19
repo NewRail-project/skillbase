@@ -1,0 +1,47 @@
+// Заглушка shared/firebase.js: боевой модуль тянет SDK по https-импортам,
+// в Node он не подключается. Экспортируется только то, что просят страницы;
+// значения-заглушки намеренно падают при вызове — страница обязана работать
+// через слои-заглушки (core/*), а не через прямой запрос из UI.
+function unavailable(name) {
+  return () => { throw new Error(`shared/firebase.js: ${name} недоступен в тесте`); };
+}
+
+export const db = { __test: true };
+export const getDocs = unavailable("getDocs");
+export const getDoc = unavailable("getDoc");
+export const setDoc = unavailable("setDoc");
+export const updateDoc = unavailable("updateDoc");
+export const addDoc = unavailable("addDoc");
+export const deleteDoc = unavailable("deleteDoc");
+export const onSnapshot = unavailable("onSnapshot");
+export const runTransaction = unavailable("runTransaction");
+export const writeBatch = unavailable("writeBatch");
+export const getCountFromServer = unavailable("getCountFromServer");
+export const query = (...args) => args;
+export const collection = (...args) => args;
+export const where = (...args) => ({ __where: args });
+export const orderBy = (...args) => ({ __orderBy: args });
+export const limit = (...args) => ({ __limit: args });
+export const doc = (...args) => args;
+export const serverTimestamp = () => null;
+export const Timestamp = { now: () => 0 };
+export const increment = v => v;
+export const arrayUnion = (...v) => v;
+export const arrayRemove = (...v) => v;
+export const documentId = () => "__name__";
+export const getAuth = () => ({ currentUser: null });
+export const onAuthStateChanged = () => () => {};
+export const signOut = unavailable("signOut");
+export const signInWithEmailAndPassword = unavailable("signInWithEmailAndPassword");
+export const createUserWithEmailAndPassword = unavailable("createUserWithEmailAndPassword");
+export const signInAnonymously = unavailable("signInAnonymously");
+export const GoogleAuthProvider = class {};
+export const signInWithPopup = unavailable("signInWithPopup");
+export const signInWithRedirect = unavailable("signInWithRedirect");
+export const getRedirectResult = unavailable("getRedirectResult");
+export const linkWithCredential = unavailable("linkWithCredential");
+export const fetchSignInMethodsForEmail = unavailable("fetchSignInMethodsForEmail");
+export const sendPasswordResetEmail = unavailable("sendPasswordResetEmail");
+export const initializeApp = () => ({});
+export const getFirestore = () => db;
+export const initializeFirestore = () => db;

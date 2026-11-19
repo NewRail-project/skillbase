@@ -6,7 +6,12 @@ const STUBS = {
   "/core/attempts.js": "attempts.js",
   "/core/subjects.js": "subjects.js",
   "/core/admins.js": "admins.js",
-  "/core/assign.js": "assign.js"
+  "/core/assign.js": "assign.js",
+  "/core/material-library.js": "material-library.js",
+  "/core/materials.js": "materials.js",
+  "/core/editor.js": "editor.js",
+  "/core/rooms.js": "rooms.js",
+  "/shared/firebase.js": "firebase.js"
 };
 
 export async function resolve(specifier, context, nextResolve) {
