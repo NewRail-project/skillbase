@@ -69,6 +69,9 @@ import {
 } from "../components/live-report.js";
 import { getSubject, getTopic } from "../../core/subjects.js";
 import { buildBattlePrep } from "../../ui/components/battle-prep.js";
+import { launchBattle, getBattle } from "../../core/battle.js";
+import { buildLaunchPlan, toBattleQuestions } from "../../core/battle-launch.js";
+import { getAttemptKeys } from "../../core/attempts.js";
 import { updateTest } from "../../core/editor.js";
 
 let unsubs = [];
@@ -3349,7 +3352,7 @@ function battlePrepPanel(room) {
     ranking,
     settings: (local.test?.settings || {}).battleSettings || {},
     onToast: (message, kind) => toast(message, kind),
-    onStart: () => toast("Составы сформированы. Запуск игрового процесса подключается на следующем этапе.", "info")
+    onStart: ({ settings, roster }) => startBattleFromPrep(room, settings, roster)
   });
 }
 
@@ -3662,6 +3665,56 @@ function autoObserverView() {
 
 // ---------- Роутер вида ----------
 
+// Запуск из панели подготовки: ключи теста → вопросы битвы → план → батч Firestore.
+async function startBattleFromPrep(room, settings, roster) {
+  const test = local.test;
+  const code = room.code || room.id;
+  if (!test) return toast("Тест не загружен.", "error");
+  try {
+    const keys = normalizeKeys(await getAttemptKeys(test.id));
+    const built = toBattleQuestions({
+      questions: test.questions || [],
+      keys,
+      count: settings.questionCount,
+      order: settings.questionOrder
+    });
+    if (built.errors.length) return toast(built.errors[0], "error");
+    const { plan, errors } = buildLaunchPlan({
+      roster, questions: built.questions, settings,
+      hostId: State.user?.uid, testId: test.id, orgId: room.orgId
+    });
+    if (errors) return toast(errors[0], "error");
+    await launchBattle(code, plan);
+    toast("Битва запущена.", "success");
+    location.hash = `#room/${code}/battle`;
+  } catch (err) {
+    toast(err?.message || "Не удалось запустить битву.", "error");
+  }
+}
+
+// Ведущий экран битвы: читает документ битвы из Firestore (без подписки и без ключей).
+function battleHostView() {
+  const code = local.room?.code || local.room?.id;
+  const box = h("div", { class: "room-view" },
+    h("div", { class: "panel" }, h("h2", {}, "Командная битва"), h("p", { class: "muted" }, "Загрузка…")));
+  getBattle(code).then((b) => box.replaceChildren(battleStatusPanel(b))).catch((err) =>
+    box.replaceChildren(h("div", { class: "panel" }, h("p", {}, err?.message || "Не удалось загрузить битву."))));
+  return box;
+}
+
+function battleStatusPanel(b) {
+  if (!b) return h("div", { class: "panel" }, h("p", {}, "Битва ещё не запущена."));
+  const nameOf = (uid) => (local.players || []).find((p) => p.uid === uid)?.displayName || uid;
+  return h("div", { class: "panel battle-status" },
+    h("h2", {}, "Командная битва"),
+    h("p", {}, `Фаза: ${b.phase}`),
+    h("p", {}, `Капитан A: ${nameOf(b.captains?.a)} · Капитан B: ${nameOf(b.captains?.b)}`),
+    h("p", {}, `Команда A: ${b.teams?.a?.length || 0} · Команда B: ${b.teams?.b?.length || 0} · Резерв: ${b.reserve?.length || 0}`),
+    h("p", {}, `Вопросов: ${b.questions?.length || 0} · Счёт: A ${b.scores?.a ?? 0} — B ${b.scores?.b ?? 0}`),
+    h("p", { class: "muted" }, "Голосование, таймер, замены и проектор — следующий этап."),
+    h("div", { class: "btn-row" }, h("button", { type: "button", class: "btn secondary", onclick: () => router() }, "Обновить")));
+}
+
 function buildView() {
   // Проектор рисуется всё тем же buildView: разбор через локальную метку.
   const rawRoute = decodeURIComponent((State.routeParam || ""));
@@ -3671,6 +3724,7 @@ function buildView() {
   if (local.removed) return removedPanel();
   const current = role();
   if (!current || state === CONN.CONNECTING) return connectingPanel();
+  if (rawRoute.split("/")[1] === "battle" && current === "host") return battleHostView();
   const auto = isAutoRoom(local.room);
   if (current === "host") return auto ? autoHostView() : hostView();
   if (current === "observer") return auto ? autoObserverView() : observerView();

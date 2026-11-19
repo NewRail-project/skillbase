@@ -6,6 +6,7 @@
 //   rooms/{code}/captainDecisions/{round}_{uid} — решение капитана
 //   rooms/{code}/substitutions/{round}_{ts}     — замена игрока
 //   rooms/{code}/events/{ts}_{type}  — лог событий битвы
+//   rooms/{code}/battleKeys/{qid}    — правильные варианты (только ведущий)
 //   rooms/{code}/players/{uid}       — расширение: teamId, isCaptain,
 //                                      isReserve, battleStats
 //   rooms/{code}/scores/{uid}        — расширение: battle-оценка
@@ -15,15 +16,15 @@
 // tests/{testId}, ключи — из testKeys/{testId} (restricted access),
 // раскрытие — через rooms/{code}/reveals/{qid} (существующий механизм).
 //
-// Firestore Rules для battle-подколлекций спроектированы, но ещё не
-// добавлены в firestore.rules (см. docs/BATTLE-STORAGE.md §5).
-// Модуль работает только после добавления правил.
+// Правила для battle, votes, captainDecisions, substitutions, events и
+// battleKeys — в firestore.rules. Ключи вопросов — rooms/{code}/battleKeys
+// (только ведущий); публичный battle-документ ключей не содержит.
 //
 // Логика расчётов — core/battle-logic.js (чистая, без Firebase/DOM).
 
 import {
   db, doc, getDoc, getDocs, setDoc, updateDoc, onSnapshot, serverTimestamp,
-  collection, query, where, orderBy, limit
+  collection, query, where, orderBy, limit, writeBatch
 } from "../shared/firebase.js";
 import { normalizeRoomCode } from "./rooms-logic.js";
 import { State } from "./auth.js";
@@ -378,4 +379,48 @@ export function createBattleStore(code) {
     },
     logEvent: (event) => logBattleEvent(roomCode, { type: event.type, roundId: event.round ?? null, data: event })
   };
+}
+
+// ---------- Запуск битвы ----------
+// plan — результат buildLaunchPlan() (core/battle-launch.js).
+// Два шага, потому что правила читают режим комнаты из БД, а не из батча:
+//   1) rooms/{code}.mode = "battle" — отдельной записью;
+//   2) battle + battleKeys + поля игроков — одним батчем (атомарно).
+// Если шаг 2 не прошёл, комната уже в battle-режиме: повторный запуск
+// пропускает шаг 1 и дописывает данные (все записи идемпотентны).
+export async function launchBattle(code, plan) {
+  requireOnline("Нет подключения к интернету. Битва не запущена.");
+  const roomCode = validateCode(code);
+  if (!State.user?.uid) throw new Error("Нужно войти в аккаунт.");
+  if (!plan?.battle || !plan.keys || !plan.playerFields) throw new Error("План запуска не собран.");
+
+  const roomRef = doc(db, "rooms", roomCode);
+  const roomSnap = await getDoc(roomRef);
+  if (!roomSnap.exists()) throw new Error("Комната не найдена.");
+  const room = roomSnap.data();
+  if (room.hostId !== State.user.uid) throw new Error("Запускать битву может только ведущий комнаты.");
+
+  if (room.mode !== "battle") {
+    await updateDoc(roomRef, { mode: "battle", updatedAt: serverTimestamp() });
+  }
+
+  const batch = writeBatch(db);
+  batch.set(battleRef(roomCode), {
+    ...plan.battle,
+    key: "battle",
+    orgId: room.orgId,
+    hostId: State.user.uid,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  }, { merge: false });
+
+  for (const k of plan.keys) {
+    batch.set(doc(db, "rooms", roomCode, "battleKeys", k.id), { questionId: k.id, correct: [...k.correct] });
+  }
+
+  for (const [uid, fields] of Object.entries(plan.playerFields)) {
+    batch.update(playerRef(roomCode, uid), { ...fields, updatedAt: serverTimestamp() });
+  }
+
+  await batch.commit();
 }

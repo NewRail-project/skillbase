@@ -1390,6 +1390,12 @@ function isGuest() {
         allow delete: if false;
       }
 
+      // Правильные ответы битвы: читает и пишет только ведущий, и только в
+      // battle-комнате. Участники ключей не видят (раскрытие — после закрытия раунда).
+      match /battleKeys/{questionId} {
+        allow read, write: if isRoomHost() && isBattleRoom();
+      }
+
       match /votes/{voteId} {
         // Чтение: голосующий (свой голос), капитан его команды, ведущий.
         allow read: if isRoomHost()
