@@ -10,6 +10,7 @@
 import { State } from "../../core/auth.js";
 import { listMyTests, deleteTest } from "../../core/editor.js";
 import { canDeleteTest, deletionPlan, explainDeleteError } from "../../core/test-delete-logic.js";
+import { closeAbandonedRooms } from "../../core/rooms.js";
 import { listAssignments } from "../../core/assign.js";
 import { deleteLibraryMaterial } from "../../core/material-library.js";
 import { canDeleteMaterial, materialDeleteBlockers } from "../../core/material-library-logic.js";
@@ -36,6 +37,7 @@ export async function deleteTestFlow(test) {
   try { assignments = await listAssignments(State.profile.orgId); } catch (_) { /* без плана заданий */ }
   let rooms = [];
   try {
+    await closeAbandonedRooms().catch(() => 0); // брошенные комнаты не считаем активными
     const snap = await getDocs(query(collection(db, "rooms"),
       where("testId", "==", test.id), where("hostId", "==", State.user.uid)));
     rooms = snap.docs.map(d => ({ id: d.id, ...d.data() }));

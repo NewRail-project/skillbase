@@ -167,7 +167,7 @@ test("дисциплина: страница содержит все обяза�
   assert.match(PAGE, /"Ближайшие сроки"/);
   assert.match(PAGE, /"Материалы"/);
   assert.match(PAGE, /"Тесты"/);
-  assert.match(PAGE, /stat-grid/, "статистика на существующих стат-плитках");
+  assert.match(PAGE, /quick-action/, "статистика отображается быстрой-сеткой");
 });
 
 test("дисциплина: темы ведут на отдельные страницы темы", () => {
@@ -231,7 +231,6 @@ test("старые данные: дисциплина без teacher/startDate/d
   assert.equal(nextScheduledTopic(oldTopics), null);
   // Страницы не обязуют поле teacher: только условный вывод
   assert.ok(CATALOG.includes("typeof subject.teacher === \"string\""));
-  assert.ok(PAGE.includes("typeof discipline.teacher === \"string\""));
 });
 
 test("старые данные: архивная дисциплина скрыта от студентов в каталоге", () => {

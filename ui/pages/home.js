@@ -4,6 +4,7 @@ import { t, lt, roleLabel } from "../../core/i18n.js";
 import { listMyAttempts, listOrgAttempts, countMyAttemptsByStatus, countOrgAttempts, countOrgAttemptsByStatus } from "../../core/attempts.js";
 import { listMyTests, countPublishedTests, countMyTests, countMyTestsByStatus, deleteTest } from "../../core/editor.js";
 import { canDeleteTest, deletionPlan, explainDeleteError } from "../../core/test-delete-logic.js";
+import { closeAbandonedRooms } from "../../core/rooms.js";
 import { getDocs, query, collection, db, where } from "../../shared/firebase.js";
 import { confirmAction } from "../../ui/components/confirm.js";
 import { toast } from "../../ui/components/toast.js";
@@ -542,6 +543,7 @@ function renderStaffHome(page, profile) {
 
           let rooms = [];
           try {
+            await closeAbandonedRooms().catch(() => 0); // брошенные комнаты не считаем активными
             const rSnap = await getDocs(query(
               collection(db, "rooms"),
               where("testId", "==", test.id),
