@@ -7,13 +7,18 @@ import {
   normalizeSettings, pickCaptains, resolveCaptainsAfterDuel, buildRoster,
   movePlayer, setCaptain, teamSizes, createSeededRng, DEFAULT_BATTLE_SETTINGS
 } from "../../core/battle-logic.js";
+import { duelWinnersFor } from "../../core/duel-logic.js";
 
-// buildBattlePrep({ players, ranking, settings, onStart, onToast, duelWinners })
+// buildBattlePrep({ players, ranking, settings, onStart, onToast, duelsDoc })
 //   players  — [{ uid, displayName }] без наблюдателей
 //   ranking  — [{ uid, score }] итог основного Live (с учётом «Дуэли»)
 //   settings — сохранённые настройки битвы (необязательно)
-//   duelWinners — uid победителей существующей «Дуэли» за 2-е место
-export function buildBattlePrep({ players = [], ranking = [], settings = {}, onStart, onToast = () => {}, duelWinners = [], loadBanks = null, currentTestId = "" } = {}) {
+//   duelsDoc — документ «Дуэли» (local.duels). Победители за 2-е место
+//              берутся из разрешённой группы (duelWinnersFor), а не
+//              придумываются: панель не должна блокировать распределение,
+//              если дуэль уже проведена. Если группы нет или не разрешена —
+//              панель попросит провести дуэль.
+export function buildBattlePrep({ players = [], ranking = [], settings = {}, onStart, onToast = () => {}, duelsDoc = null, loadBanks = null, currentTestId = "", onSaveSettings = null } = {}) {
   const root = h("div", { class: "panel battle-prep" });
   const name = (uid) => players.find((p) => p.uid === uid)?.displayName || uid;
   const form = { ...DEFAULT_BATTLE_SETTINGS, ...settings };
@@ -23,6 +28,19 @@ export function buildBattlePrep({ players = [], ranking = [], settings = {}, onS
   let banks = [];
   if (loadBanks) loadBanks().then((list) => { banks = list || []; render(); }).catch(() => {});
 
+  // Выбранный battleTestId / questionCount / questionSeconds сохраняются в
+  // Firestore (rooms/{code}.battleSettings) при изменении, чтобы при
+  // перезагрузке страницы панель восстановила их, а не сбрасывала в
+  // умолчания. Остальные параметры (веса, порядок, порог) не сохраняются.
+  function notify() {
+    if (typeof onSaveSettings !== "function") return;
+    onSaveSettings({
+      battleTestId: bankId,
+      questionCount: form.questionCount,
+      questionSeconds: form.questionSeconds
+    });
+  }
+
   function distribute() {
     const { settings: s, errors } = normalizeSettings(form);
     if (errors.length) return onToast(errors[0], "error");
@@ -30,7 +48,13 @@ export function buildBattlePrep({ players = [], ranking = [], settings = {}, onS
     if (memberIds.length < s.minPlayers) return onToast(`Нужно минимум ${s.minPlayers} участников, сейчас ${memberIds.length}.`, "error");
     const pick = pickCaptains(ranking.filter((r) => memberIds.includes(r.uid)));
     if (pick.error) return onToast(pick.error, "error");
-    const resolved = pick.needsDuel ? resolveCaptainsAfterDuel(pick, duelWinners) : pick;
+    // Победители «Дуэли» берём из разрешённой группы, сверяясь по именно
+    // той, где капитаны сидят вничью (pick.tied). duelWinnersFor возвращает
+    // null, если группы нет или она не разрешена — тогда панель просит
+    // провести дуэль. Пустой массив не подставляется: победителя не
+    // придумываем.
+    const winners = pick.needsDuel ? duelWinnersFor(duelsDoc, pick) : null;
+    const resolved = pick.needsDuel ? resolveCaptainsAfterDuel(pick, winners || []) : pick;
     if (resolved.error) return onToast("Ничья за 2-е место: сначала проведите «Дуэль».", "error");
     const res = buildRoster({ memberIds, captains: resolved.captains, rng: createSeededRng(seed || undefined), minPlayers: s.minPlayers });
     if (res.error) return onToast(res.error, "error");
@@ -44,8 +68,23 @@ export function buildBattlePrep({ players = [], ranking = [], settings = {}, onS
     render();
   }
 
-  const num = (key, label, attrs = {}) => h("label", { class: "field" }, label,
-    h("input", { type: "number", value: form[key], ...attrs, oninput: (e) => { form[key] = Number(e.target.value); } }));
+  // Поля ввода чисел: значение пишется в form, а переданный attrs (минимум,
+  // максимум, step) — в элемент. Важно: attrs.oninput НЕ должен переписывать
+  // наш обработчик (см. weightLive), поэтому берём его отдельно и вызываем
+  // после базового: сначала form[key], потом пользовательская логика
+  // (например, пересчёт веса Battle так, чтобы сумма была 100%).
+  const num = (key, label, attrs = {}) => {
+    const userOninput = typeof attrs.oninput === "function" ? attrs.oninput : null;
+    const rest = { ...attrs };
+    delete rest.oninput;
+    return h("label", { class: "field" }, label,
+      h("input", { type: "number", value: form[key], ...rest,
+        oninput: (e) => {
+          form[key] = Number(e.target.value);
+          if (userOninput) userOninput(e);
+        }
+      }));
+  };
 
   function memberRow(uid, teamId) {
     const cap = roster.captains.a === uid || roster.captains.b === uid;
@@ -70,17 +109,17 @@ export function buildBattlePrep({ players = [], ranking = [], settings = {}, onS
       h("p", { class: "muted" }, `Участников: ${players.length}. Капитаны — 1-е и 2-е места Live; остальные распределяются случайно.`),
       h("fieldset", { class: "field" },
         h("label", { class: "field" }, "Набор вопросов для битвы",
-          h("select", { onchange: (e) => { bankId = e.target.value; } },
+          h("select", { onchange: (e) => { bankId = e.target.value; notify(); } },
             h("option", { value: "", selected: !bankId }, "Вопросы этого теста"),
             ...banks.filter((b) => b.id !== currentTestId).map((b) => h("option", { value: b.id, selected: bankId === b.id }, b.title || b.id)))),
-        num("questionCount", "Количество вопросов", { min: 1, max: 50 }),
-        num("questionSeconds", "Время на вопрос, сек", { min: 5, max: 3600 }),
+        num("questionCount", "Количество вопросов", { min: 1, max: 50, oninput: notify }),
+        num("questionSeconds", "Время на вопрос, сек", { min: 5, max: 3600, oninput: notify }),
         h("label", { class: "field" }, "Порядок вопросов",
-          h("select", { onchange: (e) => { form.questionOrder = e.target.value; } },
+          h("select", { onchange: (e) => { form.questionOrder = e.target.value; notify(); } },
             h("option", { value: "random", selected: form.questionOrder === "random" }, "Случайный"),
             h("option", { value: "set", selected: form.questionOrder === "set" }, "Заданный"))),
         num("teamworkThreshold", "Порог командной работы (0–1)", { min: 0.1, max: 1, step: 0.05 }),
-        num("weightLive", "Вес Live в итоге (0–1)", { min: 0, max: 1, step: 0.05, oninput: (e) => { form.weightLive = Number(e.target.value); form.weightBattle = Math.round((1 - form.weightLive) * 100) / 100; } }),
+        num("weightLive", "Вес Live в итоге (0–1)", { min: 0, max: 1, step: 0.05, oninput: (e) => { form.weightBattle = Math.round((1 - form.weightLive) * 100) / 100; notify(); } }),
         h("label", { class: "field" }, "Seed (необязательно)",
           h("input", { type: "text", maxlength: 20, value: seed, oninput: (e) => { seed = e.target.value; } }))),
       h("div", { class: "btn-row" },

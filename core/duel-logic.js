@@ -315,7 +315,23 @@ export function applyDecision(group, decision, bankSize) {
   };
 }
 
-// ---------- Документ дуэлей целиком ----------
+// Победители «Дуэли» за место, которое понадобилось бы капитанам битвы.
+// Панель подготовки битвы не должна придумывать победителя: если у
+// капитанов та же группа, что и в «Дуэли», берём uid из разрешённой
+// группы документа дуэлей (order[0] — победитель, order[1] — проигравший
+// при 2 участниках; при 3 и более — только первые slots штук). Если
+// группа не разрешена — null: панель попросит провести дуэль.
+export function duelWinnersFor(duelsDoc, pick) {
+  if (!pick?.needsDuel || !Array.isArray(duelsDoc?.groups)) return null;
+  const need = pick.slots || 1;
+  const tied = new Set((pick.tied || []).map(String));
+  for (const g of duelsDoc.groups) {
+    if (g?.status !== "resolved") continue;
+    const uids = (g.order || []).filter(uid => tied.has(String(uid)));
+    if (uids.length >= need) return uids.slice(0, need);
+  }
+  return null;
+}
 
 function sameUidSet(a, b) {
   return [...(a || [])].sort().join("\n") === [...(b || [])].sort().join("\n");

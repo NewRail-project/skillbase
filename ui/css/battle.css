@@ -66,3 +66,73 @@ html[data-ui="workforce"][data-theme="dark"] { --team-a: #7DB8EC; --team-b: #F2A
   .battle-head { grid-template-columns: 1fr 1fr; }
   .battle-timer { grid-column: 1 / -1; order: -1; }
 }
+
+/* Панель подготовки Командной битвы */
+.battle-prep {
+  max-width: 56rem; /* как .battle-view */
+  margin: 0 auto;
+  padding: var(--space-4, 1rem);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 10px);
+}
+
+.battle-prep-group {
+  margin-bottom: 1.5rem;
+}
+
+.battle-prep-group h3 {
+  margin: 0 0 0.5rem;
+  color: var(--text-2);
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.battle-prep-rosters {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 400px) {
+  .battle-prep-rosters {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.battle-prep-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.8rem;
+  margin: 0.25rem 0;
+  border-bottom: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--surface);
+}
+
+.battle-prep-row.captain {
+  background: var(--accent-soft);
+  border-color: var(--accent-soft);
+}
+
+.battle-prep .btn-row {
+  gap: 0.3rem;
+}
+
+.battle-prep .btn {
+  min-width: 6rem;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.9rem;
+}
+
+/* Поддержка AUTO-режима: панель должна быть читаема на проекторе */
+@media (min-width: 800px) {
+  .battle-prep {
+    font-size: 1.1rem;
+  }
+  .battle-prep .btn {
+    font-size: 1rem;
+    padding: 0.5rem 1rem;
+  }
+}

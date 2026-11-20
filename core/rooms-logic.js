@@ -550,6 +550,32 @@ export function questionDurationSec(test, settings) {
 }
 
 
+// Завершённость индивидуального (Live) теста — по существующим признакам,
+// без нового статуса комнаты. Нужна, чтобы показать панель подготовки
+// «Командной битвы» ровно когда тест закончен:
+//   * комната закрыта (status === "closed");
+//   * авто-тест дошёл до конца (lifecycle === "completed");
+//   * в ручном режиме закрыт последний вопрос — тот же признак
+//     (phase === "closed" и currentQuestionId — последний), по которому
+//     ведущий видит кнопку «Завершить комнату».
+// auto: для AUTO-комнаты ранний выход — их phase остаётся "idle".
+export function liveFinishedForBattle({
+  status = "", phase = "", currentQuestionId = "",
+  questionCount = 0, lifecycle = "", auto = false
+} = {}) {
+  if (status === "closed") return true;
+  if (lifecycle === "completed") return true;
+  if (auto) return false;
+  if (phase !== "closed") return false;
+  const raw = String(currentQuestionId ?? "").trim();
+  const total = Number(questionCount) || 0;
+  if (!raw || !total) return false;
+  const pos = Number(raw);
+  if (!Number.isInteger(pos) || pos < 0) return false;
+  return pos + 1 >= total;
+}
+
+
 // Кандидаты кнопки «Прочитать материал» в лобби комнаты: основной материал
 // теста и опубликованные материалы его темы (materials с topicId). Один и
 // тот же материал не дублируется. Формат, TXT и PDF читаются одной и той же

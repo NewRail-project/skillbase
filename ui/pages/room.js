@@ -25,7 +25,8 @@ import {
   questionTimeMs, answeredCount, myAnswerVerdict, buildJoinUrl, computeScores,
   streakFromReveals, verdictsFromTrail, streakTier, streakEvent, scoreBreakdown,
   speedRatio, formatBreakdown, normalizePlayerTimes,
-  roomRenderSignature, roomCrowdSignature, roomMaterialTargets
+  roomRenderSignature, roomCrowdSignature, roomMaterialTargets,
+  liveFinishedForBattle
 } from "../../core/rooms-logic.js";
 import {
   CONN, ROLE_OBSERVER, ROLE_PLAYER, RATING_STATUS_LABEL,
@@ -1885,15 +1886,37 @@ function questionPanel(question, { showAnswer = false } = {}) {
   return panel;
 }
 
-// Результаты комнаты при закрытии: дуэль, подиум, экспресс.
+// Результаты комнаты при закрытии: дуэль, подиум, экспресс. У ведущего
+// сверху — панель подготовки «Командной битвы», когда Live закончен
+// (см. battlePrepForHost).
 function roomResults() {
-  if (local.room?.status !== "closed" && liveInfo().lifecycle !== "completed") return null;
+  const room = local.room;
+  const liveDone = room?.status === "closed" || liveInfo().lifecycle === "completed";
+  const prep = battlePrepForHost();
+  // Ручной режим: комната ещё открыта, но закрыт последний вопрос —
+  // панель битвы показывается без лишнего закрытия комнаты. Подиум, дуэль
+  // и экспресс по-прежнему ждут закрытия: порядок показа не меняется.
+  if (!liveDone) return prep;
   const seq = finalSequence();
-  // «Командная битва после теста»: ведущий готовит команды, когда Live закончен.
-  if (local.isHost && local.room?.battleEnabled === true && local.room?.mode !== "battle") {
-    return h("div", {}, seq, battlePrepPanel(local.room));
-  }
-  return seq;
+  return prep ? h("div", {}, seq, prep) : seq;
+}
+
+// Панель подготовки битвы у ведущого: только когда битва включена при
+// создании комнаты (battleEnabled) и Live реально закончен. В обычном
+// Live (battleEnabled !== true) панели нет — вид не меняется.
+function battlePrepForHost() {
+  const room = local.room;
+  if (!local.isHost || room?.battleEnabled !== true || room?.mode === "battle") return null;
+  const li = liveInfo();
+  const finished = liveFinishedForBattle({
+    status: room.status,
+    phase: room.phase,
+    currentQuestionId: room.currentQuestionId,
+    questionCount: Number(room.questionCount) || (local.test?.questions || []).length,
+    lifecycle: li.lifecycle,
+    auto: li.auto
+  });
+  return finished ? battlePrepPanel(room) : null;
 }
 
 // Список участников в лобби (ручной режим): контейнер с точечным
@@ -2147,9 +2170,20 @@ function manageDuels() {
   if (duelEnsureBusy) return;
   const room = local.room;
   if (!room || role() !== "host") return;
+  const li = liveInfo();
   const done = room.status === "closed"
-    || liveInfo().lifecycle === "completed"
-    || liveInfo().lifecycle === "closed";
+    || li.lifecycle === "completed"
+    || li.lifecycle === "closed"
+    // «Командная битва»: панель подготовки у ведущего появляется сразу после
+    // завершения теста (даже если комната ещё не закрыта), поэтому дуэль за
+    // 2-е место нужно собирать тогда же — иначе панель скажет «проведите
+    // дуэль», а панели дуэли ещё нет (см. battlePrepForHost).
+    || (room.battleEnabled === true && liveFinishedForBattle({
+      status: room.status, phase: room.phase,
+      currentQuestionId: room.currentQuestionId,
+      questionCount: Number(room.questionCount) || (local.test?.questions || []).length,
+      lifecycle: li.lifecycle, auto: li.auto
+    }));
   if (!done) return;
   const groups = tieGroups(boardData());
   if (!groups.length) return;
@@ -3295,6 +3329,10 @@ function autoHostView() {
     wrap.appendChild(progressPanel(li, room));
     const hostSeq = finalSequence();
     if (hostSeq) wrap.appendChild(h("div", { class: "final-top" }, hostSeq));
+    // Подготовка «Командной битвы»: та же панель, что и в ручном режиме,
+    // — только когда битва включена и Live закончен (battlePrepForHost).
+    const battlePrep = battlePrepForHost();
+    if (battlePrep) wrap.appendChild(battlePrep);
     if (local.keysReady) wrap.appendChild(journalToggle());
     wrap.appendChild(finalDockNode());
   }
@@ -3348,16 +3386,51 @@ function lobbyPanel(room, who) {
 // Вся логика и разметка — ui/components/battle-prep.js (room.js только
 // поставляет данные Live: участников и итоговый рейтинг).
 
+// Сохранение выбранных настроек панели битвы в документ комнаты
+// (rooms/{code}.battleSettings), чтобы при перезагрузке страницы панель
+// восстановила их, а не сбросила в умолчания. Пишет только три значения:
+// набор вопросов (battleTestId), количество вопросов и время на вопрос.
+// Ведущий по правилам меняет документ комнаты (hostId не трогаем), поэтому
+// новые правила не нужны. Остальные параметры и формулы битвы не меняются.
+function saveBattleSettings(settings) {
+  const code = local.code;
+  if (!code || role() !== "host") return;
+  const value = {
+    battleTestId: String(settings.battleTestId ?? ""),
+    questionCount: Number(settings.questionCount) || 0,
+    questionSeconds: Number(settings.questionSeconds) || 0
+  };
+  if (!value.battleTestId) delete value.battleTestId;
+  updateDoc(doc(db, "rooms", code), {
+    battleSettings: value,
+    updatedAt: serverTimestamp()
+  }).catch(err => console.warn("battleSettings:", err?.message || err));
+}
+
 function battlePrepPanel(room) {
   const players = battlePlayers();
   // Капитаны — по ИТОГОВЫМ местам Live (после «Дуэли»): равное место у двух
   // участников = дуэль ещё не решена, и панель попросит её провести.
   const ranking = ratingSource().map((row) => ({ uid: row.uid, score: -(Number(row.place) || 9999) }));
+  // Настройки панели (набор вопросов, количество и время на вопрос)
+  // сохраняются в rooms/{code}.battleSettings, чтобы при перезагрузке
+  // страницы панель восстановила их, а не сбросила в умолчания.
+  const saved = room?.battleSettings || {};
+  // Документ «Дуэли» (если есть и разрешён) передаём в панель: она сама
+  // определяет победителей по именно той группе, где капитаны сидят вничью
+  // (см. ui/components/battle-prep.js distribute / duelWinnersFor). Пустой
+  // массив не подставляется — панель не придумывает победителя.
   return buildBattlePrep({
     players,
     ranking,
-    settings: {},
+    settings: {
+      battleTestId: saved.battleTestId,
+      questionCount: saved.questionCount,
+      questionSeconds: saved.questionSeconds
+    },
+    duelsDoc: local.duels,
     currentTestId: local.test?.id || "",
+    onSaveSettings: saveBattleSettings,
     loadBanks: async () => {
       const uid = State.user?.uid;
       const orgId = local.room?.orgId || State.profile?.orgId;

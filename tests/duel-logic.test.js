@@ -9,7 +9,7 @@ import {
   openDuelRound, applyRound, stopGroup, settleGroup, groupProgress,
   pendingUidsFor, validateDecision, applyDecision, buildDuelsDoc,
   duelGroupsChanged, withGroup, applyDuelPlaces, placesAreUnique,
-  duelRounds, duelDocStatus
+  duelRounds, duelDocStatus, duelWinnersFor
 } from '../core/duel-logic.js';
 import { gradeRoster, journalRows } from '../core/pair-grade.js';
 
@@ -458,4 +458,44 @@ test('старый рейтинг не затронут: ratingRows остаёт
   ];
   const rows = ratingRows({ scores, players: [], questionCount: 2, finished: 2, lifecycle: 'completed' });
   assert.deepEqual(rows.map(r => r.place), [1, 1, 3]);
+});
+
+test('duelWinnersFor: победители берутся из разрешённой группы, сверяясь по pick', () => {
+  const doc = buildDuelsDoc({
+    rows: [row('u2', 'Б', 80, 0), row('u3', 'В', 80, 0)],
+    questionCount: 2
+  });
+  const g = doc.groups[0];
+  const decided = applyDecision(g, {
+    order: ['u3', 'u2'], reason: 'решение', authorUid: 't', authorName: 'Т', at: 1
+  }, 2);
+  const resolved = { ...doc, groups: [decided] };
+  const pick = { needsDuel: true, tied: ['u2', 'u3'], slots: 1, captainA: 'u1' };
+  assert.deepEqual(duelWinnersFor(resolved, pick), ['u3']);
+  assert.deepEqual(duelWinnersFor(resolved, { ...pick, slots: 2 }), ['u3', 'u2']);
+});
+
+test('duelWinnersFor: при отсутствии или неразрешённой дуэли — null', () => {
+  const pick = { needsDuel: true, tied: ['u2', 'u3'], slots: 1, captainA: 'u1' };
+  assert.equal(duelWinnersFor(null, pick), null);
+  assert.equal(duelWinnersFor({ groups: [] }, pick), null);
+  const doc = buildDuelsDoc({
+    rows: [row('u2', 'Б', 80, 0), row('u3', 'В', 80, 0)], questionCount: 2
+  });
+  assert.equal(duelWinnersFor(doc, pick), null);
+  const other = buildDuelsDoc({
+    rows: [row('u4', 'Г', 80, 0), row('u5', 'Д', 80, 0)], questionCount: 2
+  });
+  assert.equal(duelWinnersFor(other, pick), null);
+  const resolved = (() => {
+    const d = buildDuelsDoc({
+      rows: [row('u2', 'Б', 80, 0), row('u3', 'В', 80, 0)], questionCount: 2
+    });
+    const grp = d.groups[0];
+    const dec = applyDecision(grp, {
+      order: ['u3', 'u2'], reason: 'решение', authorUid: 't', authorName: 'Т', at: 1
+    }, 2);
+    return { ...d, groups: [dec] };
+  })();
+  assert.equal(duelWinnersFor(resolved, { needsDuel: false }), null);
 });
