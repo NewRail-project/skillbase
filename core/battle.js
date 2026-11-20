@@ -145,7 +145,8 @@ export function subscribeVotes(code, roundId, onData, onError) {
 }
 
 // Голос участника на раунд. ID документа: "{roundId}_{uid}" — гарантирует
-// один голос на пользователя на раунд (правила Firestore запрещают update).
+// один голос на пользователя на раунд (ID документа); смена голоса — перезапись
+// того же документа, правила разрешают её, пока раунд в фазе голосования.
 export async function castVote(code, { roundId, teamId, selected }) {
   requireOnline("Нет подключения к интернету. Голос не отправлен.");
   const roomCode = validateCode(code);
@@ -192,13 +193,14 @@ export function subscribeCaptainDecisions(code, roundId, onData, onError) {
   );
 }
 
-// Решение капитана на раунд. ID документа: "{roundId}_{uid}".
-export async function makeCaptainDecision(code, { roundId, teamId, decision }) {
+// Решение капитана. ID документа: "{roundId}_{uid}" — способ ответа;
+// "{roundId}_tb_{uid}" — решение спорного голосования (tiebreak: true).
+export async function makeCaptainDecision(code, { roundId, teamId, decision, tiebreak = false }) {
   requireOnline("Нет подключения к интернету. Решение не отправлено.");
   const roomCode = validateCode(code);
   const uid = State.user?.uid;
   if (!uid) throw new Error("Нужно войти в аккаунт.");
-  const decisionId = `${roundId}_${uid}`;
+  const decisionId = tiebreak ? `${roundId}_tb_${uid}` : `${roundId}_${uid}`;
   await setDoc(doc(db, "rooms", roomCode, "captainDecisions", decisionId), {
     decisionId,
     uid,
@@ -362,19 +364,62 @@ export async function getBattleScore(code, uid) {
 // см. buildRoomHistorySnapshot({ battle }) и core/battle-snapshot.js.
 // Отдельной записи в roomHistory этот модуль не делает.
 
+// ---------- Раунды (host-only): rooms/{code}/battleRounds/{index} ----------
+// Полные записи раундов (личные ответы) нужны только ведущему: для итоговых
+// оценок и восстановления после перезагрузки. Участники их не читают.
+
+export async function saveBattleRound(code, record) {
+  requireOnline("Нет подключения к интернету. Раунд не сохранён.");
+  const roomCode = validateCode(code);
+  const id = `${record.kind}_${record.index}`;
+  await setDoc(doc(db, "rooms", roomCode, "battleRounds", id), JSON.parse(JSON.stringify(record)), { merge: false });
+}
+
+export async function loadBattleRounds(code) {
+  const roomCode = validateCode(code);
+  const snap = await getDocs(collection(db, "rooms", roomCode, "battleRounds"));
+  const out = [];
+  snap.forEach((item) => out.push(item.data()));
+  return out;
+}
+
+// Ключи вопросов битвы (host-only): { [questionId]: [индексы верных] }.
+export async function loadBattleKeys(code) {
+  const roomCode = validateCode(code);
+  const snap = await getDocs(collection(db, "rooms", roomCode, "battleKeys"));
+  const out = {};
+  snap.forEach((item) => { out[item.id] = item.data().correct || []; });
+  return out;
+}
+
+const tsMs = (v) => (v && typeof v.toMillis === "function" ? v.toMillis() : (typeof v === "number" ? v : null));
+
 // Адаптер хранилища для core/battle-game.js (BattleGame.store).
 export function createBattleStore(code) {
   const roomCode = validateCode(code);
   return {
     saveBattle: (patch) => updateBattle(roomCode, patch),
+    saveRound: (record) => saveBattleRound(roomCode, record),
+    loadRounds: () => loadBattleRounds(roomCode),
     async readVotes(roundIndex) {
       const list = await readVotes(roomCode, roundIndex);
-      return Object.fromEntries(list.map(v => [v.uid, { selected: v.selected, at: v.at }]));
+      return Object.fromEntries(list.map(v => [v.uid, { selected: v.selected, at: tsMs(v.at) }]));
     },
+    // Выбор способа ответа: документы "{round}_{uid}" (без "_tb_").
+    async readChoices(roundIndex) {
+      const list = await readCaptainDecisions(roomCode, roundIndex);
+      const out = {};
+      for (const d of list) {
+        if (String(d.id).includes("_tb_")) continue;
+        out[d.teamId] = { ...(d.decision || {}), atMs: tsMs(d.at) };
+      }
+      return out;
+    },
+    // Решения спорных голосований: "{round}_tb_{uid}".
     async readDecisions(roundIndex) {
       const list = await readCaptainDecisions(roomCode, roundIndex);
       const out = {};
-      for (const d of list) out[d.teamId] = d.decision || {};
+      for (const d of list) if (String(d.id).includes("_tb_")) out[d.teamId] = d.decision || {};
       return out;
     },
     logEvent: (event) => logBattleEvent(roomCode, { type: event.type, roundId: event.round ?? null, data: event })
@@ -423,4 +468,21 @@ export async function launchBattle(code, plan) {
   }
 
   await batch.commit();
+}
+
+
+// ---------- Снимок битвы в историю Live ----------
+// История Live сохраняется при завершении теста и неизменяема; битва идёт
+// позже, поэтому её снимок дописывается ОДИН раз полем battle (правило
+// roomHistory: affectedKeys == ["battle"], повтор запрещён). Повторный вызов
+// безопасен: если снимок уже есть, ничего не меняется.
+export async function attachBattleToHistory(code, snapshot) {
+  requireOnline("Нет подключения к интернету. Снимок битвы не сохранён.");
+  const roomCode = validateCode(code);
+  const ref = doc(db, "roomHistory", roomCode);
+  const existing = await getDoc(ref);
+  if (!existing.exists()) return { saved: false, reason: "no-history" };
+  if (existing.data().battle) return { saved: false, reason: "exists" };
+  await updateDoc(ref, { battle: snapshot });
+  return { saved: true };
 }

@@ -84,8 +84,8 @@ const testKeys = [
 test("вопросы теста: одиночные и множественные переходят, короткие — с ошибкой", () => {
   const { questions, errors } = toBattleQuestions({ questions: testQs, keys: testKeys });
   assert.deepEqual(questions, [
-    { id: "q0", type: "single", optionCount: 3, correct: [1] },
-    { id: "q1", type: "multiple", optionCount: 4, correct: [0, 2] }
+    { id: "q0", src: 0, type: "single", optionCount: 3, correct: [1] },
+    { id: "q1", src: 1, type: "multiple", optionCount: 4, correct: [0, 2] }
   ]);
   assert.equal(errors.length, 1);
   assert.match(errors[0], /Вопрос 3/);
@@ -104,4 +104,10 @@ test("вопросы теста: случайный порядок детерм�
   const b = toBattleQuestions({ questions: many, keys: keysMany, order: "random", rng: seeded() }).questions.map((q) => q.id);
   assert.deepEqual(a, b);
   assert.equal(new Set(a).size, 6);
+});
+
+test("план: src исходного вопроса попадает в публичный список, ключи — нет", () => {
+  const { plan } = buildLaunchPlan({ ...base, roster: roster(8), questions: [{ id: "q3", src: 3, type: "single", optionCount: 3, correct: [1] }] });
+  assert.deepEqual(plan.battle.questions, [{ id: "q3", type: "single", optionCount: 3, src: 3 }]);
+  assert.equal(JSON.stringify(plan.battle).includes("correct"), false);
 });

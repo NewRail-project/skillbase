@@ -1396,6 +1396,12 @@ function isGuest() {
         allow read, write: if isRoomHost() && isBattleRoom();
       }
 
+      // Полные записи раундов (личные ответы): только ведущий. Участникам
+      // индивидуальные ответы других не раскрываются (ТЗ §7.3).
+      match /battleRounds/{roundId} {
+        allow read, write: if isRoomHost() && isBattleRoom();
+      }
+
       match /votes/{voteId} {
         // Чтение: голосующий (свой голос), капитан его команды, ведущий.
         allow read: if isRoomHost()
@@ -1463,16 +1469,28 @@ function isGuest() {
         // Запись: только капитан своей команды, только в фазе ответа.
         allow create: if hasProfile()
           && inRoomAnyRole()
-          && decisionId.matches("^[0-9]+_" + request.auth.uid + "$")
           && request.resource.data.uid == request.auth.uid
           && isCaptainOf(request.auth.uid)
           && request.resource.data.get("teamId", "")
             == battleTeamOf(request.auth.uid)
           && voteRoundId(decisionId) >= 0
           && isBattleRoom()
-          && battleDoc().get("currentRound", {}).get("status", "") == "answering"
           && battleDoc().get("currentRound", {}).get("index", -1)
             == voteRoundId(decisionId)
+          // Два вида решений, по одному документу на раунд и капитана:
+          //   "{раунд}_{uid}"    — способ ответа; статус answering, а также
+          //                        voting (капитан второй команды мог выбрать
+          //                        позже, пока открыто голосование);
+          //   "{раунд}_tb_{uid}" — решение спорного голосования (ТЗ §9–10);
+          //                        только в статусе tiebreak.
+          && (
+            (decisionId.matches("^[0-9]+_" + request.auth.uid + "$")
+              && battleDoc().get("currentRound", {}).get("status", "")
+                in ["answering", "voting"])
+            || (decisionId.matches("^[0-9]+_tb_" + request.auth.uid + "$")
+              && battleDoc().get("currentRound", {}).get("status", "")
+                == "tiebreak")
+          )
           && request.resource.data.keys().hasOnly(
             ["decisionId", "uid", "roundId", "teamId", "decision", "at"])
           && request.resource.data.at == request.time;
@@ -1551,7 +1569,18 @@ function isGuest() {
            "subjectName", "topicName", "createdAtMs", "finishedAtMs", "version",
            "overview", "rating", "duels", "report", "studentsDetail", "journal", "savedAt", "battle"]);
 
-      allow update, delete: if false;
+      // Единственное допустимое изменение: ведущий своей комнаты ОДИН раз
+      // дописывает снимок битвы (поле battle), когда Командная битва
+      // заканчивается уже после сохранения истории Live. Остальные поля
+      // не меняются, повторная запись battle запрещена, удаление запрещено.
+      allow update: if isStaff()
+        && resource.data.hostId == request.auth.uid
+        && resource.data.orgId == myOrg()
+        && !("battle" in resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["battle"])
+        && request.resource.data.battle is map;
+
+      allow delete: if false;
     }
 
     // ---------- journalEntries ----------

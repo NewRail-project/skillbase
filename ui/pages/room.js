@@ -69,7 +69,8 @@ import {
 } from "../components/live-report.js";
 import { getSubject, getTopic } from "../../core/subjects.js";
 import { buildBattlePrep } from "../../ui/components/battle-prep.js";
-import { launchBattle, getBattle } from "../../core/battle.js";
+import { launchBattle } from "../../core/battle.js";
+import { mountBattle, disposeBattle } from "./battle-room.js";
 import { buildLaunchPlan, toBattleQuestions } from "../../core/battle-launch.js";
 import { getAttemptKeys } from "../../core/attempts.js";
 import { updateTest } from "../../core/editor.js";
@@ -135,6 +136,7 @@ const shownErrors = new Set();
 let qrThemeOff = null;
 let qrSkinOff = null;
 function reset() {
+  disposeBattle();
   unsubs.forEach(fn => { try { fn(); } catch (e) { /* уже отписаны */ } });
   unsubs = [];
   stopInterval(autoTimer); autoTimer = null;
@@ -397,7 +399,7 @@ function signature() {
     testReady: Boolean(local.test),
     keysReady: local.keysReady,
     hasMaterial: local.hasMaterial
-  }) + `|duel=${duelViewSig()}`;
+  }) + `|duel=${duelViewSig()}|mode=${room?.mode ?? ""}`;
 }
 
 // Подпись дуэлей для пересборки вида: ведущий реагирует на весь документ,
@@ -551,7 +553,8 @@ export default async function RoomPage() {
   // остальным страницам и не должны блокировать первую отрисовку.
   await Promise.all([
     loadCss("ui/css/live.css"),
-    loadCss("ui/css/reactions.css")
+    loadCss("ui/css/reactions.css"),
+    loadCss("ui/css/battle.css")
   ]);
   shownErrors.clear();
   const rawRoute = decodeURIComponent((State.routeParam || ""));
@@ -3343,9 +3346,7 @@ function lobbyPanel(room, who) {
 // поставляет данные Live: участников и итоговый рейтинг).
 
 function battlePrepPanel(room) {
-  const players = (local.players || [])
-    .filter((p) => !p.observer && p.role !== "observer" && p.isAdminPlayer !== true)
-    .map((p) => ({ uid: p.uid, displayName: p.displayName || p.name || p.uid }));
+  const players = battlePlayers();
   const ranking = ratingSource().map((row) => ({ uid: row.uid, score: row.score || 0 }));
   return buildBattlePrep({
     players,
@@ -3686,45 +3687,61 @@ async function startBattleFromPrep(room, settings, roster) {
     if (errors) return toast(errors[0], "error");
     await launchBattle(code, plan);
     toast("Битва запущена.", "success");
-    location.hash = `#room/${code}/battle`;
   } catch (err) {
     toast(err?.message || "Не удалось запустить битву.", "error");
   }
 }
 
-// Ведущий экран битвы: читает документ битвы из Firestore (без подписки и без ключей).
-function battleHostView() {
-  const code = local.room?.code || local.room?.id;
-  const box = h("div", { class: "room-view" },
-    h("div", { class: "panel" }, h("h2", {}, "Командная битва"), h("p", { class: "muted" }, "Загрузка…")));
-  getBattle(code).then((b) => box.replaceChildren(battleStatusPanel(b))).catch((err) =>
-    box.replaceChildren(h("div", { class: "panel" }, h("p", {}, err?.message || "Не удалось загрузить битву."))));
-  return box;
+// Данные Live для битвы: имя, место, баллы и процент (earned/max) каждого участника.
+function battlePlayers() {
+  return (local.players || [])
+    .filter((p) => !p.observer && p.role !== "observer" && p.isAdminPlayer !== true)
+    .map((p) => ({ uid: p.uid, displayName: p.displayName || p.name || p.uid }));
 }
 
-function battleStatusPanel(b) {
-  if (!b) return h("div", { class: "panel" }, h("p", {}, "Битва ещё не запущена."));
-  const nameOf = (uid) => (local.players || []).find((p) => p.uid === uid)?.displayName || uid;
-  return h("div", { class: "panel battle-status" },
-    h("h2", {}, "Командная битва"),
-    h("p", {}, `Фаза: ${b.phase}`),
-    h("p", {}, `Капитан A: ${nameOf(b.captains?.a)} · Капитан B: ${nameOf(b.captains?.b)}`),
-    h("p", {}, `Команда A: ${b.teams?.a?.length || 0} · Команда B: ${b.teams?.b?.length || 0} · Резерв: ${b.reserve?.length || 0}`),
-    h("p", {}, `Вопросов: ${b.questions?.length || 0} · Счёт: A ${b.scores?.a ?? 0} — B ${b.scores?.b ?? 0}`),
-    h("p", { class: "muted" }, "Голосование, таймер, замены и проектор — следующий этап."),
-    h("div", { class: "btn-row" }, h("button", { type: "button", class: "btn secondary", onclick: () => router() }, "Обновить")));
+function battleLiveInfo() {
+  const names = new Map(battlePlayers().map((p) => [p.uid, p.displayName]));
+  const grades = new Map();
+  try { for (const g of finalData().grades || []) if (g.uid) grades.set(g.uid, g); } catch { /* оценки Live недоступны */ }
+  const out = {};
+  for (const row of ratingSource()) {
+    const g = grades.get(row.uid);
+    out[row.uid] = {
+      name: names.get(row.uid) || row.name || row.uid,
+      place: row.place ?? null,
+      score: row.score || 0,
+      // Шкала 0..100 (доля набранных баллов) — та же, что у оценки за битву.
+      liveGrade: g && g.max > 0 ? Math.round((g.earned / g.max) * 10000) / 100 : null
+    };
+  }
+  return out;
+}
+
+// Вид битвы: ведущий, участник или проектор. Долгоживущий, обновляется сам.
+function battleView(kind) {
+  return mountBattle({
+    code: local.room?.code || local.room?.id || local.code,
+    kind,
+    uid: State.user?.uid,
+    test: local.test,
+    players: battlePlayers(),
+    liveInfo: kind === "host" ? battleLiveInfo() : {},
+    now: serverNowMs,
+    onToast: (message, type) => toast(message, type)
+  });
 }
 
 function buildView() {
   // Проектор рисуется всё тем же buildView: разбор через локальную метку.
   const rawRoute = decodeURIComponent((State.routeParam || ""));
-  if (rawRoute.split("/")[1] === "screen") return screenView();
+  if (rawRoute.split("/")[1] === "screen") return local.room?.mode === "battle" ? battleView("screen") : screenView();
   const state = connState();
   if (state === CONN.ERROR) return connectionErrorPanel(local.errors.room || local.errors.own);
   if (local.removed) return removedPanel();
   const current = role();
   if (!current || state === CONN.CONNECTING) return connectingPanel();
-  if (rawRoute.split("/")[1] === "battle" && current === "host") return battleHostView();
+  // Комната в режиме «Командная битва»: свои виды для ведущего и участников.
+  if (local.room?.mode === "battle") return battleView(current === "host" ? "host" : "player");
   const auto = isAutoRoom(local.room);
   if (current === "host") return auto ? autoHostView() : hostView();
   if (current === "observer") return auto ? autoObserverView() : observerView();

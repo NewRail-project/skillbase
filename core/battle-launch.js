@@ -57,7 +57,11 @@ export function buildLaunchPlan({ roster, questions, settings = {}, hostId, test
   if (!testId) errors.push("Не указан тест.");
   if (errors.length) return { errors };
 
-  const publicQuestions = questions.map((q) => ({ id: q.id, type: q.type, optionCount: q.optionCount }));
+  const publicQuestions = questions.map((q) => ({
+    id: q.id, type: q.type, optionCount: q.optionCount,
+    // src — номер вопроса в исходном тесте: по нему клиенты берут текст и варианты.
+    ...(Number.isInteger(q.src) ? { src: q.src } : {})
+  }));
   const playerFields = {};
   for (const uid of TEAM_IDS.flatMap((t) => roster.teams[t])) {
     playerFields[uid] = {
@@ -117,7 +121,7 @@ export function toBattleQuestions({ questions = [], keys = [], count = null, ord
       errors.push(`Вопрос ${n}: нет вариантов ответа.`);
       return;
     }
-    all.push({ id: `q${i}`, type: key.type, optionCount: q.options.length, correct: Array.isArray(key.correct) ? [...key.correct] : [] });
+    all.push({ id: `q${i}`, src: i, type: key.type, optionCount: q.options.length, correct: Array.isArray(key.correct) ? [...key.correct] : [] });
   });
   let picked = all;
   if (order === "random") {

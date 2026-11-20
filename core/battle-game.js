@@ -3,22 +3,28 @@
 //
 // Хранилище передаётся снаружи (core/battle.js в приложении, заглушка в
 // тестах), поэтому модуль не импортирует Firebase и проверяется в Node.
-// Правильные ответы существуют ТОЛЬКО в памяти ведущего (questions[].correct)
-// и в публичные документы не записываются до закрытия раунда.
+//
+// Приватность (ТЗ §7.3, §21.1):
+//   • правильные ответы — только в памяти ведущего и в battleKeys;
+//   • полные записи раундов (кто как ответил) — store.saveRound → host-only;
+//   • в публичный документ уходят только итоги раундов команды и счётчики
+//     «проголосовало N из M» — без распределения голосов.
 //
 // Интерфейс store:
-//   saveBattle(patch)                 — публичный документ rooms/{code}/battle
-//   readVotes(roundIndex) → { uid: { selected, at } }
-//   readDecisions(roundIndex) → { [teamId]: { mode, selected?, decisions? } }
-//   logEvent(event)                   — журнал событий
+//   saveBattle(patch)                 публичный документ rooms/{code}/battle
+//   saveRound(record)                 host-only: полная запись раунда
+//   loadRounds() → [record]           host-only: для восстановления
+//   readVotes(i) → { uid: {selected, at} }
+//   readChoices(i) → { teamId: {mode, selected?, atMs?} }   выбор способа ответа
+//   readDecisions(i) → { teamId: {pick?|options?} }         решения спорных
+//   logEvent(event)
 import {
   PHASES, TEAM_IDS, transitionPhase, createBattleState, applyRoundResult,
   buildRoundRecord, eligibleVoters, eliminatePlayer, finishBattle,
   isGameComplete, needsSuddenDeath, resolveSuddenDeathRound, applySuddenDeathResult,
-  pickExtraQuestion, ropePosition, captainTiebreakLeftMs, resolveTeamAnswer
+  pickExtraQuestion, ropePosition, captainTiebreakLeftMs, resolveTeamAnswer, votedCount
 } from "./battle-logic.js";
 
-// Статусы раунда в публичном документе (читают клиенты и правила Firestore).
 export const ROUND_STATES = {
   OPEN: "open",
   ANSWERING: "answering",
@@ -36,6 +42,20 @@ const PHASE_TO_ROUND = {
   [PHASES.SUDDEN_DEATH]: ROUND_STATES.DECISION
 };
 
+// Публичная выжимка раунда: итог команды, но не личные ответы.
+export function summarizeRound(record) {
+  return {
+    index: record.index,
+    kind: record.kind,
+    type: record.type,
+    correct: record.correct,
+    teams: Object.fromEntries(TEAM_IDS.map((id) => {
+      const t = record.teams[id];
+      return [id, { mode: t.mode, status: t.status, selected: t.selected, points: t.points, voters: t.voters }];
+    }))
+  };
+}
+
 export class BattleGame {
   constructor({ settings, roster, questions, liveInfo = {}, store, now = () => Date.now() }) {
     this.store = store;
@@ -44,12 +64,48 @@ export class BattleGame {
     this.liveInfo = liveInfo;
     this.initialRoster = roster;
     this.state = createBattleState({ settings, roster, questionIds: questions.map((q) => q.id) });
-    this.round = null; // текущий раунд: { index, question, startedAt, modes, tiebreakStartedAt }
+    this.round = null; // { index, kind, question, startedAt, modes, selfAnswers, closedAt, tiebreakStartedAt, tied }
     this.extraIndex = 0;
     this.events = [];
+    this.voted = { a: { voted: 0, total: 0 }, b: { voted: 0, total: 0 } };
   }
 
   get phase() { return this.state.phase; }
+
+  // Восстановление после перезагрузки страницы ведущего.
+  // doc — публичный battle-документ, rounds — полные записи из store.loadRounds().
+  static restore({ doc, questions, rounds = [], liveInfo = {}, store, now }) {
+    const roster = {
+      captains: doc.captains, teams: doc.teams, reserve: doc.reserve || [],
+      substituted: doc.substituted || [], eliminated: doc.eliminated || [],
+      availableFrom: doc.availableFrom || {}, availableTo: doc.availableTo || {}
+    };
+    const g = new BattleGame({ settings: doc.settings, roster, questions, liveInfo, store, now });
+    g.initialRoster = doc.initialRoster || roster;
+    g.state = {
+      ...g.state,
+      phase: doc.phase,
+      rounds: [...rounds].sort((x, y) => x.index - y.index),
+      scores: doc.scores || { a: 0, b: 0 },
+      bonuses: doc.bonuses || { a: 0, b: 0 },
+      correctAnswers: doc.correctAnswers || { a: 0, b: 0 },
+      suddenDeath: doc.suddenDeath || { rounds: [], winner: null },
+      winner: doc.winner ?? null,
+      tie: Boolean(doc.tie),
+      finishedEarly: Boolean(doc.finishedEarly)
+    };
+    g.extraIndex = doc.extraIndex || 0;
+    const cr = doc.currentRound;
+    if (cr && g.phase !== PHASES.READY && g.phase !== PHASES.FINISHED) {
+      const question = questions.find((q) => q.id === cr.questionId) || questions[cr.index];
+      g.round = {
+        index: cr.index, kind: cr.kind || "main", question, startedAt: cr.startedAt,
+        modes: cr.modes || {}, selfAnswers: {}, closedAt: cr.closedAt || {},
+        tiebreakStartedAt: cr.tiebreakStartedAt || null, tied: cr.tiebreak || {}
+      };
+    }
+    return g;
+  }
 
   async _go(to) {
     const res = transitionPhase(this.state, to);
@@ -64,97 +120,184 @@ export class BattleGame {
     await this.store.logEvent?.(e);
   }
 
-  // Публичная часть раунда — БЕЗ correct.
-  async _publish(extra = {}) {
-    const r = this.round;
-    await this.store.saveBattle({
-      phase: this.state.phase,
-      scores: this.state.scores,
-      rope: this.rope(),
-      currentRound: r ? {
-        index: r.index,
-        status: PHASE_TO_ROUND[this.state.phase] || ROUND_STATES.OPEN,
-        questionId: r.question.id,
-        type: r.question.type,
-        optionCount: r.question.optionCount,
-        durationSec: this.state.settings.questionSeconds,
-        startedAt: r.startedAt,
-        ...extra
-      } : null,
-      captains: this.state.roster.captains,
-      teams: this.state.roster.teams,
-      reserve: this.state.roster.reserve
-    });
-  }
-
   rope() {
     const s = this.state.settings;
     const scale = s.pointsPerQuestion * Math.max(3, Math.ceil(this.questions.length / 2));
     return ropePosition({ scoreA: this.state.scores.a, scoreB: this.state.scores.b, scale });
   }
 
-  // Следующий вопрос основной части.
+  // Публичная часть — БЕЗ правильных ответов и личных голосов.
+  async _publish(extra = {}) {
+    const r = this.round;
+    const rs = this.state.roster;
+    await this.store.saveBattle({
+      phase: this.state.phase,
+      scores: this.state.scores,
+      bonuses: this.state.bonuses,
+      correctAnswers: this.state.correctAnswers,
+      rope: this.rope(),
+      captains: rs.captains,
+      teams: rs.teams,
+      reserve: rs.reserve,
+      substituted: rs.substituted,
+      eliminated: rs.eliminated,
+      availableFrom: rs.availableFrom,
+      availableTo: rs.availableTo,
+      roundSummaries: this.state.rounds.map(summarizeRound),
+      suddenDeath: { winner: this.state.suddenDeath.winner, rounds: this.state.suddenDeath.rounds.length },
+      extraIndex: this.extraIndex,
+      winner: this.state.winner,
+      tie: Boolean(this.state.tie),
+      finishedEarly: this.state.finishedEarly,
+      currentRound: r ? {
+        index: r.index,
+        kind: r.kind,
+        status: PHASE_TO_ROUND[this.state.phase] || ROUND_STATES.OPEN,
+        questionId: r.question.id,
+        type: r.question.type,
+        optionCount: r.question.optionCount,
+        durationSec: this.state.settings.questionSeconds,
+        startedAt: r.startedAt,
+        modes: r.modes,
+        closedAt: r.closedAt,
+        tiebreakStartedAt: r.tiebreakStartedAt,
+        tiebreak: r.tied,
+        voted: this.voted,
+        ...extra
+      } : null
+    });
+  }
+
   async startNextQuestion() {
-    if (this.phase === PHASES.READY || this.phase === PHASES.QUESTION_RESULT) {
-      const index = this.state.rounds.filter((r) => r.kind === "main").length;
-      const question = this.questions[index];
-      if (!question) throw new Error("Вопросы закончились.");
-      await this._go(PHASES.QUESTION_STARTING);
-      this.round = { index, kind: "main", question, startedAt: this.now(), modes: {}, selfAnswers: {}, closedAt: {} };
-      await this._go(PHASES.CAPTAIN_DECISION);
-      await this._publish();
-      await this._log({ type: "question_started", round: index });
-      return this.round;
+    if (this.phase !== PHASES.READY && this.phase !== PHASES.QUESTION_RESULT) {
+      throw new Error("Нельзя начать вопрос в фазе " + this.phase);
     }
-    throw new Error("Нельзя начать вопрос в фазе " + this.phase);
+    const index = this.state.rounds.filter((r) => r.kind === "main").length;
+    const question = this.questions[index];
+    if (!question) throw new Error("Вопросы закончились.");
+    await this._go(PHASES.QUESTION_STARTING);
+    this.round = { index, kind: "main", question, startedAt: this.now(), modes: {}, selfAnswers: {}, closedAt: {}, tiebreakStartedAt: null, tied: {} };
+    this.voted = { a: { voted: 0, total: eligibleVoters(this.state.roster, "a").length }, b: { voted: 0, total: eligibleVoters(this.state.roster, "b").length } };
+    await this._go(PHASES.CAPTAIN_DECISION);
+    await this._publish();
+    await this._log({ type: "question_started", round: index });
+    return this.round;
   }
 
   // Капитан выбрал способ ответа. mode: "self" (+ selected) или "vote".
-  async captainChoose(teamId, { mode, selected }) {
+  // atMs — серверное время решения (для скорости); иначе — текущее время.
+  async captainChoose(teamId, { mode, selected }, atMs) {
     const r = this.round;
-    if (!r || this.phase !== PHASES.CAPTAIN_DECISION && this.phase !== PHASES.VOTING) throw new Error("Выбор способа сейчас недоступен.");
-    if (r.modes[teamId]) return false; // идемпотентно: выбор делается один раз
+    if (!r || (this.phase !== PHASES.CAPTAIN_DECISION && this.phase !== PHASES.VOTING)) throw new Error("Выбор способа сейчас недоступен.");
+    if (r.modes[teamId]) return false; // выбор делается один раз
+    const at = Number.isFinite(atMs) ? atMs : this.now();
     if (mode === "self") {
       if (!Array.isArray(selected) || !selected.length) throw new Error("Укажите ответ.");
       r.modes[teamId] = "self";
-      r.selfAnswers[teamId] = { selected: [...selected], answeredMs: this.now() - r.startedAt };
-      r.closedAt[teamId] = this.now();
+      r.selfAnswers[teamId] = { selected: [...selected], answeredMs: Math.max(0, at - r.startedAt) };
+      r.closedAt[teamId] = at;
     } else if (mode === "vote") {
       r.modes[teamId] = "vote";
       if (this.phase === PHASES.CAPTAIN_DECISION) await this._go(PHASES.VOTING);
-      await this._publish({ voteTeams: Object.keys(r.modes).filter((t) => r.modes[t] === "vote") });
     } else throw new Error("Неизвестный способ ответа.");
+    await this._publish();
     await this._log({ type: "captain_choice", round: r.index, teamId, mode });
     return true;
   }
 
-  // Закрыть голосование команды: зафиксировать момент ответа (для скорости).
+  // Применить выбор капитанов из хранилища (идемпотентно; вызывает ведущий по таймеру).
+  async syncCaptainChoices() {
+    const r = this.round;
+    if (!r || (this.phase !== PHASES.CAPTAIN_DECISION && this.phase !== PHASES.VOTING)) return 0;
+    const choices = (await this.store.readChoices?.(r.index)) || {};
+    let applied = 0;
+    for (const id of TEAM_IDS) {
+      const c = choices[id];
+      if (!c || r.modes[id]) continue;
+      try {
+        if (await this.captainChoose(id, c, c.atMs)) applied++;
+      } catch { /* некорректное решение игнорируется — капитан может не успеть */ }
+    }
+    return applied;
+  }
+
+  // Обновить счётчики «проголосовало N из M» (ТЗ §8.3) — публикуется только число.
+  async refreshVoteCounts() {
+    const r = this.round;
+    if (!r || this.phase !== PHASES.VOTING) return this.voted;
+    const votes = (await this.store.readVotes(r.index)) || {};
+    const next = {};
+    for (const id of TEAM_IDS) next[id] = votedCount(votes, eligibleVoters(this.state.roster, id));
+    const same = TEAM_IDS.every((id) => next[id].voted === this.voted[id].voted && next[id].total === this.voted[id].total);
+    this.voted = next;
+    if (!same) await this._publish();
+    return next;
+  }
+
+  // Голосовавшие команды закончили (всё проголосовали или ведущий закрыл).
+  // Фиксирует момент ответа и, если есть спор, переводит игру в tiebreak.
+  async closeVotingPhase() {
+    const r = this.round;
+    if (!r || (this.phase !== PHASES.VOTING && this.phase !== PHASES.CAPTAIN_DECISION)) return { tiebreak: false };
+    const votes = (await this.store.readVotes(r.index)) || {};
+    const tied = {};
+    for (const id of TEAM_IDS) {
+      if (r.modes[id] !== "vote") continue;
+      if (!r.closedAt[id]) r.closedAt[id] = this.now();
+      const eligible = eligibleVoters(this.state.roster, id);
+      const own = Object.fromEntries(Object.entries(votes).filter(([uid]) => eligible.includes(uid)));
+      const res = resolveTeamAnswer({
+        type: r.question.type, optionCount: r.question.optionCount, votes: own, eligible,
+        decisions: {}, tiebreakExpired: false
+      });
+      if (res.status === "tiebreak") tied[id] = res.tied;
+    }
+    if (Object.keys(tied).length) {
+      r.tied = tied;
+      r.tiebreakStartedAt = this.now();
+      if (this.phase === PHASES.CAPTAIN_DECISION) await this._go(PHASES.VOTING);
+      await this._go(PHASES.CAPTAIN_TIEBREAK);
+      await this._publish();
+      await this._log({ type: "tiebreak_started", round: r.index, teams: Object.keys(tied) });
+      return { tiebreak: true, tied };
+    }
+    return { tiebreak: false };
+  }
+
+  // Сколько осталось капитану на спор.
+  tiebreakLeftMs() {
+    const r = this.round;
+    if (!r?.tiebreakStartedAt) return 0;
+    return captainTiebreakLeftMs(r.tiebreakStartedAt, this.now(), this.state.settings.captainTiebreakSeconds);
+  }
+
   closeVoting(teamId) {
     const r = this.round;
     if (r && r.modes[teamId] === "vote" && !r.closedAt[teamId]) r.closedAt[teamId] = this.now();
   }
 
-  // Закрыть раунд: прочитать голоса, посчитать, применить (идемпотентно).
+  // Закрыть раунд: прочитать голоса и решения, посчитать, применить (идемпотентно).
   async closeRound({ timedOut = false } = {}) {
     const r = this.round;
     if (!r) throw new Error("Нет открытого раунда.");
-    if (this.state.rounds.some((x) => x.index === r.index && x.kind === r.kind)) return this.state.rounds.at(-1); // повтор
-    const votes = await this.store.readVotes(r.index);
+    const done = this.state.rounds.find((x) => x.index === r.index && x.kind === r.kind);
+    if (done) return done; // повторное событие
+    const votes = (await this.store.readVotes(r.index)) || {};
     const decisions = (await this.store.readDecisions?.(r.index)) || {};
+    const tiebreakExpired = Boolean(r.tiebreakStartedAt) && this.tiebreakLeftMs() === 0;
     const teams = {};
     for (const id of TEAM_IDS) {
       const mode = r.modes[id] || "none";
       const eligible = eligibleVoters(this.state.roster, id);
       const own = Object.fromEntries(Object.entries(votes).filter(([uid]) => eligible.includes(uid)));
-      const dec = decisions[id] || {};
       const closeAt = r.closedAt[id] ?? this.now();
       const isTimeout = timedOut && !r.closedAt[id];
       teams[id] = {
         teamId: id, mode, captainUid: this.state.roster.captains[id], eligible,
         votes: own,
         captainSelected: r.selfAnswers[id]?.selected,
-        decisions: dec,
-        tiebreakExpired: Boolean(r.tiebreakStartedAt) && captainTiebreakLeftMs(r.tiebreakStartedAt, this.now(), this.state.settings.captainTiebreakSeconds) === 0,
+        decisions: decisions[id] || {},
+        tiebreakExpired,
         answeredMs: r.selfAnswers[id]?.answeredMs ?? Math.max(0, closeAt - r.startedAt),
         timedOut: isTimeout || mode === "none"
       };
@@ -163,16 +306,46 @@ export class BattleGame {
       index: r.index, kind: r.kind, question: r.question,
       durationSec: this.state.settings.questionSeconds, teams, settings: this.state.settings
     });
-    const applied = applyRoundResult(this.state, record);
-    this.state = applied.state;
+    this.state = applyRoundResult(this.state, record).state;
     if (this.phase !== PHASES.QUESTION_RESULT) await this._go(PHASES.QUESTION_RESULT);
+    await this.store.saveRound?.(record);
     // Правильный ответ раскрывается только теперь.
-    await this._publish({ correct: r.question.correct, result: { a: record.teams.a.points, b: record.teams.b.points } });
+    await this._publish({ correct: r.question.correct });
     await this._log({ type: "round_closed", round: r.index });
     return record;
   }
 
-  // Игрок выбыл (60 с без связи или решение ведущего).
+  // Один шаг автоматического хода раунда (вызывается ведущим по таймеру ~2 с).
+  // Возвращает: "idle" | "waiting" | "timeout" | "closed" | "tiebreak".
+  // Порядок: подтянуть выбор капитанов → обновить счётчики → время вышло? →
+  // все ответили? → спор → закрытие. Операции идемпотентны, шаг можно повторять.
+  async autoStep() {
+    const r = this.round;
+    if (!r) return "idle";
+    if (this.phase === PHASES.CAPTAIN_DECISION || this.phase === PHASES.VOTING) {
+      await this.syncCaptainChoices();
+      if (this.phase === PHASES.VOTING) await this.refreshVoteCounts();
+      const left = r.startedAt + this.state.settings.questionSeconds * 1000 - this.now();
+      if (left <= 0) { await this.closeRound({ timedOut: true }); return "timeout"; }
+      const ready = TEAM_IDS.every((id) => r.modes[id] === "self"
+        || (r.modes[id] === "vote" && this.voted[id].voted >= this.voted[id].total));
+      if (ready) {
+        const res = await this.closeVotingPhase();
+        if (res.tiebreak) return "tiebreak";
+        await this.closeRound();
+        return "closed";
+      }
+      return "waiting";
+    }
+    if (this.phase === PHASES.CAPTAIN_TIEBREAK) {
+      const decisions = (await this.store.readDecisions?.(r.index)) || {};
+      const decided = Object.keys(r.tied).every((id) => decisions[id] && Object.keys(decisions[id]).length > 0);
+      if (decided || this.tiebreakLeftMs() === 0) { await this.closeRound(); return "closed"; }
+      return "waiting";
+    }
+    return "idle";
+  }
+
   async eliminate(uid) {
     const round = this.state.rounds.length;
     const res = eliminatePlayer(this.state.roster, uid, { roundIndex: round, liveInfo: this.liveInfo });
@@ -184,18 +357,17 @@ export class BattleGame {
     return true;
   }
 
-  // После основных вопросов: решающий раунд или завершение.
   async afterMainRounds() {
     if (!isGameComplete(this.state)) return "continue";
     if (needsSuddenDeath(this.state)) {
       await this._go(PHASES.SUDDEN_DEATH);
+      await this._publish();
       return "sudden_death";
     }
     await this.finish();
     return "finished";
   }
 
-  // Решающий раунд: ответы капитанов { a:{correct, ms}, b:{…} } (проверка — на стороне ведущего).
   async resolveSuddenDeath(answers) {
     const result = resolveSuddenDeathRound(answers);
     const entry = { ...result, answers, extraIndex: this.extraIndex };
@@ -203,6 +375,7 @@ export class BattleGame {
     this.extraIndex++;
     await this._log({ type: "sudden_death_round", ...result });
     if (!result.next) await this.finish();
+    else await this._publish();
     return result;
   }
 
@@ -225,5 +398,4 @@ export function createBattleGame(options) {
   return new BattleGame(options);
 }
 
-// Реэкспорт для интерфейсов: просмотр результата спорного голосования.
 export { resolveTeamAnswer };
