@@ -48,7 +48,7 @@ function roomRef(code) {
 // mode: "auto" (по умолчанию) или "manual"; options — настройки
 // автономного режима (questionSec, gapSec, shuffleQuestions, speedBonus,
 // showLeaderboard); всё необязательное, пустое берётся из настроек теста.
-export async function createRoom({ test, profile, allowObservers = false, mode = LIVE_MODE_AUTO, options = {} }) {
+export async function createRoom({ test, profile, allowObservers = false, mode = LIVE_MODE_AUTO, options = {}, battleEnabled = false }) {
   requireOnline("Нет подключения к интернету. Комната не создана.");
   if (!test?.id) throw new Error("Тест не выбран.");
   if (!profile?.orgId) throw new Error("Профиль организации не загружен.");
@@ -77,6 +77,9 @@ export async function createRoom({ test, profile, allowObservers = false, mode =
         hostName: profile.fullName || "",
         status: "active",
         mode: liveMode,
+        // «Командная битва после теста»: подготовка команд появляется у ведущего
+        // после завершения Live. Поле только при включённой опции — старые комнаты не меняются.
+        ...(battleEnabled === true ? { battleEnabled: true } : {}),
         // Регистрация открыта, пока ведущий её не закроет; закрытая
         // регистрация запрещает новые players/{uid} (правила).
         registrationOpen: true,

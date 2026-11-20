@@ -22,7 +22,8 @@ import {
   PHASES, TEAM_IDS, transitionPhase, createBattleState, applyRoundResult,
   buildRoundRecord, eligibleVoters, eliminatePlayer, finishBattle,
   isGameComplete, needsSuddenDeath, resolveSuddenDeathRound, applySuddenDeathResult,
-  pickExtraQuestion, ropePosition, captainTiebreakLeftMs, resolveTeamAnswer, votedCount
+  pickExtraQuestion, ropePosition, captainTiebreakLeftMs, resolveTeamAnswer, votedCount,
+  isFullyCorrect, connectionState, isActivePlayer
 } from "./battle-logic.js";
 
 export const ROUND_STATES = {
@@ -39,7 +40,9 @@ const PHASE_TO_ROUND = {
   [PHASES.VOTING]: ROUND_STATES.VOTING,
   [PHASES.CAPTAIN_TIEBREAK]: ROUND_STATES.TIEBREAK,
   [PHASES.QUESTION_RESULT]: ROUND_STATES.CLOSED,
-  [PHASES.SUDDEN_DEATH]: ROUND_STATES.DECISION
+  // Решающий раунд: статус answering, чтобы капитаны могли писать ответ
+  // тем же документом решения, что и в основной части (правила Firestore).
+  [PHASES.SUDDEN_DEATH]: ROUND_STATES.ANSWERING
 };
 
 // Публичная выжимка раунда: итог команды, но не личные ответы.
@@ -68,6 +71,7 @@ export class BattleGame {
     this.extraIndex = 0;
     this.events = [];
     this.voted = { a: { voted: 0, total: 0 }, b: { voted: 0, total: 0 } };
+    this.lastExtra = null; // итог последнего решающего вопроса (для экранов)
   }
 
   get phase() { return this.state.phase; }
@@ -89,12 +93,16 @@ export class BattleGame {
       scores: doc.scores || { a: 0, b: 0 },
       bonuses: doc.bonuses || { a: 0, b: 0 },
       correctAnswers: doc.correctAnswers || { a: 0, b: 0 },
-      suddenDeath: doc.suddenDeath || { rounds: [], winner: null },
+      suddenDeath: {
+        rounds: Array.isArray(doc.suddenDeath?.rounds) ? doc.suddenDeath.rounds : [],
+        winner: doc.suddenDeath?.winner ?? null
+      },
       winner: doc.winner ?? null,
       tie: Boolean(doc.tie),
       finishedEarly: Boolean(doc.finishedEarly)
     };
     g.extraIndex = doc.extraIndex || 0;
+    g.lastExtra = doc.lastExtra || null;
     const cr = doc.currentRound;
     if (cr && g.phase !== PHASES.READY && g.phase !== PHASES.FINISHED) {
       const question = questions.find((q) => q.id === cr.questionId) || questions[cr.index];
@@ -144,8 +152,12 @@ export class BattleGame {
       availableFrom: rs.availableFrom,
       availableTo: rs.availableTo,
       roundSummaries: this.state.rounds.map(summarizeRound),
-      suddenDeath: { winner: this.state.suddenDeath.winner, rounds: this.state.suddenDeath.rounds.length },
+      suddenDeath: {
+        winner: this.state.suddenDeath.winner,
+        rounds: this.state.suddenDeath.rounds.map((x) => ({ reason: x.reason, winner: x.winner ?? null, next: Boolean(x.next) }))
+      },
       extraIndex: this.extraIndex,
+      lastExtra: this.lastExtra,
       winner: this.state.winner,
       tie: Boolean(this.state.tie),
       finishedEarly: this.state.finishedEarly,
@@ -321,6 +333,7 @@ export class BattleGame {
   // все ответили? → спор → закрытие. Операции идемпотентны, шаг можно повторять.
   async autoStep() {
     const r = this.round;
+    if (this.phase === PHASES.SUDDEN_DEATH) return this.suddenStep();
     if (!r) return "idle";
     if (this.phase === PHASES.CAPTAIN_DECISION || this.phase === PHASES.VOTING) {
       await this.syncCaptainChoices();
@@ -361,6 +374,7 @@ export class BattleGame {
     if (!isGameComplete(this.state)) return "continue";
     if (needsSuddenDeath(this.state)) {
       await this._go(PHASES.SUDDEN_DEATH);
+      this.round = null; // основной раунд закрыт; решающий создаётся startSuddenDeathRound
       await this._publish();
       return "sudden_death";
     }
@@ -368,15 +382,79 @@ export class BattleGame {
     return "finished";
   }
 
+  // Результат решающего вопроса: answers = { a:{correct, ms}, b:{correct, ms} }.
   async resolveSuddenDeath(answers) {
     const result = resolveSuddenDeathRound(answers);
     const entry = { ...result, answers, extraIndex: this.extraIndex };
     this.state = applySuddenDeathResult(this.state, entry);
     this.extraIndex++;
+    this.lastExtra = { reason: result.reason, winner: result.winner, next: result.next };
+    this.round = null;
     await this._log({ type: "sudden_death_round", ...result });
     if (!result.next) await this.finish();
     else await this._publish();
     return result;
+  }
+
+  // Новый решающий вопрос. Банк вопросов повторяется по кругу — лимита нет (ТЗ §13).
+  // Номер раунда продолжает основной: questions.length + extraIndex.
+  async startSuddenDeathRound() {
+    if (this.phase !== PHASES.SUDDEN_DEATH) throw new Error("Решающий раунд сейчас недоступен.");
+    if (this.round) return this.round;
+    const question = this.nextExtraQuestion(this.questions);
+    if (!question) throw new Error("Нет вопросов для решающего раунда.");
+    const index = this.questions.length + this.extraIndex;
+    this.round = { index, kind: "extra", question, startedAt: this.now(), modes: {}, selfAnswers: {}, closedAt: {}, tiebreakStartedAt: null, tied: {} };
+    this.voted = { a: { voted: 0, total: 0 }, b: { voted: 0, total: 0 } };
+    await this._publish();
+    await this._log({ type: "sudden_death_started", round: index });
+    return this.round;
+  }
+
+  // Один шаг решающего раунда: ждём ответы обоих капитанов или конец времени.
+  // Побеждает первый ПРАВИЛЬНЫЙ ответ; обе ошибки или равное время — следующий вопрос.
+  async suddenStep() {
+    if (this.phase !== PHASES.SUDDEN_DEATH) return "idle";
+    if (!this.round) { await this.startSuddenDeathRound(); return "started"; }
+    const r = this.round;
+    const choices = (await this.store.readChoices?.(r.index)) || {};
+    const answers = {};
+    let answered = 0;
+    for (const id of TEAM_IDS) {
+      const c = choices[id];
+      if (c && c.mode === "self" && Array.isArray(c.selected) && c.selected.length) {
+        answered++;
+        const ms = Math.max(0, (Number.isFinite(c.atMs) ? c.atMs : this.now()) - r.startedAt);
+        answers[id] = { correct: isFullyCorrect({ selected: c.selected, correct: r.question.correct }), ms };
+      } else answers[id] = { correct: false, ms: Infinity };
+    }
+    const left = r.startedAt + this.state.settings.questionSeconds * 1000 - this.now();
+    if (answered < TEAM_IDS.length && left > 0) return "waiting";
+    await this.resolveSuddenDeath(answers);
+    return this.phase === PHASES.FINISHED ? "finished" : "next";
+  }
+
+  // Выбывание по связи (ТЗ §6.1, §23): presence = { uid: lastSeenMs }.
+  // Игрок без сигнала дольше окна восстановления (60 с + пропущенные пульсы)
+  // считается выбывшим; идемпотентно. Нет метки — не выбываем.
+  async trackPresence(presence = {}, nowMs = this.now()) {
+    if (this.phase === PHASES.READY || this.phase === PHASES.FINISHED || this.phase === PHASES.CANCELLED) return [];
+    const dropped = [];
+    const rs = this.state.roster;
+    for (const id of TEAM_IDS) {
+      for (const uid of rs.teams[id]) {
+        if (!isActivePlayer(this.state.roster, uid)) continue;
+        const seen = presence[uid];
+        if (!Number.isFinite(seen)) continue;
+        const st = connectionState({ lastSeenMs: seen, nowMs, graceMs: this.state.settings.reconnectMs });
+        if (st === "dropped") dropped.push(uid);
+      }
+    }
+    const done = [];
+    for (const uid of dropped) {
+      try { if (await this.eliminate(uid)) done.push(uid); } catch { /* уже выбыл */ }
+    }
+    return done;
   }
 
   nextExtraQuestion(bank) {

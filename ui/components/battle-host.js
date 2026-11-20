@@ -22,7 +22,7 @@ const PHASE_LABEL = {
 // buildBattleHost({ game, test, players, onToast, onFinish, intervalMs, confirmFn })
 //   players  — [{ uid, displayName }]
 //   onFinish — async (game) => сохранить снимок в историю (вызывается один раз)
-export function buildBattleHost({ game, test, players = [], onToast = () => {}, onFinish = async () => {}, intervalMs = 2000, confirmFn = (m) => (typeof confirm === "function" ? confirm(m) : true) }) {
+export function buildBattleHost({ game, test, players = [], onToast = () => {}, onFinish = async () => {}, getPresence = null, intervalMs = 2000, confirmFn = (m) => (typeof confirm === "function" ? confirm(m) : true) }) {
   const nameOf = (uid) => players.find((p) => p.uid === uid)?.displayName || uid;
   const rope = buildRope(game.rope());
   const body = h("div", { class: "battle-body" });
@@ -53,7 +53,7 @@ export function buildBattleHost({ game, test, players = [], onToast = () => {}, 
     // После закрытия последнего вопроса — решающий раунд или завершение.
     if (game.phase === PHASES.QUESTION_RESULT && isGameComplete(game.state)) {
       const next = await game.afterMainRounds();
-      note = next === "sudden_death" ? "Счёт равный. Решающий раунд капитанов пока недоступен: завершите битву ничьей вручную." : "";
+      note = next === "sudden_death" ? "Счёт равный: начинается решающий раунд капитанов." : "";
     }
     if (game.phase === PHASES.FINISHED && !finishedHandled) {
       finishedHandled = true;
@@ -65,7 +65,13 @@ export function buildBattleHost({ game, test, players = [], onToast = () => {}, 
   async function step() {
     if (busy) return;
     busy = true;
-    try { await game.autoStep(); } catch (err) { onToast(err?.message || "Ошибка хода игры.", "error"); }
+    try {
+      if (getPresence) {
+        const gone = await game.trackPresence(getPresence(), game.now());
+        for (const uid of gone) onToast(`Игрок ${nameOf(uid)} выбыл: нет связи.`, "info");
+      }
+      await game.autoStep();
+    } catch (err) { onToast(err?.message || "Ошибка хода игры.", "error"); }
     finally { busy = false; await afterAction(); }
   }
 
@@ -106,15 +112,22 @@ export function buildBattleHost({ game, test, players = [], onToast = () => {}, 
     const phase = game.phase;
     const r = game.round;
     const parts = [h("p", { class: "battle-status" }, PHASE_LABEL[phase] || phase)];
+    if (phase === PHASES.SUDDEN_DEATH) {
+      const last = game.lastExtra;
+      parts.push(h("div", { class: "battle-question" },
+        h("h2", {}, `Решающий раунд капитанов${game.extraIndex ? ` · вопрос ${game.extraIndex + (r ? 1 : 0)}` : ""}`),
+        last && last.next ? h("p", { class: "battle-status" }, last.reason === "same_time" ? "Время ответов совпало — следующий вопрос." : "Верного ответа не было — следующий вопрос.") : null,
+        h("p", { class: "battle-status" }, "Капитаны отвечают самостоятельно; побеждает первый правильный ответ.")));
+    }
     if (r && phase !== PHASES.FINISHED) {
       const meta = { id: r.question.id, src: r.question.src };
       const content = battleQuestionContent(test, meta);
       const closed = phase === PHASES.QUESTION_RESULT;
       parts.push(h("div", { class: "battle-question" },
-        h("h2", {}, `Вопрос ${r.index + 1} из ${game.questions.length}: ${content.text}`),
+        h("h2", {}, r.kind === "extra" ? content.text : `Вопрос ${r.index + 1} из ${game.questions.length}: ${content.text}`),
         h("ul", { class: "battle-options" }, ...content.options.map((text, i) =>
           h("li", {}, h("div", { class: "battle-option", ...(closed && r.question.correct.includes(i) ? { "data-state": "correct" } : {}) }, text))))));
-      parts.push(h("ul", {}, teamLine("a"), teamLine("b")));
+      if (r.kind !== "extra") parts.push(h("ul", {}, teamLine("a"), teamLine("b")));
     }
     if (note) parts.push(h("p", { class: "battle-status" }, note));
     const actions = [];

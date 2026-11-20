@@ -46,6 +46,10 @@ export function buildBattleScreen({ test, nameOf = (u) => u, now = () => Date.no
       return;
     }
     const r = battle.currentRound;
+    if (battle.phase === "sudden_death" && (!r || r.kind !== "extra")) {
+      body.replaceChildren(h("h2", {}, "Решающий раунд капитанов"), h("p", { class: "battle-status" }, "Счёт равный. Готовим вопрос…"));
+      return;
+    }
     if (!r) { body.replaceChildren(h("p", { class: "battle-status" }, "Битва скоро начнётся.")); return; }
     const meta = (battle.questions || []).find((q) => q.id === r.questionId) || { id: r.questionId };
     const content = battleQuestionContent(test, meta);
@@ -53,6 +57,7 @@ export function buildBattleScreen({ test, nameOf = (u) => u, now = () => Date.no
     const correct = closed ? (r.correct || []) : [];
     const sum = closed ? (battle.roundSummaries || []).find((s) => s.index === r.index && s.kind === (r.kind || "main")) : null;
     body.replaceChildren(...[
+      r.kind === "extra" ? h("p", { class: "battle-status" }, "Решающий раунд капитанов") : null,
       h("h2", {}, content.text),
       h("ul", { class: "battle-options" }, ...content.options.map((text, i) =>
         h("li", {}, h("div", { class: "battle-option", ...(correct.includes(i) ? { "data-state": "correct" } : {}) }, text)))),

@@ -128,6 +128,12 @@ export default async function LaunchPage() {
         h("span", { class: "muted" }, "Вы открываете и закрываете каждый вопрос"))),
     autoFields
   );
+  // «Командная битва после теста» (ТЗ §4): после Live ведущий формирует команды.
+  const battleInput = h("input", { type: "checkbox", id: "live-battle" });
+  modeForm.appendChild(h("label", { class: "role-option", for: "live-battle" }, battleInput,
+    h("span", { class: "role-option-body" },
+      h("b", {}, "Командная битва после теста"),
+      h("span", { class: "muted" }, "После Live: два капитана, команды, голосование и канат. Нужно минимум 8 участников"))));
   const syncMode = () => { autoFields.hidden = !modeAuto.checked; };
   modeAuto.addEventListener("change", syncMode);
   modeManual.addEventListener("change", syncMode);
@@ -165,7 +171,8 @@ export default async function LaunchPage() {
             shuffleQuestions: shuffleInput.checked,
             speedBonus: speedInput.checked,
             showLeaderboard: boardInput.checked
-          } : {}
+          } : {},
+          battleEnabled: battleInput.checked
         };
 
         const code = await createRoom(roomData);

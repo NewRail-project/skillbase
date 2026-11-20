@@ -13,12 +13,15 @@ import {
 //   ranking  — [{ uid, score }] итог основного Live (с учётом «Дуэли»)
 //   settings — сохранённые настройки битвы (необязательно)
 //   duelWinners — uid победителей существующей «Дуэли» за 2-е место
-export function buildBattlePrep({ players = [], ranking = [], settings = {}, onStart, onToast = () => {}, duelWinners = [] } = {}) {
+export function buildBattlePrep({ players = [], ranking = [], settings = {}, onStart, onToast = () => {}, duelWinners = [], loadBanks = null, currentTestId = "" } = {}) {
   const root = h("div", { class: "panel battle-prep" });
   const name = (uid) => players.find((p) => p.uid === uid)?.displayName || uid;
   const form = { ...DEFAULT_BATTLE_SETTINGS, ...settings };
   let roster = null;
   let seed = "";
+  let bankId = settings.battleTestId || "";
+  let banks = [];
+  if (loadBanks) loadBanks().then((list) => { banks = list || []; render(); }).catch(() => {});
 
   function distribute() {
     const { settings: s, errors } = normalizeSettings(form);
@@ -66,6 +69,10 @@ export function buildBattlePrep({ players = [], ranking = [], settings = {}, onS
       h("h2", {}, "Подготовка Командной битвы"),
       h("p", { class: "muted" }, `Участников: ${players.length}. Капитаны — 1-е и 2-е места Live; остальные распределяются случайно.`),
       h("fieldset", { class: "field" },
+        h("label", { class: "field" }, "Набор вопросов для битвы",
+          h("select", { onchange: (e) => { bankId = e.target.value; } },
+            h("option", { value: "", selected: !bankId }, "Вопросы этого теста"),
+            ...banks.filter((b) => b.id !== currentTestId).map((b) => h("option", { value: b.id, selected: bankId === b.id }, b.title || b.id)))),
         num("questionCount", "Количество вопросов", { min: 1, max: 50 }),
         num("questionSeconds", "Время на вопрос, сек", { min: 5, max: 3600 }),
         h("label", { class: "field" }, "Порядок вопросов",
@@ -87,7 +94,7 @@ export function buildBattlePrep({ players = [], ranking = [], settings = {}, onS
           h("button", { type: "button", class: "btn primary", onclick: () => {
             const { settings: s, errors } = normalizeSettings(form);
             if (errors.length) return onToast(errors[0], "error");
-            onStart && onStart({ settings: s, roster });
+            onStart && onStart({ settings: { ...s, ...(bankId ? { battleTestId: bankId } : {}) }, roster });
           } }, "Запустить битву"))) : null);
   }
 

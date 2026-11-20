@@ -486,3 +486,22 @@ export async function attachBattleToHistory(code, snapshot) {
   await updateDoc(ref, { battle: snapshot });
   return { saved: true };
 }
+
+
+// ---------- Присутствие (ТЗ §6.1) ----------
+// Игрок раз в 15 с обновляет players/{uid}.updatedAt (это поле правила уже
+// разрешают владельцу). Ведущий читает метку из списка участников и по
+// ней определяет окно восстановления связи (60 с).
+export const BATTLE_PULSE_MS = 15 * 1000;
+
+export async function touchPresence(code) {
+  const roomCode = validateCode(code);
+  const uid = State.user?.uid;
+  if (!uid || (typeof navigator !== "undefined" && navigator.onLine === false)) return false;
+  try {
+    await updateDoc(playerRef(roomCode, uid), { updatedAt: serverTimestamp() });
+    return true;
+  } catch {
+    return false; // обрыв связи — следующий пульс повторит
+  }
+}

@@ -360,3 +360,128 @@ test("сквозной сценарий: 3 вопроса, замена поср
   assert.equal(JSON.stringify(snap).includes('"correct":'), true); // только в итогах закрытых раундов
   assert.equal(snap.rounds.length, 3);
 });
+
+
+// ---------- решающий раунд капитанов ----------
+async function tiedGame() {
+  const env = setup({ n: 8, questions: [
+    { id: "q0", type: "single", optionCount: 3, correct: [0] },
+    { id: "q1", type: "single", optionCount: 3, correct: [2] }
+  ] });
+  const { game, votesByRound, choices, roster } = env;
+  await game.startNextQuestion();
+  choices[0] = { a: { mode: "vote" }, b: { mode: "vote" } };
+  votesByRound[0] = { ...vote(roster.teams.a, [0]), ...vote(roster.teams.b, [0]) };
+  await game.autoStep();
+  await game.startNextQuestion();
+  choices[1] = { a: { mode: "vote" }, b: { mode: "vote" } };
+  votesByRound[1] = { ...vote(roster.teams.a, [2]), ...vote(roster.teams.b, [2]) };
+  await game.autoStep();
+  assert.equal(await game.afterMainRounds(), "sudden_death");
+  return env;
+}
+
+test("решающий раунд: старт, быстрый правильный ответ побеждает", async () => {
+  const { game, choices, saved, tick } = await tiedGame();
+  assert.equal(await game.autoStep(), "started");
+  const r = game.round;
+  assert.equal(r.kind, "extra");
+  assert.equal(r.index, 2); // продолжает нумерацию основной части
+  assert.equal(saved.at(-1).currentRound.status, ROUND_STATES.ANSWERING);
+  assert.equal(await game.autoStep(), "waiting");
+  const ok = r.question.correct;
+  choices[2] = { a: { mode: "self", selected: ok, atMs: r.startedAt + 3000 }, b: { mode: "self", selected: ok, atMs: r.startedAt + 1500 } };
+  assert.equal(await game.autoStep(), "finished");
+  assert.equal(game.state.winner, "b");
+  assert.equal(game.phase, L.PHASES.FINISHED);
+});
+
+test("решающий раунд: быстрый неправильный не побеждает", async () => {
+  const { game, choices } = await tiedGame();
+  await game.autoStep();
+  const r = game.round;
+  const wrong = [(r.question.correct[0] + 1) % r.question.optionCount];
+  choices[2] = { a: { mode: "self", selected: wrong, atMs: r.startedAt + 100 }, b: { mode: "self", selected: r.question.correct, atMs: r.startedAt + 9000 } };
+  assert.equal(await game.autoStep(), "finished");
+  assert.equal(game.state.winner, "b");
+});
+
+test("решающий раунд: обе ошибки или одинаковое время — следующий вопрос, без лимита", async () => {
+  const { game, choices } = await tiedGame();
+  await game.autoStep();
+  let r = game.round;
+  const wrong = [(r.question.correct[0] + 1) % r.question.optionCount];
+  choices[2] = { a: { mode: "self", selected: wrong, atMs: r.startedAt + 1 }, b: { mode: "self", selected: wrong, atMs: r.startedAt + 2 } };
+  assert.equal(await game.autoStep(), "next");
+  assert.equal(game.phase, L.PHASES.SUDDEN_DEATH);
+  assert.equal(game.round, null);
+  assert.equal(game.lastExtra.reason, "both_wrong");
+  assert.equal(await game.autoStep(), "started"); // следующий вопрос из банка по кругу
+  r = game.round;
+  assert.equal(r.index, 3);
+  choices[3] = { a: { mode: "self", selected: r.question.correct, atMs: r.startedAt + 2000 }, b: { mode: "self", selected: r.question.correct, atMs: r.startedAt + 2000 } };
+  assert.equal(await game.autoStep(), "next");
+  assert.equal(game.lastExtra.reason, "same_time");
+  await game.autoStep();
+  assert.equal(game.round.index, 4);
+  assert.equal(game.state.suddenDeath.rounds.length, 2);
+});
+
+test("решающий раунд: время вышло без ответов — раунд повторяется", async () => {
+  const { game, tick } = await tiedGame();
+  await game.autoStep();
+  assert.equal(await game.autoStep(), "waiting");
+  tick(31000);
+  assert.equal(await game.autoStep(), "next");
+  assert.equal(game.lastExtra.reason, "both_wrong");
+});
+
+test("решающий раунд не меняет личную статистику основной части", async () => {
+  const { game, choices, liveInfo, roster } = await tiedGame();
+  await game.autoStep();
+  const r = game.round;
+  choices[2] = { a: { mode: "self", selected: r.question.correct, atMs: r.startedAt + 100 }, b: { mode: "self", selected: [9], atMs: r.startedAt + 200 } };
+  await game.autoStep();
+  const snap = buildBattleSnapshot({ state: game.state, liveInfo, initialRoster: roster, events: game.events, questions: [] });
+  assert.equal(snap.winner, "a");
+  const cap = snap.players.find((p) => p.uid === "u1");
+  assert.equal(cap.availableQuestions, 2); // только основные вопросы
+});
+
+test("решающий раунд: восстановление после перезагрузки сохраняет раунды и номер", async () => {
+  const { game, choices, saved, rounds, store, qs, liveInfo } = await tiedGame();
+  await game.autoStep();
+  let r = game.round;
+  choices[2] = { a: { mode: "self", selected: [(r.question.correct[0] + 1) % 3], atMs: r.startedAt + 1 }, b: { mode: "self", selected: [(r.question.correct[0] + 1) % 3], atMs: r.startedAt + 2 } };
+  await game.autoStep();
+  const g2 = BattleGame.restore({ doc: saved.at(-1), questions: qs, rounds, liveInfo, store, now: () => 9999 });
+  assert.equal(g2.extraIndex, 1);
+  assert.equal(g2.state.suddenDeath.rounds.length, 1);
+  assert.equal(g2.phase, L.PHASES.SUDDEN_DEATH);
+});
+
+// ---------- выбывание по связи ----------
+test("связь: без сигнала дольше окна игрок выбывает, замена из резерва, повтор безопасен", async () => {
+  const { game, roster, tick } = setup({ n: 9 });
+  await game.startNextQuestion();
+  const victim = roster.teams.a.find((u) => u !== "u1");
+  const now = game.now();
+  const presence = Object.fromEntries([...roster.teams.a, ...roster.teams.b].map((u) => [u, now]));
+  presence[victim] = now - 20000; // кратковременный обрыв — не выбывает
+  assert.deepEqual(await game.trackPresence(presence, now), []);
+  presence[victim] = now - 95000; // больше 60 с + пропущенные пульсы
+  assert.deepEqual(await game.trackPresence(presence, now), [victim]);
+  assert.ok(game.state.roster.eliminated.includes(victim));
+  assert.equal(game.state.roster.substituted.length, 1);
+  assert.deepEqual(await game.trackPresence(presence, now), []);
+});
+
+test("связь: капитан выбыл — капитанство передаётся; до старта и без метки не выбывают", async () => {
+  const { game, roster } = setup({ n: 9 });
+  const now = game.now();
+  assert.deepEqual(await game.trackPresence({ u1: 0 }, now + 999999), []); // фаза READY
+  await game.startNextQuestion();
+  assert.deepEqual(await game.trackPresence({}, now), []);               // нет меток
+  assert.deepEqual(await game.trackPresence({ u1: now - 120000 }, now), ["u1"]);
+  assert.notEqual(game.state.roster.captains.a, "u1");
+});

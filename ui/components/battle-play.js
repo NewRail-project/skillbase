@@ -164,9 +164,43 @@ export function buildBattlePlay({ uid, test, api, onToast = () => {}, now = () =
       h("p", { class: "battle-status" }, "Ждём следующий вопрос…"));
   }
 
+  // Решающий раунд (ТЗ §13): отвечают только капитаны, командного голосования нет.
+  function suddenBlock(who) {
+    const r = cr();
+    const last = battle.lastExtra;
+    const title = h("h2", {}, "Решающий раунд капитанов");
+    const lastText = last && last.next
+      ? (last.reason === "same_time" ? "Время ответов совпало — следующий вопрос." : "Верного ответа не было — следующий вопрос.")
+      : "";
+    if (!r || r.kind !== "extra") {
+      return h("div", {}, title, h("p", { class: "battle-status" }, `Счёт равный. ${lastText || "Готовим вопрос…"}`));
+    }
+    const meta = (battle.questions || []).find((q) => q.id === r.questionId) || { id: r.questionId };
+    const content = battleQuestionContent(test, meta);
+    const multi = r.type === "multiple";
+    const isCap = who.role === "captain";
+    if (!isCap) {
+      return h("div", {}, title, h("h3", {}, content.text),
+        optionButtons(content, r, { multi, locked: true }),
+        h("p", { class: "battle-status" }, "Отвечают капитаны. Побеждает первый правильный ответ."));
+    }
+    if (confirmed) {
+      return h("div", {}, title, h("h3", {}, content.text),
+        optionButtons(content, r, { multi, locked: true, team: who.teamId }),
+        h("p", { class: "battle-status" }, "Ответ отправлен. Ждём второго капитана…"));
+    }
+    return h("div", {}, title, h("h3", {}, content.text),
+      optionButtons(content, r, { multi, locked: false, team: who.teamId, onClick: (i) => { toggle(i, multi); render(); } }),
+      h("div", { class: "battle-actions" },
+        h("button", { type: "button", class: "btn primary", disabled: selection.length === 0,
+          onclick: () => run(() => api.makeCaptainDecision({ roundId: r.index, teamId: who.teamId, decision: { mode: "self", selected: selection } }).then(() => { confirmed = [...selection]; }), "Ответ отправлен.") }, "Отправить ответ")),
+      h("p", { class: "battle-status" }, "Отвечайте быстрее и точнее: побеждает первый правильный ответ."));
+  }
+
   function renderBody() {
     const who = info();
     const phase = battle.phase;
+    if (phase === "sudden_death" && who.role !== "out") return suddenBlock(who);
     if (phase === "finished") {
       const w = battle.winner;
       return h("div", { class: "battle-result" },

@@ -70,6 +70,7 @@ import {
 import { getSubject, getTopic } from "../../core/subjects.js";
 import { buildBattlePrep } from "../../ui/components/battle-prep.js";
 import { launchBattle } from "../../core/battle.js";
+import { listMyTests } from "../../core/editor.js";
 import { mountBattle, disposeBattle } from "./battle-room.js";
 import { buildLaunchPlan, toBattleQuestions } from "../../core/battle-launch.js";
 import { getAttemptKeys } from "../../core/attempts.js";
@@ -1887,7 +1888,12 @@ function questionPanel(question, { showAnswer = false } = {}) {
 // Результаты комнаты при закрытии: дуэль, подиум, экспресс.
 function roomResults() {
   if (local.room?.status !== "closed" && liveInfo().lifecycle !== "completed") return null;
-  return finalSequence();
+  const seq = finalSequence();
+  // «Командная битва после теста»: ведущий готовит команды, когда Live закончен.
+  if (local.isHost && local.room?.battleEnabled === true && local.room?.mode !== "battle") {
+    return h("div", {}, seq, battlePrepPanel(local.room));
+  }
+  return seq;
 }
 
 // Список участников в лобби (ручной режим): контейнер с точечным
@@ -3322,9 +3328,6 @@ function lobbyPanel(room, who) {
   const text = who === "observer"
     ? "Вы подключены как наблюдатель. Рейтинг и ход теста появятся после старта."
     : "Вы подключены. Тест начнётся, когда ведущий нажмёт «" + tr("room.start") + "» — вопросы пойдут сами.";
-  // Битва недоступна, если теста нет или режим не battle.
-  const test = local.test || {};
-  const isBattleMode = Boolean(test.settings && test.settings.battleMode);
   return h("div", { class: "panel" },
     h("div", { class: "empty-state" },
       h("div", { class: "empty-state-icon", innerHTML: icons.clock }),
@@ -3337,8 +3340,8 @@ function lobbyPanel(room, who) {
         : h("p", { class: "form-hint" }, local.errors.players
           ? "Список участников недоступен, но вы подключены."
           : "Загружаем список участников…"),
-      // Панель подготовки Командной битвы (показывается только хосту при battle-режиме).
-      isBattleMode && local.isHost && battlePrepPanel(room)));
+      // Подготовка Командной битвы появляется у ведущего после завершения Live (roomResults).
+      null));
 }
 
 // --- Битва: панель подготовки команд ------------------------------------------
@@ -3347,11 +3350,20 @@ function lobbyPanel(room, who) {
 
 function battlePrepPanel(room) {
   const players = battlePlayers();
-  const ranking = ratingSource().map((row) => ({ uid: row.uid, score: row.score || 0 }));
+  // Капитаны — по ИТОГОВЫМ местам Live (после «Дуэли»): равное место у двух
+  // участников = дуэль ещё не решена, и панель попросит её провести.
+  const ranking = ratingSource().map((row) => ({ uid: row.uid, score: -(Number(row.place) || 9999) }));
   return buildBattlePrep({
     players,
     ranking,
-    settings: (local.test?.settings || {}).battleSettings || {},
+    settings: {},
+    currentTestId: local.test?.id || "",
+    loadBanks: async () => {
+      const uid = State.user?.uid;
+      const orgId = local.room?.orgId || State.profile?.orgId;
+      const list = await listMyTests(uid, orgId, State.profile?.role || "teacher");
+      return list.filter((t) => t.status === "published").map((t) => ({ id: t.id, title: t.title }));
+    },
     onToast: (message, kind) => toast(message, kind),
     onStart: ({ settings, roster }) => startBattleFromPrep(room, settings, roster)
   });
@@ -3668,10 +3680,15 @@ function autoObserverView() {
 
 // Запуск из панели подготовки: ключи теста → вопросы битвы → план → батч Firestore.
 async function startBattleFromPrep(room, settings, roster) {
-  const test = local.test;
+  const liveTest = local.test;
   const code = room.code || room.id;
-  if (!test) return toast("Тест не загружен.", "error");
+  if (!liveTest) return toast("Тест не загружен.", "error");
   try {
+    // Отдельный набор вопросов (ТЗ §4.1) — другой опубликованный тест; иначе вопросы Live-теста.
+    const bankId = settings.battleTestId && settings.battleTestId !== liveTest.id ? settings.battleTestId : null;
+    const test = bankId ? await loadTestPublic(bankId) : liveTest;
+    if (!test) return toast("Набор вопросов не найден.", "error");
+    if (test.status && test.status !== "published") return toast("Набор вопросов должен быть опубликован.", "error");
     const keys = normalizeKeys(await getAttemptKeys(test.id));
     const built = toBattleQuestions({
       questions: test.questions || [],
@@ -3717,6 +3734,16 @@ function battleLiveInfo() {
   return out;
 }
 
+// Метки присутствия игроков: players/{uid}.updatedAt (пульс раз в 15 с).
+function battlePresence() {
+  const out = {};
+  for (const p of local.players || []) {
+    const ms = toMs(p.updatedAt);
+    if (Number.isFinite(ms) && ms > 0) out[p.uid] = ms;
+  }
+  return out;
+}
+
 // Вид битвы: ведущий, участник или проектор. Долгоживущий, обновляется сам.
 function battleView(kind) {
   return mountBattle({
@@ -3726,6 +3753,9 @@ function battleView(kind) {
     test: local.test,
     players: battlePlayers(),
     liveInfo: kind === "host" ? battleLiveInfo() : {},
+    getPresence: kind === "host" ? battlePresence : null,
+    loadTest: loadTestPublic,
+    isObserver: role() === "observer",
     now: serverNowMs,
     onToast: (message, type) => toast(message, type)
   });

@@ -6,7 +6,7 @@
 // обновляется сам по подписке Firestore — страница не перерисовывается
 // целиком при каждом голосе (ТЗ §26).
 import { h } from "../../shared/dom.js";
-import { subscribeBattle, getBattle, createBattleStore, loadBattleKeys, castVote, makeCaptainDecision, attachBattleToHistory } from "../../core/battle.js";
+import { subscribeBattle, getBattle, createBattleStore, loadBattleKeys, castVote, makeCaptainDecision, attachBattleToHistory, touchPresence, BATTLE_PULSE_MS } from "../../core/battle.js";
 import { BattleGame } from "../../core/battle-game.js";
 import { buildBattleSnapshot } from "../../core/battle-snapshot.js";
 import { buildBattlePlay } from "../components/battle-play.js";
@@ -26,7 +26,7 @@ function message(text) {
 
 // mountBattle({ code, kind: "host"|"player"|"screen", uid, test, players, liveInfo, now, onToast })
 // Возвращает DOM-элемент (один и тот же для одинаковых параметров).
-export function mountBattle({ code, kind, uid, test, players = [], liveInfo = {}, now = () => Date.now(), onToast = () => {} }) {
+export function mountBattle({ code, kind, uid, test, players = [], liveInfo = {}, now = () => Date.now(), onToast = () => {}, getPresence = null, loadTest = null, isObserver = false }) {
   const key = `${code}|${kind}|${uid}`;
   if (current?.key === key) return current.el;
   disposeBattle();
@@ -39,6 +39,12 @@ export function mountBattle({ code, kind, uid, test, players = [], liveInfo = {}
   let play = null;
   let screen = null;
   let disposed = false;
+
+  // Тест-источник вопросов: тот же, что в Live, либо отдельный набор (battle.testId).
+  const sourceTest = async (doc) => {
+    if (!doc?.testId || doc.testId === test?.id || !loadTest) return test;
+    return (await loadTest(doc.testId)) || test;
+  };
 
   const dispose = () => {
     disposed = true;
@@ -58,10 +64,12 @@ export function mountBattle({ code, kind, uid, test, players = [], liveInfo = {}
         const store = createBattleStore(code);
         const [keys, rounds] = await Promise.all([loadBattleKeys(code), store.loadRounds()]);
         if (disposed) return;
+        const bank = await sourceTest(doc);
+        if (disposed) return;
         const questions = (doc.questions || []).map((q) => ({ ...q, correct: keys[q.id] || [] }));
         const game = BattleGame.restore({ doc, questions, rounds, liveInfo, store, now });
         hostView = buildBattleHost({
-          game, test, players, onToast,
+          game, test: bank, players, onToast, getPresence,
           onFinish: async (g) => {
             const snap = buildBattleSnapshot({
               state: g.state, liveInfo, initialRoster: g.initialRoster, events: g.events,
@@ -80,21 +88,43 @@ export function mountBattle({ code, kind, uid, test, players = [], liveInfo = {}
     return el;
   }
 
+  // Участник и проектор: ждём первый снимок битвы, подгружаем тест-источник
+  // (если вопросы из отдельного набора) и дальше только обновляем вид.
+  let ready = null;
+  const start = (build) => {
+    offs.push(subscribeBattle(code, async (b) => {
+      if (disposed) return;
+      if (!ready) {
+        ready = (async () => {
+          try { const t = await sourceTest(b); if (!disposed) { build(t); } }
+          catch { if (!disposed) build(test); }
+        })();
+      }
+      await ready;
+      (play || screen)?.update(b);
+    }, () => show(message("Нет доступа к битве."))));
+  };
+
   if (kind === "screen") {
-    screen = buildBattleScreen({ test, nameOf, now });
-    show(screen.el);
-    offs.push(subscribeBattle(code, (b) => screen.update(b), () => show(message("Нет доступа к битве."))));
+    start((t) => { screen = buildBattleScreen({ test: t, nameOf, now }); show(screen.el); });
     return el;
   }
 
-  play = buildBattlePlay({
-    uid, test, now, onToast,
-    api: {
-      castVote: (x) => castVote(code, x),
-      makeCaptainDecision: (x) => makeCaptainDecision(code, x)
-    }
+  start((t) => {
+    play = buildBattlePlay({
+      uid, test: t, now, onToast,
+      api: {
+        castVote: (x) => castVote(code, x),
+        makeCaptainDecision: (x) => makeCaptainDecision(code, x)
+      }
+    });
+    show(play.el);
   });
-  show(play.el);
-  offs.push(subscribeBattle(code, (b) => play.update(b), () => show(message("Нет доступа к битве."))));
+  // Пульс присутствия: по нему ведущий определяет потерю связи.
+  if (!isObserver) {
+    touchPresence(code);
+    const pulse = setInterval(() => touchPresence(code), BATTLE_PULSE_MS);
+    offs.push(() => clearInterval(pulse));
+  }
   return el;
 }

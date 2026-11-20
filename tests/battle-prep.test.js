@@ -52,3 +52,27 @@ test("панель: ничья за 2-е место требует Дуэли, �
   btn(r2, "Распределить команды").click();
   assert.equal(count(r2, "b") > 0, true);
 });
+
+test("панель: отдельный набор вопросов предлагается из списка и уходит в настройки запуска", async () => {
+  let started = null;
+  const root = buildBattlePrep({
+    players, ranking, currentTestId: "live1", settings: { battleTestId: "bank1" },
+    loadBanks: async () => [{ id: "live1", title: "Этот тест" }, { id: "bank1", title: "Банк битвы" }, { id: "bank2", title: "Другой банк" }],
+    onStart: (x) => { started = x; }
+  });
+  await new Promise((r) => setImmediate(r));
+  const opts = findAll(root, (e) => e.tag === "option").map((o) => text(o));
+  assert.ok(opts.includes("Банк битвы") && opts.includes("Другой банк"));
+  assert.ok(!opts.includes("Этот тест")); // текущий тест — это пункт «Вопросы этого теста»
+  btn(root, "Распределить команды").click();
+  btn(root, "Запустить битву").click();
+  assert.equal(started.settings.battleTestId, "bank1");
+});
+
+test("панель: без отдельного набора battleTestId не добавляется", () => {
+  let started = null;
+  const root = buildBattlePrep({ players, ranking, onStart: (x) => { started = x; } });
+  btn(root, "Распределить команды").click();
+  btn(root, "Запустить битву").click();
+  assert.equal("battleTestId" in started.settings, false);
+});

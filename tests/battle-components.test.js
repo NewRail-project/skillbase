@@ -204,8 +204,9 @@ test("ведущий: старт вопроса → автошаг закрыв�
   await new Promise((r) => setImmediate(r));
   assert.equal(game.state.rounds.length, 1);
   assert.equal(game.state.scores.a > 0, true);
-  // единственный вопрос и равный счёт → решающий раунд недоступен, сообщение ведущему
-  assert.match(all(host.el), /Решающий раунд капитанов пока недоступен/);
+  // единственный вопрос и равный счёт → начинается решающий раунд капитанов
+  assert.equal(game.phase, L.PHASES.SUDDEN_DEATH);
+  assert.match(all(host.el), /решающий раунд капитанов/i);
   btns(host.el, "Завершить досрочно")[0].click();
   await new Promise((r) => setImmediate(r));
   assert.equal(game.phase, L.PHASES.FINISHED);
@@ -220,5 +221,49 @@ test("ведущий: ручное выбытие игрока работает 
   assert.equal(await game.eliminate(victim), true);
   assert.equal(await game.eliminate(victim), false);
   host.render();
+  host.stop();
+});
+
+
+test("решающий раунд: капитан отправляет ответ, остальные только наблюдают", async () => {
+  const decisions = [];
+  const cr = { index: 2, kind: "extra", status: "answering", questionId: "q0", type: "single", optionCount: 4, durationSec: 30, startedAt: NOW - 1000, modes: {} };
+  const b = battle({ phase: "sudden_death", currentRound: cr });
+  const cap = buildBattlePlay({ uid: "cb", test: TEST, now: () => NOW, api: { makeCaptainDecision: async (x) => { decisions.push(x); } } });
+  cap.update(b);
+  assert.match(all(cap.el), /Решающий раунд капитанов/);
+  assert.equal(btns(cap.el, "Ответить самостоятельно").length, 0);
+  assert.equal(btns(cap.el, "Открыть голосование").length, 0);
+  btns(cap.el, "Париж")[0].click();
+  btns(cap.el, "Отправить ответ")[0].click();
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(decisions[0], { roundId: 2, teamId: "b", decision: { mode: "self", selected: [1] } });
+  assert.match(all(cap.el), /Ответ отправлен/);
+  const pl = buildBattlePlay({ uid: "a1", test: TEST, now: () => NOW, api: {} });
+  pl.update(b);
+  assert.match(all(pl.el), /Отвечают капитаны/);
+  assert.equal(findAll(pl.el, (e) => e.tag === "button" && !e.disabled).length, 0);
+  cap.destroy(); pl.destroy();
+});
+
+test("решающий раунд: между вопросами показывается причина повтора", () => {
+  const pl = buildBattlePlay({ uid: "a1", test: TEST, now: () => NOW, api: {} });
+  pl.update(battle({ phase: "sudden_death", currentRound: null, lastExtra: { reason: "both_wrong", next: true } }));
+  assert.match(all(pl.el), /Верного ответа не было/);
+  pl.destroy();
+});
+
+test("ведущий: выбывание по связи сообщает ведущему и не ломает ход", async () => {
+  const { game, roster } = hostSetup();
+  const msgs = [];
+  await game.startNextQuestion();
+  const victim = roster.teams.a.find((u) => u !== "u1");
+  const now = game.now();
+  const presence = Object.fromEntries([...roster.teams.a, ...roster.teams.b].map((u) => [u, now]));
+  presence[victim] = now - 200000;
+  const host = buildBattleHost({ game, test: TEST, players: [], getPresence: () => presence, onToast: (m) => msgs.push(m) });
+  await host.step();
+  assert.ok(game.state.roster.eliminated.includes(victim));
+  assert.ok(msgs.some((m) => /нет связи/.test(m)));
   host.stop();
 });
