@@ -136,3 +136,104 @@ html[data-ui="workforce"][data-theme="dark"] { --team-a: #7DB8EC; --team-b: #F2A
     padding: 0.5rem 1rem;
   }
 }
+
+/* --- Оформление экрана Battle --- */
+.battle-view {
+  background: #0B1118;
+  color: #FFFFFF;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+  display: grid;
+  gap: 2rem;
+}
+
+.battle-teams {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+}
+
+.battle-team[data-team="a"] {
+  border: 2px solid #FFD700;
+  background: rgba(255, 215, 0, 0.1);
+}
+
+.battle-team[data-team="b"] {
+  border: 2px solid #40E0D0;
+  background: rgba(64, 224, 208, 0.1);
+}
+
+.battle-score {
+  grid-column: span 2;
+  font-size: 3.5rem;
+  font-weight: 900;
+  text-align: center;
+  animation: score-change 0.5s ease;
+}
+
+@keyframes score-change {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+.battle-captain {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.battle-captain-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--text-2);
+}
+
+.battle-captain-name {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.battle-members {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.8rem;
+}
+
+.battle-member {
+  padding: 0.8rem;
+  border-radius: 8px;
+  background: var(--surface);
+  text-align: center;
+}
+
+.battle-reserve {
+  grid-column: span 2;
+  padding: 1.5rem;
+  background: var(--surface);
+  border-radius: 12px;
+  margin-top: 2rem;
+}
+
+.battle-reserve-title {
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin-bottom: 1.5rem;
+  color: var(--text-2);
+}
+
+@media (min-width: 1024px) {
+  .battle-view {
+    font-size: 1.2rem;
+  }
+  .battle-score {
+    font-size: 4.5rem;
+  }
+}

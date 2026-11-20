@@ -1937,8 +1937,19 @@ function hostHeader(wrap, room) {
     ),
     h("div", { class: "room-head-tools" },
       themeToggle(),
-      h("a", { class: "btn secondary", href: `#room/${room.code || room.id}/screen` },
-        "Экран проектора"))
+      h("button", {
+        type: "button",
+        class: "btn secondary",
+        onclick: () => {
+          const lb = document.querySelector(".room-leaderboard-host");
+          if (!lb) return;
+          const top = lb.getBoundingClientRect().top + window.pageYOffset - 80;
+          window.scrollTo({ top, behavior: "smooth" });
+        }
+      }, h("span", { style: "display: flex; align-items: center; gap: 0.4rem" },
+        h("span", { style: "width: 1.2rem; height: 1.2rem", innerHTML: icons.trophy }),
+        "К рейтингу TOP"
+      )))
   ));
   // Код крупно, чтобы продемонстрировать на экране/камере.
   wrap.appendChild(h("div", { class: "room-code-badge" }, room.code || room.id));
@@ -3817,7 +3828,7 @@ function battlePresence() {
   return out;
 }
 
-// Вид битвы: ведущий, участник или проектор. Долгоживущий, обновляется сам.
+// Вид битвы: ведущий, наблюдатель, участник или проектор. Долгоживущий, обновляется сам.
 function battleView(kind) {
   return mountBattle({
     code: local.room?.code || local.room?.id || local.code,
@@ -3843,8 +3854,12 @@ function buildView() {
   if (local.removed) return removedPanel();
   const current = role();
   if (!current || state === CONN.CONNECTING) return connectingPanel();
-  // Комната в режиме «Командная битва»: свои виды для ведущего и участников.
-  if (local.room?.mode === "battle") return battleView(current === "host" ? "host" : "player");
+  // Комната в режиме «Командная битва»: свои виды для ведущего, наблюдателя и участников.
+  if (local.room?.mode === "battle") {
+    if (current === "host") return battleView("host");
+    if (current === "observer") return battleView("screen");
+    return battleView("player");
+  }
   const auto = isAutoRoom(local.room);
   if (current === "host") return auto ? autoHostView() : hostView();
   if (current === "observer") return auto ? autoObserverView() : observerView();

@@ -33,7 +33,7 @@ const fmt = (ms) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 
-export function buildBattlePlay({ uid, test, api, onToast = () => {}, now = () => Date.now() }) {
+export function buildBattlePlay({ uid, test, api, onToast = () => {}, now = () => Date.now(), nameOf = (u) => u }) {
   let battle = null;
   let roundKey = null; // индекс раунда + статус: сбрасывает локальный выбор
   let selection = [];
@@ -45,8 +45,10 @@ export function buildBattlePlay({ uid, test, api, onToast = () => {}, now = () =
   const timerEl = h("div", { class: "battle-timer", "aria-live": "off" }, "");
   const scoreA = h("div", { class: "battle-score" }, "0");
   const scoreB = h("div", { class: "battle-score" }, "0");
-  const teamA = h("div", { class: "battle-team", "data-team": "a" }, h("div", {}, "Команда A"), scoreA);
-  const teamB = h("div", { class: "battle-team", "data-team": "b" }, h("div", {}, "Команда B"), scoreB);
+  const capA = h("div", { class: "battle-status" }, "");
+  const capB = h("div", { class: "battle-status" }, "");
+  const teamA = h("div", { class: "battle-team", "data-team": "a" }, h("div", {}, "Команда A"), scoreA, capA);
+  const teamB = h("div", { class: "battle-team", "data-team": "b" }, h("div", {}, "Команда B"), scoreB, capB);
   const rope = buildRope(0);
   const body = h("div", { class: "battle-body" });
   const el = h("div", { class: "battle-view" }, h("div", { class: "battle-head" }, teamA, timerEl, teamB), rope.el, body);

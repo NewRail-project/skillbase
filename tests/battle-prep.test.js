@@ -134,7 +134,7 @@ test("панель: oninput веса Live не переписывается — 
 });
 
 // --- Сохранение и восстановление настроек битвы ---
-test("панель: настройки восстанавливаются из saved при инициализации", () => {
+test("панель: настройки восстанавливаются из saved при инициализации", async () => {
   const saved = {
     battleTestId: "test123",
     questionCount: 15,
@@ -145,6 +145,7 @@ test("панель: настройки восстанавливаются из s
     loadBanks: async () => [{ id: "test123", title: "Тест 123" }, { id: "bank1", title: "Банк 1" }],
     settings: saved
   });
+  await new Promise((r) => setImmediate(r));
   // Проверяем, что поля инициализируются сохранёнными значениями
   const inputs = findAll(root, (e) => e.tag === "input" && e.attrs?.type === "number");
   const countInput = inputs.find((e) => e.attrs?.min === "1" && e.attrs?.max === "50");
