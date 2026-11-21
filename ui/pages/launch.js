@@ -4,9 +4,10 @@
 import { h } from "../../shared/dom.js";
 import { State } from "../../core/auth.js";
 import { loadCss } from "../../shared/load-css.js";
-import { loadTest } from "../../core/editor.js";
+import { loadTest, listMyTests } from "../../core/editor.js";
 import { assignTest } from "../../core/assign.js";
 import { createRoom } from "../../core/rooms.js";
+import { BATTLE_PRESET_LIMITS, DEFAULT_BATTLE_SETTINGS } from "../../core/battle-logic.js";
 import {
   LIVE_MODE_AUTO, LIVE_MODE_MANUAL, questionSecFor,
   QUESTION_SEC_MIN, QUESTION_SEC_MAX
@@ -134,6 +135,47 @@ export default async function LaunchPage() {
     h("span", { class: "role-option-body" },
       h("b", {}, "Командная битва после теста"),
       h("span", { class: "muted" }, "После Live: два капитана, команды, голосование и канат. Нужно минимум 8 участников"))));
+  // Вопросы битвы задаются здесь же, до запуска комнаты: набор (этот или другой
+  // опубликованный тест), число вопросов и время на вопрос. Значения уходят в
+  // rooms/{code}.battleSettings; панель подготовки после Live берёт их как
+  // стартовые и по-прежнему позволяет изменить.
+  const battleBankSelect = h("select", { id: "live-battle-bank" },
+    h("option", { value: "" }, "Вопросы этого теста"));
+  const battleCountInput = h("input", {
+    type: "number", id: "live-battle-count", inputmode: "numeric",
+    min: String(BATTLE_PRESET_LIMITS.countMin), max: String(BATTLE_PRESET_LIMITS.countMax),
+    value: String(DEFAULT_BATTLE_SETTINGS.questionCount)
+  });
+  const battleSecInput = h("input", {
+    type: "number", id: "live-battle-sec", inputmode: "numeric",
+    min: String(BATTLE_PRESET_LIMITS.secMin), max: String(BATTLE_PRESET_LIMITS.secMax),
+    value: String(DEFAULT_BATTLE_SETTINGS.questionSeconds)
+  });
+  const battleHint = h("span", { class: "muted" }, "");
+  const battleFields = h("div", { class: "live-auto-fields", hidden: "hidden" },
+    h("div", { class: "field" }, h("label", { for: "live-battle-bank" }, "Набор вопросов для битвы"), battleBankSelect),
+    h("div", { class: "field" }, h("label", { for: "live-battle-count" }, "Количество вопросов"), battleCountInput),
+    h("div", { class: "field" }, h("label", { for: "live-battle-sec" }, "Время на вопрос, сек"), battleSecInput),
+    battleHint);
+  modeForm.appendChild(battleFields);
+  let battleBanksLoaded = false;
+  async function loadBattleBanks() {
+    if (battleBanksLoaded) return;
+    battleBanksLoaded = true;
+    try {
+      const list = await listMyTests(State.user?.uid, State.profile?.orgId, State.profile?.role || "teacher");
+      list.filter(item => item.status === "published" && item.id !== test?.id).forEach(item => {
+        battleBankSelect.appendChild(h("option", { value: item.id }, item.title || item.id));
+      });
+    } catch (err) {
+      battleBanksLoaded = false; // повторим при следующем включении галочки
+      battleHint.textContent = "Список тестов не загрузился: будут использованы вопросы этого теста.";
+    }
+  }
+  battleInput.addEventListener("change", () => {
+    battleFields.hidden = !battleInput.checked;
+    if (battleInput.checked) loadBattleBanks();
+  });
   const syncMode = () => { autoFields.hidden = !modeAuto.checked; };
   modeAuto.addEventListener("change", syncMode);
   modeManual.addEventListener("change", syncMode);
@@ -172,7 +214,12 @@ export default async function LaunchPage() {
             speedBonus: speedInput.checked,
             showLeaderboard: boardInput.checked
           } : {},
-          battleEnabled: battleInput.checked
+          battleEnabled: battleInput.checked,
+          battleSettings: battleInput.checked ? {
+            battleTestId: battleBankSelect.value,
+            questionCount: battleCountInput.value,
+            questionSeconds: battleSecInput.value
+          } : null
         };
 
         const code = await createRoom(roomData);

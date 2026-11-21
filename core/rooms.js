@@ -15,6 +15,7 @@ import {
   computeScores, buildReveal, normalizePlayerTimes,
   joinPlayerFields, SERVER_TIMESTAMP
 } from "./rooms-logic.js";
+import { sanitizeBattlePreset } from "./battle-logic.js";
 import { normalizeKeys } from "./scoring.js";
 import { isHostAbandoned } from "./live-auto.js";
 import {
@@ -48,7 +49,7 @@ function roomRef(code) {
 // mode: "auto" (по умолчанию) или "manual"; options — настройки
 // автономного режима (questionSec, gapSec, shuffleQuestions, speedBonus,
 // showLeaderboard); всё необязательное, пустое берётся из настроек теста.
-export async function createRoom({ test, profile, allowObservers = false, mode = LIVE_MODE_AUTO, options = {}, battleEnabled = false }) {
+export async function createRoom({ test, profile, allowObservers = false, mode = LIVE_MODE_AUTO, options = {}, battleEnabled = false, battleSettings = null }) {
   requireOnline("Нет подключения к интернету. Комната не создана.");
   if (!test?.id) throw new Error("Тест не выбран.");
   if (!profile?.orgId) throw new Error("Профиль организации не загружен.");
@@ -80,6 +81,9 @@ export async function createRoom({ test, profile, allowObservers = false, mode =
         // «Командная битва после теста»: подготовка команд появляется у ведущего
         // после завершения Live. Поле только при включённой опции — старые комнаты не меняются.
         ...(battleEnabled === true ? { battleEnabled: true } : {}),
+        // Набор вопросов битвы, число вопросов и время, заданные при запуске:
+        // панель подготовки возьмёт их как стартовые значения.
+        ...(battleEnabled === true && battleSettings ? { battleSettings: sanitizeBattlePreset(battleSettings) } : {}),
         // Регистрация открыта, пока ведущий её не закроет; закрытая
         // регистрация запрещает новые players/{uid} (правила).
         registrationOpen: true,

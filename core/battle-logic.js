@@ -835,3 +835,28 @@ export function buildFinalReport({ state, liveInfo = {} }) {
   }
   return { players, teams, winner: state.winner ?? null, tie: Boolean(state.tie), finishedEarly: state.finishedEarly };
 }
+
+// Предварительные настройки вопросов битвы, заданные при запуске комнаты
+// (ui/pages/launch.js → rooms/{code}.battleSettings). Панель подготовки
+// (ui/components/battle-prep.js) берёт их как стартовые значения и по-прежнему
+// даёт изменить после Live. Формулы, команды и капитаны не затрагиваются.
+// Возвращает только допустимые значения: набор (id теста, необязательно),
+// число вопросов 1–50 и время на вопрос 5–3600 с — те же границы, что у
+// полей панели подготовки.
+export const BATTLE_PRESET_LIMITS = Object.freeze({ countMin: 1, countMax: 50, secMin: 5, secMax: 3600 });
+
+export function sanitizeBattlePreset(input = {}) {
+  const { countMin, countMax, secMin, secMax } = BATTLE_PRESET_LIMITS;
+  const clamp = (value, min, max, fallback) => {
+    const n = Math.trunc(Number(value));
+    if (!Number.isFinite(n) || n <= 0) return fallback;
+    return Math.min(max, Math.max(min, n));
+  };
+  const out = {
+    questionCount: clamp(input?.questionCount, countMin, countMax, DEFAULT_BATTLE_SETTINGS.questionCount),
+    questionSeconds: clamp(input?.questionSeconds, secMin, secMax, DEFAULT_BATTLE_SETTINGS.questionSeconds)
+  };
+  const id = String(input?.battleTestId ?? "").trim();
+  if (id && id.length <= 200 && !id.includes("/")) out.battleTestId = id;
+  return out;
+}

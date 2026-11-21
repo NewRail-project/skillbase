@@ -464,3 +464,15 @@ test("итоговый отчёт: сортировка по ФИО, стату�
   assert.equal(res.finalGrade, 80);
   assert.equal(rep.teams.a.members, 4);
 });
+
+import { sanitizeBattlePreset, BATTLE_PRESET_LIMITS as PRESET_LIMITS } from "../core/battle-logic.js";
+test("настройки вопросов битвы при запуске: границы, умолчания, чужой id", () => {
+  assert.deepEqual(sanitizeBattlePreset({}), { questionCount: 10, questionSeconds: 30 });
+  assert.deepEqual(sanitizeBattlePreset({ battleTestId: " t1 ", questionCount: "12", questionSeconds: "45" }),
+    { battleTestId: "t1", questionCount: 12, questionSeconds: 45 });
+  assert.equal(sanitizeBattlePreset({ questionCount: 999 }).questionCount, PRESET_LIMITS.countMax);
+  assert.equal(sanitizeBattlePreset({ questionSeconds: 1 }).questionSeconds, PRESET_LIMITS.secMin);
+  assert.equal(sanitizeBattlePreset({ questionCount: -5, questionSeconds: "abc" }).questionCount, 10);
+  assert.equal("battleTestId" in sanitizeBattlePreset({ battleTestId: "a/b" }), false);
+  assert.equal("battleTestId" in sanitizeBattlePreset({ battleTestId: "" }), false);
+});
