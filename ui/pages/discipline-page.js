@@ -117,7 +117,7 @@ export default async function DisciplinePage() {
     body.replaceChildren(...[
       h("div", { class: "page-head" },
         h("div", {},
-          h("div", { class: "eyebrow" }, h("a", { href: "#disciplines" }, "← Дисциплины")),
+          h("a", { class: "crumb", href: "#disciplines" }, "← Дисциплины"),
           h("h1", {}, discipline.title),
           discipline.description ? h("p", { class: "page-sub" }, discipline.description) : null),
         staff ? h("div", { class: "page-head-actions" }, h("div", { class: "btn-row" }, ...actionButtons)) : null),

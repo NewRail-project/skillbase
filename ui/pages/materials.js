@@ -83,9 +83,21 @@ export default async function MaterialsPage() {
     listWrap.textContent = "";
     const shown = sortMaterials(materials.filter(matches));
     if (!shown.length) {
+      // Пустое состояние с CTA в зависимости от роли
+      const isStaff = staff;
+      let ctaText, ctaHref;
+      if (isStaff) {
+        ctaText = "Создать материал";
+        ctaHref = "#material-editor/new";
+      } else {
+        ctaText = "Стать преподавателем";
+        // CTA для студентов - обращение к admin/teacher
+      }
       listWrap.appendChild(empty({
         icon: "book",
-        text: materials.length ? "Ничего не найдено" : "Материалов пока нет"
+        text: materials.length ? "Ничего не найдено" : "Материалов пока нет",
+        actionText: ctaText,
+        onAction: ctaHref ? () => { window.location.href = ctaHref; } : undefined
       }));
       return;
     }

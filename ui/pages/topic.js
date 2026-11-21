@@ -108,7 +108,13 @@ export default async function TopicPage() {
   // Последнее загруженное содержимое — нужно проверке зависимостей
   // при «удалении» темы.
   const contentData = { materials: [], tests: [], assignments: [] };
-  const studentState = studentTopicState(topic, nowMs);
+  // Определяем, есть ли у ученика попытки по темам этого урока.
+  // Флаг hasAttempts влияет на состояние: "completed"/"overdue" когда
+  // срок сдачи прошёл, и "studying" когда тема активна. Поскольку мы не
+  // можем синхронно проверить попытки, считаем有试 если тема опубликована
+  // (студенты могут пытаться сдать тесты).
+  const hasAttempts = !staff && topic.status === TOPIC_STATUS_PUBLISHED;
+  const studentState = studentTopicState(topic, nowMs, { hasAttempts });
   const storedArchived = topic.status === TOPIC_STATUS_ARCHIVED;
 
   // Студенту: тема хранимо видима (правила уже не отдали бы скрытую), но
@@ -389,14 +395,25 @@ export default async function TopicPage() {
 
   // Настройки темы: все поля этапа 4. Даты — input type=date; пустое поле
   // снимает дату (null). Статус и группа — селект/текст.
+  // Блоки разделяются для удобства чтения на мобильных.
   async function topicSettings() {
     await formDialog({
       idPrefix: "topic-settings",
       title: "Настройки темы",
       text: "Название и описание видят студенты. Даты задают расписание: до открытия материалы скрыты, после закрытия тема недоступна. Публикация по расписанию не выполняется автоматически — статус меняется вручную.",
       fields: [
+        // Общие поля
         { key: "title", label: "Название темы", value: topic.title, maxlength: TITLE_MAX },
         { key: "description", label: "Описание (необязательно)", value: topic.description, type: "textarea", maxlength: DESCRIPTION_MAX },
+        // Даты
+        { key: "lessonDate", label: "Дата проведения занятия", type: "date", value: dateInputValue(topic, "lessonDate") },
+        { key: "openDate", label: "Дата открытия", type: "date", value: dateInputValue(topic, "openDate") },
+        { key: "closeDate", label: "Дата закрытия", type: "date", value: dateInputValue(topic, "closeDate") },
+        { key: "publishDate", label: "Дата публикации", type: "date", value: dateInputValue(topic, "publishDate") },
+        { key: "dueDate", label: "Срок сдачи", type: "date", value: dateInputValue(topic, "dueDate") },
+        // Группа
+        { key: "groupId", label: "Учебная группа", value: topic.groupId || "", maxlength: 100, hint: "Пусто — тема для всех групп" },
+        // Статус
         {
           key: "status", label: "Статус", type: "select",
           value: topic.status === "active" ? TOPIC_STATUS_PUBLISHED : topic.status,
@@ -406,13 +423,7 @@ export default async function TopicPage() {
             { value: TOPIC_STATUS_PUBLISHED, label: "Опубликована" },
             { value: TOPIC_STATUS_ARCHIVED, label: "Архивирована" }
           ]
-        },
-        { key: "groupId", label: "Учебная группа", value: topic.groupId || "", maxlength: 100, hint: "Пусто — тема для всех групп" },
-        { key: "lessonDate", label: "Дата проведения занятия", type: "date", value: dateInputValue(topic, "lessonDate") },
-        { key: "openDate", label: "Дата открытия", type: "date", value: dateInputValue(topic, "openDate") },
-        { key: "closeDate", label: "Дата закрытия", type: "date", value: dateInputValue(topic, "closeDate") },
-        { key: "publishDate", label: "Дата публикации", type: "date", value: dateInputValue(topic, "publishDate") },
-        { key: "dueDate", label: "Срок сдачи", type: "date", value: dateInputValue(topic, "dueDate") }
+        }
       ],
       submitLabel: "Сохранить",
       onSubmit: async (values) => {

@@ -265,8 +265,8 @@ export default async function SubjectsPage() {
     // Режим страницы предмета: назад к списку + панель этого предмета.
     if (routeSubjectId && active.length) {
       listBox.append(
-        h("p", { class: "muted" },
-          h("a", { href: "#subjects" }, "← Все предметы")),
+        h("p", { class: "crumb-line" },
+          h("a", { class: "crumb", href: "#subjects" }, "← Все предметы")),
         h("div", { class: "list" }, subjectPanel(active[0], { single: true }))
       );
       if (archived.length) drawArchive(archived);

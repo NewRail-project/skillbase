@@ -378,6 +378,12 @@ a.list-row-title:hover { color: var(--accent); }
   .topic-item .list-row { flex-wrap: wrap; row-gap: var(--space-2); }
   .topic-item .list-row-main { flex: 1 1 100%; }
   .topic-item .list-row-end { margin-left: 0; flex-wrap: wrap; }
+  /* На узких экранах кнопки внутри карточек и тем переносятся под контент,
+     чтобы избежать горизонтального скролла и упростить тач-таргеты */
+  .discipline-card-footer { flex-direction: column; align-items: stretch; }
+  .discipline-card-footer .btn { width: 100%; }
+  .topic-actions { flex-wrap: wrap; }
+  .topic-actions .btn { width: 100%; margin-bottom: var(--space-1); }
 }
 .topic-content { display: grid; gap: var(--space-4); padding: var(--space-3); background: rgba(127,127,127,.06); border-radius: var(--radius, 8px); margin: 0 0 var(--space-3); }
 .topic-block h3 { margin: 0 0 var(--space-2); }
@@ -535,10 +541,62 @@ a.discipline-card .badge { text-decoration: none; }
   .list-row > .topic-actions { flex: 1 1 100%; }
 }
 
+/* ---------- Меню «Ещё» (ui/components/actions-menu.js) ----------
+   Второстепенные и опасные действия строк и карточек. Покой — компактная
+   кнопка; раскрытие — список под ней. На узком экране список статический
+   (не выходит за край экрана и не обрезается снизу). */
+.actions-menu { position: relative; display: inline-flex; flex: none; }
+.actions-menu-toggle { white-space: nowrap; }
+.actions-menu-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 210px;
+  max-width: min(300px, calc(100vw - 2rem));
+  padding: var(--space-1);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .18);
+}
+.actions-menu-pop[hidden] { display: none; }
+.actions-menu-item {
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  text-align: left;
+  background: transparent;
+  border-color: transparent;
+  font-weight: 500;
+}
+.actions-menu-item:hover { background: var(--elevated); border-color: var(--border); }
+.actions-menu-item.danger-text { color: var(--danger); }
+.actions-menu-item:disabled { opacity: .5; }
+@media (max-width: 640px) {
+  /* Список по-прежнему раскрывается вправо от кнопки (правый край не
+     выходит за экран), но подстраховывается по ширине под узкий макет. */
+  .actions-menu-pop { max-width: min(300px, calc(100vw - 2rem)); }
+}
+
 
 /* Названия тем, дисциплин, материалов и тестов не подчёркиваются ни в покое,
    ни при наведении: на длинных названиях подчёркивание — лишний шум.
-   Наведение и фокус показываются цветом; у фокуса остаётся видимая рамка. */
+   Наведение и фокус показываются цветом; у фокуса остаётся видимая рамка.
+   Сюда же попадают ссылки внутри заголовков (h2 > a в карточке каталога)
+   и хлебные крошки: браузер по умолчанию подчёркивает их, и правило выше
+   их не покрывало. */
+h1 a,
+h2 a,
+h3 a,
+.eyebrow a,
+.page-head a,
+.panel-head a,
+.section-title a,
 .list-row-title,
 .list-row-title a,
 .list-row-title-wrap a,
@@ -549,11 +607,45 @@ a.discipline-card,
 a.discipline-card:hover,
 a.discipline-card *,
 .card-title a,
-.mat-card a {
+.mat-card a,
+.crumb,
+.crumb:hover {
   text-decoration: none;
 }
 .list-row-title a:focus-visible,
-.discipline-card-title a:focus-visible { outline: 2px solid var(--focus, var(--accent)); outline-offset: 2px; border-radius: 3px; }
+.discipline-card-title a:focus-visible,
+h2 a:focus-visible,
+.crumb:focus-visible { outline: 2px solid var(--focus, var(--accent)); outline-offset: 2px; border-radius: 3px; }
+
+/* Хлебные крошки и ссылки-заголовки: на наведении появляется подчёркивание
+   (ясный признак интерактивности), покоящееся подчёркивание не возвращается. */
+h1 a:hover, h2 a:hover, h3 a:hover, .eyebrow a:hover, .crumb:hover,
+.list-row-title a:hover, .discipline-card-title a:hover, a.list-row-title:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+/* Текстовые ссылки в шапках панелей («Все задания», «Аналитика»): кнопки
+   (.btn) подчёркиваются не должны — только обычные ссылки. */
+.panel-head a:not(.btn):hover,
+.page-head a:not(.btn):hover {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+/* Крошка «← Назад к списку»: короткая строка-ссылка над заголовком. */
+.crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  font-size: .8125rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+.crumb:hover { color: var(--accent); }
+.crumb-line { margin: 0; }
 
 /* Кнопка «Назад» в верхней панели */
 .back-button {
