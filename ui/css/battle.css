@@ -137,8 +137,9 @@ html[data-ui="workforce"][data-theme="dark"] { --team-a: #7DB8EC; --team-b: #F2A
   }
 }
 
-/* --- Оформление экрана Battle --- */
-.battle-view {
+/* --- Оформление экрана Battle (черновик): правила .battle-view и .battle-score
+   сделаны необязательными через .battle-themed; экран Battle — блок .bs ниже --- */
+.battle-view.battle-themed {
   background: #0B1118;
   color: #FFFFFF;
   max-width: 1200px;
@@ -164,7 +165,7 @@ html[data-ui="workforce"][data-theme="dark"] { --team-a: #7DB8EC; --team-b: #F2A
   background: rgba(64, 224, 208, 0.1);
 }
 
-.battle-score {
+.battle-themed .battle-score {
   grid-column: span 2;
   font-size: 3.5rem;
   font-weight: 900;
@@ -230,10 +231,199 @@ html[data-ui="workforce"][data-theme="dark"] { --team-a: #7DB8EC; --team-b: #F2A
 }
 
 @media (min-width: 1024px) {
-  .battle-view {
-    font-size: 1.2rem;
-  }
-  .battle-score {
-    font-size: 4.5rem;
-  }
+  .battle-view.battle-themed { font-size: 1.2rem; }
+  .battle-themed .battle-score { font-size: 4.5rem; }
 }
+
+/* =====================================================================
+   Экран Battle (ведущий и наблюдатель): .bs
+   Тёмно-синий фон, жёлтые акценты команды А, бирюзовые — команды Б.
+   Раскладка по фото-концепту: слева панель команды А, в центре капитаны,
+   счёт, вопрос, статистика и общий резерв, справа панель команды Б.
+   Размер текста масштабируется от окна: телефон, монитор, проектор.
+   ===================================================================== */
+.bs {
+  --bs-bg: #0B1426;
+  --bs-panel: #111E36;
+  --bs-line: #22345A;
+  --bs-text: #EAF0FB;
+  --bs-muted: #9FB0CF;
+  --bs-a: #F5C518;
+  --bs-a-ink: #1A1400;
+  --bs-b: #2CC5B8;
+  --bs-b-ink: #04201D;
+  --bs-ok: #5BD38A;
+  max-width: none;
+  margin: 0;
+  padding: clamp(.6rem, 1.6vw, 1.5rem);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: clamp(.5rem, 1.2vw, 1.25rem);
+  min-height: 100dvh;
+  background: var(--bs-bg);
+  color: var(--bs-text);
+  font-family: var(--font-sans, Inter, system-ui, sans-serif);
+  /* Не гигантский шрифт на широких экранах: рост от ширины, но с потолком. */
+  font-size: clamp(.85rem, .55rem + .55vw, 1.4rem);
+  line-height: 1.25;
+}
+
+.bs-top { display: flex; align-items: center; gap: 1rem; min-width: 0; }
+.bs-brand { font-weight: 800; letter-spacing: .02em; flex: none; }
+.bs-title { flex: 1; margin: 0; min-width: 0; text-align: center; font-size: 1.35em; font-weight: 800; text-transform: uppercase; }
+.bs-phase { color: var(--bs-a); }
+.bs-controls { display: flex; gap: .5rem; flex: none; }
+.bs-btn {
+  min-height: 2.5rem; padding: .4rem .9rem; border: 1px solid var(--bs-line); border-radius: .5rem;
+  background: var(--bs-panel); color: var(--bs-text); font: inherit; font-weight: 600; text-decoration: none; cursor: pointer;
+  display: inline-flex; align-items: center;
+}
+.bs-btn.primary { background: var(--bs-a); color: var(--bs-a-ink); border-color: var(--bs-a); }
+.bs-btn:focus-visible { outline: 3px solid var(--bs-a); outline-offset: 2px; }
+
+.bs-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.9fr) minmax(0, 1fr);
+  gap: clamp(.5rem, 1.4vw, 1.5rem);
+  min-height: 0;
+}
+
+/* Панели команд */
+.bs-team {
+  display: flex; flex-direction: column; align-items: center; gap: .6rem; min-height: 0;
+  padding: clamp(.6rem, 1.4vw, 1.4rem) clamp(.6rem, 1.2vw, 1.2rem) clamp(.8rem, 1.4vw, 1.4rem);
+  border-radius: .9rem;
+}
+.bs-team[data-team="a"] { background: var(--bs-a); color: var(--bs-a-ink); clip-path: polygon(0 0, 100% 0, 95% 100%, 0 100%); padding-right: 2.2rem; }
+.bs-team[data-team="b"] { background: var(--bs-b); color: var(--bs-b-ink); clip-path: polygon(5% 0, 100% 0, 100% 100%, 0 100%); padding-left: 2.2rem; }
+.bs-emblem { width: clamp(3.2rem, 9vw, 9rem); aspect-ratio: 64 / 72; flex: none; }
+.bs-emblem svg { width: 100%; height: 100%; display: block; }
+.bs-team-name { margin: 0; font-size: 1.25em; font-weight: 800; text-transform: uppercase; }
+.bs-roster { list-style: none; margin: 0; padding: 0; width: 100%; display: grid; gap: .3rem; overflow-y: auto; min-height: 0; align-content: start; flex: 1; }
+.bs-person {
+  display: flex; align-items: center; gap: .5rem; min-width: 0; padding: .3rem .5rem;
+  border-radius: .4rem; background: rgb(0 0 0 / .16); border-bottom: 3px solid rgb(0 0 0 / .32);
+}
+.bs-person .avatar-chip { width: 1.8em; height: 1.8em; flex: none; font-size: .8em; }
+.bs-person .avatar-chip svg { width: 100%; height: 100%; }
+.bs-person-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.bs-person-tag { flex: none; font-size: .75em; font-weight: 700; padding: .05rem .4rem; border-radius: 999px; background: rgb(0 0 0 / .28); color: inherit; }
+.bs-person[data-state="out"] { opacity: .55; text-decoration: line-through; }
+.bs-person[data-state="captain"] { border-bottom-color: currentColor; }
+
+/* Центр */
+.bs-center { display: grid; grid-auto-rows: min-content; gap: clamp(.5rem, 1.2vw, 1.1rem); min-width: 0; min-height: 0; align-content: start; }
+.bs-captains { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+.bs-captain { display: flex; align-items: center; gap: .7rem; min-width: 0; padding: .5rem .8rem; border-radius: .7rem; background: var(--bs-panel); border: 1px solid var(--bs-line); }
+.bs-captain[data-team="a"] { border-color: var(--bs-a); }
+.bs-captain[data-team="b"] { border-color: var(--bs-b); flex-direction: row-reverse; text-align: right; }
+.bs-cap-avatar .avatar-chip { width: 3.2em; height: 3.2em; font-size: 1em; }
+.bs-cap-avatar .avatar-chip svg { width: 100%; height: 100%; }
+.bs-cap-text { display: grid; min-width: 0; }
+.bs-cap-label { color: var(--bs-muted); font-size: .8em; }
+.bs-cap-name { font-weight: 800; font-size: 1.15em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Счёт и таймер */
+.bs-scoreboard { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: .75rem; }
+.bs-scorebox { display: grid; gap: .1rem; padding: .4rem .8rem; border-radius: .7rem; background: var(--bs-panel); border: 2px solid var(--bs-line); }
+.bs-scorebox[data-team="a"] { border-color: var(--bs-a); }
+.bs-scorebox[data-team="b"] { border-color: var(--bs-b); text-align: right; }
+.bs-scorebox-label { font-weight: 800; text-transform: uppercase; font-size: .85em; }
+.bs-scorebox[data-team="a"] .bs-scorebox-label { color: var(--bs-a); }
+.bs-scorebox[data-team="b"] .bs-scorebox-label { color: var(--bs-b); }
+.bs-score { font-size: clamp(2.2rem, 5.2vw, 6rem); font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; transition: color .3s ease; }
+.bs-score[data-bump] { animation: bs-bump .7s ease; }
+@keyframes bs-bump { 0% { transform: scale(1); } 35% { transform: scale(1.08); } 100% { transform: scale(1); } }
+.bs-timer {
+  --p: 0; display: grid; place-items: center; width: clamp(4rem, 8vw, 8rem); aspect-ratio: 1; border-radius: 50%;
+  background: conic-gradient(var(--bs-a) calc(var(--p) * 1%), var(--bs-line) 0);
+  position: relative;
+}
+.bs-timer::before { content: ""; position: absolute; inset: 7%; border-radius: 50%; background: var(--bs-bg); }
+.bs-timer-num { position: relative; font-weight: 800; font-size: 1.3em; font-variant-numeric: tabular-nums; }
+.bs-timer[data-urgent="1"] .bs-timer-num { color: #FF8A7A; }
+
+/* Вопрос */
+.bs-question { padding: .8rem 1rem; border-radius: .7rem; background: var(--bs-panel); border: 1px solid var(--bs-line); min-height: 6rem; }
+.bs-q-meta { margin: 0 0 .25rem; color: var(--bs-muted); font-size: .85em; }
+.bs-q-text { margin: 0 0 .6rem; font-size: 1.3em; font-weight: 700; overflow-wrap: anywhere; }
+.bs-options { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: .5rem; }
+.bs-option { display: flex; gap: .6rem; align-items: center; padding: .5rem .7rem; border-radius: .5rem; border: 2px solid var(--bs-line); background: rgb(255 255 255 / .03); }
+.bs-option-letter { flex: none; display: grid; place-items: center; width: 1.8em; height: 1.8em; border-radius: 50%; background: var(--bs-line); font-weight: 800; font-size: .85em; }
+.bs-option-text { overflow-wrap: anywhere; }
+.bs-option[data-state="correct"] { border-color: var(--bs-ok); background: color-mix(in srgb, var(--bs-ok) 16%, transparent); }
+.bs-option[data-state="correct"] .bs-option-letter { background: var(--bs-ok); color: #06210F; }
+.bs-note { margin: 0; color: var(--bs-muted); }
+.bs-result h2 { margin: 0 0 .3rem; font-size: 1.6em; }
+.bs-result p { margin: 0; color: var(--bs-muted); }
+
+/* Статистика */
+.bs-stats { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+.bs-stat { display: grid; gap: .3rem; padding: .6rem .8rem; border-radius: .7rem; background: var(--bs-panel); border: 1px solid var(--bs-line); min-width: 0; }
+.bs-stat-head { display: flex; justify-content: space-between; gap: .5rem; align-items: baseline; }
+.bs-stat-mode { color: var(--bs-muted); font-size: .8em; text-align: right; }
+.bs-bar { height: .7rem; border-radius: 999px; background: var(--bs-line); overflow: hidden; }
+.bs-bar-fill { display: block; height: 100%; width: 0; border-radius: inherit; transition: width .6s cubic-bezier(.3, .7, .2, 1); }
+.bs-stat[data-team="a"] .bs-bar-fill { background: var(--bs-a); }
+.bs-stat[data-team="b"] .bs-bar-fill { background: var(--bs-b); }
+.bs-stat-vote, .bs-stat-correct { font-size: .9em; color: var(--bs-muted); }
+.bs-stat-result { font-weight: 700; min-height: 1.2em; }
+.bs-stat[data-team="a"] .bs-stat-result { color: var(--bs-a); }
+.bs-stat[data-team="b"] .bs-stat-result { color: var(--bs-b); }
+
+/* Общий резерв — внизу центральной колонки */
+.bs-reserve { padding: .6rem .8rem; border-radius: .7rem; background: var(--bs-panel); border: 1px solid var(--bs-line); }
+.bs-reserve-title { margin: 0 0 .5rem; font-size: 1em; font-weight: 800; text-transform: uppercase; text-align: center; }
+.bs-reserve-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .4rem; justify-content: center; }
+.bs-reserve .bs-person { background: rgb(255 255 255 / .06); border-bottom-color: var(--bs-line); }
+.bs-reserve-empty { margin: 0; text-align: center; color: var(--bs-muted); }
+.bs-reserve-empty[hidden], .bs-reserve-list[hidden] { display: none; }
+
+@media (prefers-reduced-motion: reduce) { .bs-score[data-bump] { animation: none; } .bs-bar-fill { transition: none; } }
+
+/* Планшет и телефон: счёт и вопрос — сверху, составы — под ними. */
+@media (max-width: 900px) {
+  .bs { min-height: 100dvh; grid-template-rows: auto auto; }
+  .bs-main { grid-template-columns: 1fr 1fr; }
+  .bs-center { grid-column: 1 / -1; order: -1; }
+  .bs-team[data-team="a"], .bs-team[data-team="b"] { clip-path: none; padding-inline: .7rem; }
+  .bs-roster { max-height: 40vh; }
+  .bs-top { flex-wrap: wrap; }
+  .bs-title { order: 3; flex-basis: 100%; font-size: 1.1em; }
+  .bs-captains, .bs-stats { grid-template-columns: 1fr; }
+}
+/* Широкий экран / проектор: экран целиком помещается без прокрутки. */
+@media (min-width: 901px) {
+  .bs { height: 100dvh; min-height: 0; }
+  .bs-center { overflow-y: auto; }
+}
+
+/* Оверлей «Экран битвы» у ведущего */
+.bs-overlay { position: fixed; inset: 0; z-index: 960; overflow: auto; background: var(--bs-bg, #0B1426); }
+
+/* Ведущий: заметная кнопка «Экран битвы» остаётся на виду при прокрутке */
+.battle-host-bar { position: sticky; top: var(--topbar-h, 60px); z-index: 5; display: flex; justify-content: flex-end; padding: .5rem var(--space-3, .75rem); background: var(--bg, transparent); }
+.battle-open-screen { min-height: 2.75rem; font-weight: 700; padding-inline: 1.4rem; }
+
+/* Участник: компактный интерфейс для смартфона */
+.battle-play { gap: .6rem; padding: .5rem; max-width: 34rem; }
+.battle-play .battle-head { gap: .4rem; }
+.battle-play .battle-team { padding: .35rem .55rem; }
+.battle-play .battle-team .battle-score { font-size: 1.35rem; }
+.battle-play .battle-team .battle-status { font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.battle-play .battle-rope { height: 1.2rem; }
+.battle-play .battle-question h2 { font-size: 1.05rem; margin-bottom: .4rem; }
+.battle-play .battle-option { min-height: 3rem; padding: .6rem .75rem; }
+.battle-play .battle-confirm { position: sticky; bottom: 0; padding: .5rem 0; background: var(--bg, var(--surface)); }
+.battle-play .battle-confirm .btn { width: 100%; min-height: 3rem; }
+.battle-play .battle-vote-status[data-sent="1"] { color: var(--ok); }
+.battle-reserve-card { display: grid; gap: .4rem; padding: .75rem; border: 1px dashed var(--border); border-radius: var(--radius, 10px); }
+@media (min-width: 700px) { .battle-play { margin-inline: auto; } }
+
+/* Отдельная страница экрана (#room/КОД/screen): поверх всей оболочки. */
+.room-screen-page .bs { position: fixed; inset: 0; z-index: 950; overflow: auto; }
+/* Встроенный вид наблюдателя: под шапкой сайта, без лишней прокрутки. */
+.room-page:not(.room-screen-page) .bs { height: auto; min-height: calc(100dvh - var(--topbar-h, 60px)); }
+/* Оверлей ведущего заполняет окно сам. */
+.bs-overlay .bs { height: 100dvh; min-height: 0; }
+@media (max-width: 900px) { .bs-overlay .bs { height: auto; min-height: 100dvh; } }

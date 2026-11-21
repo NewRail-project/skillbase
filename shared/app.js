@@ -7,6 +7,7 @@
 // Маршруты: хэш-роутинг. Параметры после слэша: #quiz/<assignmentId>, #test/<id>, #join/<code>, #results/<testId>.
 // 404: ui/pages/404.js. Очистка страницы при уходе. Один вызов router() при старте.
 
+import { trackRoute } from "../ui/components/back-button.js";
 import { State, applyTheme, logout } from "../core/auth.js";
 import { initMode, subscribeMode } from "../core/mode.js";
 import { t } from "../core/i18n.js";
@@ -184,6 +185,7 @@ export async function router() {
   // #trial/<id> (один файл, два режима).
   State.route = name;
   const route = routes[name];
+  trackRoute(window.location.hash);
 
   // Уходим со старой страницы сразу, ещё до редиректов и проверки ролей:
   // иначе таймеры и автосохранение прохождения остались бы работать.

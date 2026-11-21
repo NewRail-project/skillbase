@@ -6,7 +6,7 @@ import { h } from "../../shared/dom.js";
 import { isStaff } from "../../core/auth.js";
 import { lt } from "../../core/i18n.js";
 import { getSubjects, getTopics, createSubject, updateSubject } from "../../core/subjects.js";
-import { deleteSubjectFlow } from "../components/delete-flows.js";
+import { deleteSubjectFlow, clearArchiveFlow } from "../components/delete-flows.js";
 import { TITLE_MAX, DESCRIPTION_MAX, STATUS_ARCHIVED, STATUS_ACTIVE, activeTopics, disciplineProgress, shortDescription, nextScheduledTopic } from "../../core/subjects-logic.js";
 import { formatTopicDate, dateMs } from "../../core/schedule-logic.js";
 import { formDialog } from "../components/form-dialog.js";
@@ -144,7 +144,16 @@ export default async function DisciplineCatalogPage() {
 
   function drawArchive(into, archivedItems) {
     into.push(h("section", { class: "panel" },
-      h("div", { class: "panel-head" }, h("h2", {}, "Архивные дисциплины")),
+      h("div", { class: "panel-head" }, h("h2", {}, "Архивные дисциплины"),
+        h("button", {
+          type: "button", class: "btn secondary btn-sm danger-text", "data-action": "clear-archive",
+          onclick: async () => {
+            const n = await clearArchiveFlow({
+              items: archivedItems.map(({ subject }) => subject), label: "дисциплины и их темы", deleteOne: deleteSubjectFlow
+            });
+            if (n) await load();
+          }
+        }, "Очистить архив")),
       h("ul", { class: "list" }, archivedItems.map(({ subject }) => h("li", { class: "list-row" },
         h("div", { class: "list-row-main" },
           h("div", { class: "list-row-title" },

@@ -69,7 +69,7 @@ export async function deleteTestFlow(test) {
   }
 }
 
-export async function deleteMaterialFlow(material) {
+export async function deleteMaterialFlow(material, { silent = false } = {}) {
   const can = canDeleteMaterial(material, session());
   if (!can.allowed) { toast(can.reason, "error"); return false; }
 
@@ -99,7 +99,8 @@ export async function deleteMaterialFlow(material) {
     return false;
   }
 
-  const ok = await confirmAction({
+  // silent — массовая очистка архива: подтверждение уже получено один раз.
+  const ok = silent || await confirmAction({
     title: `Удалить материал «${material.title || "Без названия"}»?`,
     text: "Материал, все его страницы и вложенный PDF будут удалены без возможности восстановления. Чтобы только скрыть его от студентов, используйте «В архив».",
     confirmLabel: "Удалить", tone: "danger"
@@ -107,7 +108,7 @@ export async function deleteMaterialFlow(material) {
   if (!ok) return false;
   try {
     await deleteLibraryMaterial(material.id);
-    toast("Материал удалён", "success");
+    if (!silent) toast("Материал удалён", "success");
     return true;
   } catch (err) {
     toast(err?.message || "Не удалось удалить материал.", "error");
@@ -189,7 +190,7 @@ export async function deleteTopicFlow(topic) {
  * Удаление дисциплины: каскадно удаляет её темы (с их планами отсоединения)
  * и саму дисциплину после подтверждения. Возвращает true, если удалена.
  */
-export async function deleteSubjectFlow(subject) {
+export async function deleteSubjectFlow(subject, { silent = false } = {}) {
   if (!subject?.id || subjectAccessDenied()) return false;
 
   let topics = [];
@@ -202,7 +203,7 @@ export async function deleteSubjectFlow(subject) {
   if (!deps) return false;
   const plan = subjectDeletionPlan({ subject, session: session(), topics, ...deps });
 
-  const ok = await confirmAction({
+  const ok = silent || await confirmAction({
     title: `Удалить дисциплину «${subject.title || "Без названия"}»?`,
     text: "Дисциплина и все её темы будут удалены без возможности восстановления. Тесты и материалы тем останутся, ссылка на тему будет снята.",
     details: planDetails(deletionPlanSummary(plan)),
@@ -212,7 +213,7 @@ export async function deleteSubjectFlow(subject) {
   if (!beginSubjectDelete()) return false;
   try {
     await deleteSubject(subject.id, plan);
-    toast("Дисциплина удалена", "success");
+    if (!silent) toast("Дисциплина удалена", "success");
     return true;
   } catch (err) {
     toast(err?.message || "Не удалось удалить дисциплину.", "error");
@@ -220,4 +221,33 @@ export async function deleteSubjectFlow(subject) {
   } finally {
     subjectDeleteBusy = false;
   }
+}
+
+/**
+ * Очистка архива целиком: одно подтверждение с количеством и примерами,
+ * затем удаление по одному тем же потоком, что и кнопка «Удалить» у
+ * записи (те же проверки прав, планы зависимостей и блокировки). То, что
+ * удалить нельзя (например, материал привязан к тесту), остаётся в архиве,
+ * а итог сообщает, сколько удалено и сколько осталось.
+ * deleteOne(item, { silent: true }) → true/false. Возвращает число удалённых.
+ */
+export async function clearArchiveFlow({ items = [], label, deleteOne }) {
+  if (!items.length) { toast("Архив уже пуст", "info"); return 0; }
+  const sample = items.slice(0, 5).map(i => `«${i.title || "Без названия"}»`).join(", ");
+  const ok = await confirmAction({
+    title: `Очистить архив: удалить ${items.length} (${label})?`,
+    text: "Все архивные записи будут удалены без возможности восстановления. Это действие нельзя отменить.",
+    details: [h("p", { class: "warning-msg" }, `Будет удалено: ${sample}${items.length > 5 ? ` и ещё ${items.length - 5}` : ""}`)],
+    confirmLabel: "Очистить архив", tone: "danger"
+  });
+  if (!ok) return 0;
+  let done = 0;
+  for (const item of items) {
+    if (await deleteOne(item, { silent: true })) done += 1;
+  }
+  const left = items.length - done;
+  toast(left
+    ? `Удалено: ${done}. Не удалось удалить: ${left} — они остались в архиве.`
+    : `Архив очищен: удалено ${done}.`, left ? "warning" : "success");
+  return done;
 }

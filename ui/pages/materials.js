@@ -18,7 +18,7 @@ import {
   listMaterials, publishLibraryMaterial, archiveLibraryMaterial
 } from "../../core/material-library.js";
 import { getSubjects, getTopics } from "../../core/subjects.js";
-import { deleteMaterialFlow } from "../components/delete-flows.js";
+import { deleteMaterialFlow, clearArchiveFlow } from "../components/delete-flows.js";
 
 function role() {
   return State.profile?.role || "";
@@ -228,6 +228,25 @@ export default async function MaterialsPage() {
     statusLine.textContent = staff
       ? `Материалов: ${materials.length} (включая черновики и архив).`
       : `Опубликованных материалов: ${materials.filter(isPublished).length}.`;
+    if (staff) {
+      // Очистка архива: только то, что текущий пользователь вправе удалить.
+      const me = { uid: State.user.uid, role: State.profile.role, orgId: State.profile.orgId };
+      const archived = () => materials.filter(m => m.status === MATERIAL_STATUS_ARCHIVED && canDeleteMaterial(m, me).allowed);
+      if (archived().length) {
+        statusLine.appendChild(document.createTextNode(" "));
+        statusLine.appendChild(h("button", {
+          type: "button", class: "btn secondary btn-sm danger-text", "data-action": "clear-archive",
+          onclick: async () => {
+            const gone = new Set();
+            await clearArchiveFlow({
+              items: archived(), label: "материалы",
+              deleteOne: async (m, o) => { const ok = await deleteMaterialFlow(m, o); if (ok) gone.add(m.id); return ok; }
+            });
+            if (gone.size) { materials = materials.filter(m => !gone.has(m.id)); paintList(); }
+          }
+        }, "Очистить архив"));
+      }
+    }
   } catch (err) {
     listWrap.textContent = "";
     listWrap.appendChild(h("div", { class: "panel" },

@@ -73,6 +73,8 @@ import { buildBattlePrep } from "../../ui/components/battle-prep.js";
 import { launchBattle } from "../../core/battle.js";
 import { listMyTests } from "../../core/editor.js";
 import { mountBattle, disposeBattle } from "./battle-room.js";
+import { createTopBoard } from "../components/top-board.js";
+import { jumpToRating, ratingJumpPending } from "../components/rating-jump.js";
 import { buildLaunchPlan, toBattleQuestions } from "../../core/battle-launch.js";
 import { getAttemptKeys } from "../../core/attempts.js";
 import { updateTest } from "../../core/editor.js";
@@ -102,6 +104,7 @@ let lastBoardSig = null;
 let lastReactionSig = null;
 let journalOpen = false;     // раскрыт ли журнал пары (переживает перерисовку вида)
 let liveTrainNode = null;   // паровоз живёт между перерисовками: движение плавное
+let topBoard = null;      // полный ТОП режима просмотра: живёт между перерисовками вида
 const ratingNodes = new Map(); // рейтинг живёт между перерисовками вида: карточки не пересоздаются
 let finalDock = null;     // единый итоговый экран с вкладками: обновляется на месте
 let finalDockSig = "";
@@ -164,6 +167,7 @@ function reset() {
   lastBoardSig = null;
   lastReactionSig = null;
   ratingNodes.clear();
+  topBoard = null;
   if (liveTrainNode) liveTrainNode.destroy();
   liveTrainNode = null;
   journalOpen = false;
@@ -556,7 +560,8 @@ export default async function RoomPage() {
   await Promise.all([
     loadCss("ui/css/live.css"),
     loadCss("ui/css/reactions.css"),
-    loadCss("ui/css/battle.css")
+    loadCss("ui/css/battle.css"),
+    loadCss("ui/css/top-screen.css")
   ]);
   shownErrors.clear();
   const rawRoute = decodeURIComponent((State.routeParam || ""));
@@ -645,16 +650,6 @@ export default async function RoomPage() {
     return page;
   }
 
-  // Экран проектора: только ведущий.
-  if (isScreen && !isHost) {
-    page.appendChild(h("div", { class: "panel" },
-      h("div", { class: "empty-state" },
-        h("h2", {}, "Экран доступен только ведущему"),
-        h("p", { class: "muted" }, "Откройте страницу под учётной записью ведущего комнаты."),
-        h("a", { class: "btn secondary", href: "#/" }, "На главную"))
-    ));
-    return page;
-  }
 
   // ---------- 2. Членство ----------
   if (isHost) {
@@ -682,6 +677,18 @@ export default async function RoomPage() {
       uid: State.user.uid, role: myRole, observer: myRole === ROLE_OBSERVER
     };
     local.memberConfirmed = true;
+    // Режим просмотра ТОПа: ведущий и наблюдатель. Это только выбор экрана:
+    // данные рейтинга и так читаются по правилам Firestore, а менять на этом
+    // экране нечего — кнопок управления в нём нет.
+    if (isScreen && myRole !== ROLE_OBSERVER) {
+      page.appendChild(h("div", { class: "panel" },
+        h("div", { class: "empty-state" },
+          h("h2", {}, "Экран ТОПа доступен ведущему и наблюдателям"),
+          h("p", { class: "muted" }, "Участники видят рейтинг на своей странице комнаты."),
+          h("a", { class: "btn secondary", href: `#room/${code}` }, "К комнате"))
+      ));
+      return page;
+    }
   }
 
   // ---------- 3. Независимые подписки ----------
@@ -855,7 +862,7 @@ export default async function RoomPage() {
   // Полоса серии — над карточкой участника, вне сменной перерисовки вида.
   streakRef = h("div", { class: "streak-host", "aria-live": "polite" });
   if (!isScreen) page.appendChild(streakRef);
-  const leaderHost = h("section", { class: "room-leaderboard-host", "aria-label": "Таблица результатов" });
+  const leaderHost = h("section", { class: "room-leaderboard-host", "aria-label": "Таблица результатов", "data-rating-anchor": "1" });
   const reactionBar = h("div", { class: "room-reaction-bar" });
   const floats = h("div", { class: "room-reaction-floats", "aria-hidden": "true" });
   page.appendChild(leaderHost);
@@ -1099,7 +1106,10 @@ function renderPage(page) {
     page.style.minHeight = `${lockH}px`;
     if (ghost) crossfade(page, existing, next, ghost);
     else existing.replaceWith(next);
-    if (window.scrollY !== scrollY) window.scrollTo(0, scrollY);
+    // Идёт переход «К рейтингу TOP» — держим цель, а не прежнюю позицию:
+    // иначе перерисовка в середине плавной прокрутки отменила бы переход.
+    if (ratingJumpPending()) jumpToRating({ behavior: "auto" });
+    else if (window.scrollY !== scrollY) window.scrollTo(0, scrollY);
     requestAnimationFrame(() => requestAnimationFrame(() => { page.style.minHeight = ""; }));
   } else {
     page.insertBefore(next, page.querySelector(".room-leaderboard-host"));
@@ -1431,7 +1441,7 @@ function updateLeaderboard() {
   const list = host.querySelector(".lb-list");
   if (!(list && host.querySelector(".lb-title") && reconcileLeaderList(list, rows, leaderCtx()))) {
     host.replaceChildren(
-      h("h2", { class: "lb-title" }, "Рейтинг"),
+      h("div", { class: "lb-head" }, h("h2", { class: "lb-title" }, "Рейтинг"), topModeLink()),
       leaderListFor(rows, { enter: true })
     );
   }
@@ -1577,21 +1587,13 @@ function updateRatingPanels(page) {
   });
 }
 
-// Табло проектора: топ-8 карточек внутри вида, обновляется точечно.
+// Режим просмотра ТОПа: полный список участников, обновляется точечно
+// (строки сопоставляются по uid, список не пересобирается).
 function updateScreenBoard(page) {
-  if (!page) return;
-  const el = page.querySelector("[data-screen-board]");
-  if (!el) return;
-  const rows = boardRows().slice(0, 8);
-  const sig = leaderSignature(rows);
-  if (el.dataset.sig === sig) return;
-  el.dataset.sig = sig;
-  const oldTops = captureRects(el);
-  el.textContent = "";
-  if (!rows.length) return;
+  if (!page || !topBoard) return;
+  if (!page.querySelector("[data-screen-board]")) return;
   syncBoardFrame();
-  el.appendChild(leaderListFor(rows, { board: true }));
-  playFlip(el, oldTops);
+  topBoard.update(ratingSource());
 }
 
 // Топ-3 наблюдателя в ручном режиме: перестраивается только при изменении
@@ -1782,7 +1784,7 @@ function createFinal(sig, initialRows, projector) {
   const podiumBlock = (instant) => {
     const pod = buildPodium(st.rows, { avatar: avatarChip });
     if (instant) showPodiumNow(pod);
-    return { pod, panel: h("div", { class: "panel room-podium" },
+    return { pod, panel: h("div", { class: "panel room-podium", "data-rating-anchor": "1" },
       h("div", { class: "panel-head" }, h("h2", {}, "Итоги")), pod) };
   };
 
@@ -1939,17 +1941,12 @@ function hostHeader(wrap, room) {
       themeToggle(),
       h("button", {
         type: "button",
-        class: "btn secondary",
+        class: "btn secondary room-top-jump",
+        "data-action": "jump-to-rating",
         onclick: () => {
-          const lb = document.querySelector(".room-leaderboard-host");
-          if (!lb) return;
-          const top = lb.getBoundingClientRect().top + window.pageYOffset - 80;
-          window.scrollTo({ top, behavior: "smooth" });
+          if (!jumpToRating()) toast("Рейтинг появится после первых ответов участников.", "info");
         }
-      }, h("span", { style: "display: flex; align-items: center; gap: 0.4rem" },
-        h("span", { style: "width: 1.2rem; height: 1.2rem", innerHTML: icons.trophy }),
-        "К рейтингу TOP"
-      )))
+      }, "К рейтингу TOP"))
   ));
   // Код крупно, чтобы продемонстрировать на экране/камере.
   wrap.appendChild(h("div", { class: "room-code-badge" }, room.code || room.id));
@@ -2803,95 +2800,45 @@ function revealPanel(reveal, question, { mine }) {
   );
 }
 
-// ---------- Экран проектора ----------
+// ---------- Режим просмотра ТОПа ----------
 
-// #room/CODE/screen: только ведущий, крупные шрифты, вопрос, таймер,
-// варианты, таблица. Кнопок управления нет — они остаются на телефоне
-// ведущего. Спам реакции и всплывающие эмодзи работают и здесь.
+// #room/CODE/screen: ведущий и наблюдатель. Заменяет прежний «экран
+// проектора»: название комнаты вверху, ВЕСЬ ТОП на одном экране без
+// прокрутки (раскладка и размер шрифта подстраиваются под число
+// участников — ui/components/top-board.js), «Вернуться» внизу. Рейтинг
+// обновляется сам: updateScreenBoard вызывается при каждом изменении очков
+// и состава. Кнопок управления Live здесь нет.
 function screenView() {
   const room = local.room;
-  const test = local.test;
-  const questions = test?.questions || [];
-  const wrap = h("div", { class: "room-view room-screen-view" });
-
-  const li = liveInfo();
-  const currentId = li.legacyPhase === "opened" || li.legacyPhase === "closed"
-    ? li.qid
-    : null;
-  const question = currentId !== null ? questionFor(currentId) : null;
-  const reveal = li.legacyPhase === "closed" ? local.reveals?.[currentId] : null;
-  const left = openMsLeft();
-  const finishedRoom = room?.status === "closed" || li.lifecycle === "completed";
-
-  wrap.appendChild(h("div", { class: "screen-top" },
-    h("div", { class: "screen-title" },
-      finishedRoom
-        ? "Итоги комнаты"
-        : room?.testTitle || "Комната"),
-    h("div", { class: "screen-code" }, room?.code || local.code || ""),
-    left && left > 0
-      ? h("div", { class: "screen-timer-box" },
-        questionTotalMs() ? ringTimer({ totalMs: questionTotalMs(), leftMs: left }) : null,
-        h("div", { class: "screen-timer", "data-live-clock": "1" }, formatClock(left)))
-      : h("div", { class: "screen-timer screen-timer-empty" }, "")
-  ));
-
-  if (finishedRoom) {
-    const podium = finalSequence({ projector: true });
-    if (podium) wrap.appendChild(podium);
-  } else if (!question) {
-    // Ожидание первого вопроса — момент входа участников: крупный QR,
-    // чтобы каждый мог отсканировать его камерой телефона.
-    const qrBox = h("div", { class: "screen-qr-box" });
-    paintQR(qrBox, room?.code || local.code, 240);
-    wrap.appendChild(h("div", { class: "panel screen-wait-panel" },
-      h("div", { class: "empty-state" },
-        h("p", { class: "page-sub" }, "Отсканируйте камерой телефона, чтобы войти"),
-        qrBox,
-        h("p", { class: "screen-code-hint" },
-          `Или введите код: ${room?.code || local.code || ""}`)
-      )
-    ));
-  } else {
-    wrap.appendChild(h("div", { class: "screen-question panel" },
-      h("h2", { class: "screen-question-text" }, question.text || "Вопрос без текста"),
-      reveal ? h("div", { class: "screen-reveal" }, "Правильный ответ: ") : null,
-      Array.isArray(question.options) && question.options.length
-        ? h("ul", { class: "screen-options" },
-            question.options.map((option, index) => h("li", {
-              class: "screen-option" + (reveal && reveal.reveal?.correct?.includes(index) ? " correct" : "")
-            }, option.text || "—")))
-        : reveal && reveal.reveal?.type === "short"
-          ? h("div", { class: "screen-option correct" }, String(reveal.reveal.answer || ""))
-          : null,
-      reveal?.reveal?.explanation
-        ? h("p", { class: "screen-explanation" }, reveal.reveal.explanation)
-        : null
-    ));
-  }
-
-  // Табло: рейтинг крупными карточками в стиле вокзального табло.
-  // Контейнер с точечным обновлением: updateScreenBoard перерисовывает
-  // топ-8 только при изменении очков/мест, без пересборки вида.
-  if (!finishedRoom) {
-    wrap.appendChild(h("div", { class: "screen-board-wrap", "data-screen-board": "1" }));
-  }
-
-  // Комната активна, вопрос уже открыт: маленький QR под таблицей —
-  // опоздавшие всё ещё могут войти камерой.
-  if (room?.status === "active" && question) {
-    const mini = h("div", { class: "screen-qr-mini" });
-    paintQR(mini, room.code || local.code, 96);
-    wrap.appendChild(h("div", { class: "screen-join-late" },
-      mini,
-      h("span", { class: "screen-join-late-hint" },
-        `Войти: камерой или код ${room.code || local.code || ""}`)
-    ));
-  }
+  const code = room?.code || local.code || "";
+  const finishedRoom = room?.status === "closed" || liveInfo().lifecycle === "completed";
+  if (!topBoard) topBoard = createTopBoard({ avatar: avatarChip });
+  const wrap = h("div", { class: "room-view room-screen-view top-screen" },
+    h("div", { class: "top-screen-head" },
+      h("h1", { class: "top-screen-title" }, room?.testTitle || "Комната"),
+      h("div", { class: "top-screen-meta" },
+        h("span", { class: "top-screen-status" }, finishedRoom ? "Итоги" : "Рейтинг"),
+        h("span", { class: "top-screen-code" }, code))),
+    h("div", { class: "top-screen-board", "data-screen-board": "1" }, topBoard.el),
+    h("div", { class: "top-screen-foot" },
+      h("a", { class: "top-screen-back", href: `#room/${code}` }, "Вернуться")));
+  syncBoardFrame();
+  topBoard.update(ratingSource());
   return wrap;
 }
 
 // ---------- Автономный режим: рейтинг и виды ----------
+
+// Ссылка в режим просмотра ТОПа (#room/КОД/screen). Только ведущему и
+// наблюдателю: участнику экран закрыт, поэтому ссылки у него нет.
+function topModeLink() {
+  const who = role();
+  if (who !== "host" && who !== "observer") return null;
+  return h("a", {
+    class: "btn secondary small lb-top-link",
+    href: `#room/${local.room?.code || local.code}/screen`
+  }, "Весь ТОП на экран");
+}
 
 // Общий рейтинг карточками: место, аватар, ФИО, баллы, % верных, число
 // вопросов, статус; своя строка подсвечена, у серии — значок огня/молнии.
@@ -2912,11 +2859,13 @@ function buildRatingPanel({ title, limit }) {
   return h("section", {
     class: "panel live-rating",
     "aria-label": title,
-    "data-rating-limit": limit ? String(limit) : ""
+    "data-rating-limit": limit ? String(limit) : "",
+    "data-rating-anchor": "1"
   },
     h("div", { class: "panel-head" },
       h("h2", {}, title),
-      h("span", { class: "badge badge-neutral", "data-rating-count": "1" }, "")));
+      h("span", { class: "badge badge-neutral", "data-rating-count": "1" }, ""),
+      topModeLink()));
 }
 
 function progressPanel(li, room) {
@@ -3797,7 +3746,12 @@ async function startBattleFromPrep(room, settings, roster) {
 function battlePlayers() {
   return (local.players || [])
     .filter((p) => !p.observer && p.role !== "observer" && p.isAdminPlayer !== true)
-    .map((p) => ({ uid: p.uid, displayName: p.displayName || p.name || p.uid }));
+    .map((p) => ({
+      uid: p.uid,
+      displayName: p.displayName || p.name || p.uid,
+      // Аватар из профиля богаче аватара из players-документа (как в рейтинге).
+      avatar: local.profiles?.get?.(p.uid)?.avatar || p.avatar || null
+    }));
 }
 
 function battleLiveInfo() {
@@ -3836,6 +3790,8 @@ function battleView(kind) {
     uid: State.user?.uid,
     test: local.test,
     players: battlePlayers(),
+    getPlayers: battlePlayers,
+    backHref: isScreenRoute() ? `#room/${local.room?.code || local.code}` : "",
     liveInfo: kind === "host" ? battleLiveInfo() : {},
     getPresence: kind === "host" ? battlePresence : null,
     loadTest: loadTestPublic,

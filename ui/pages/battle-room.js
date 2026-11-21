@@ -12,6 +12,7 @@ import { buildBattleSnapshot } from "../../core/battle-snapshot.js";
 import { buildBattlePlay } from "../components/battle-play.js";
 import { buildBattleHost } from "../components/battle-host.js";
 import { buildBattleScreen } from "../components/battle-screen.js";
+import { openBattleOverlay } from "../components/battle-overlay.js";
 
 let current = null; // { key, el, dispose }
 
@@ -25,15 +26,20 @@ function message(text) {
 }
 
 // mountBattle({ code, kind: "host"|"player"|"screen", uid, test, players, liveInfo, now, onToast })
+//   getPlayers — () => [{ uid, displayName, avatar }]: имена и аватары берутся
+//   в момент отрисовки, поэтому поздно догрузившийся профиль не теряется.
+//   backHref   — ссылка «Вернуться» на отдельной странице экрана (#room/КОД/screen).
 // Возвращает DOM-элемент (один и тот же для одинаковых параметров).
-export function mountBattle({ code, kind, uid, test, players = [], liveInfo = {}, now = () => Date.now(), onToast = () => {}, getPresence = null, loadTest = null, isObserver = false }) {
+export function mountBattle({ code, kind, uid, test, players = [], getPlayers = null, backHref = "", liveInfo = {}, now = () => Date.now(), onToast = () => {}, getPresence = null, loadTest = null, isObserver = false }) {
   const key = `${code}|${kind}|${uid}`;
   if (current?.key === key) return current.el;
   disposeBattle();
 
   const el = h("div", { class: "battle-root" }, message("Загрузка…"));
   const show = (node) => el.replaceChildren(node);
-  const nameOf = (u) => players.find((p) => p.uid === u)?.displayName || u;
+  const roster = () => (typeof getPlayers === "function" ? getPlayers() : players) || [];
+  const nameOf = (u) => roster().find((p) => p.uid === u)?.displayName || u;
+  const avatarOf = (u) => roster().find((p) => p.uid === u)?.avatar || null;
   const offs = [];
   let hostView = null;
   let play = null;
@@ -48,12 +54,27 @@ export function mountBattle({ code, kind, uid, test, players = [], liveInfo = {}
 
   const dispose = () => {
     disposed = true;
+    closeScreen();
     offs.forEach((f) => { try { f(); } catch { /* отписка */ } });
     hostView?.stop();
     play?.destroy();
     screen?.destroy();
   };
   current = { key, el, dispose };
+
+  // Оверлей «Экран битвы» ведущего: отдельная подписка на публичный документ.
+  let overlay = null;
+  let bankForScreen = test;
+  function openScreen(opener) {
+    if (overlay || disposed) return;
+    overlay = openBattleOverlay({
+      opener,
+      subscribe: (onData, onError) => subscribeBattle(code, onData, onError),
+      buildScreen: (controls) => buildBattleScreen({ test: bankForScreen, nameOf, avatarOf, now, controls }),
+      onClosed: () => { overlay = null; }
+    });
+  }
+  function closeScreen() { overlay?.close(); overlay = null; }
 
   if (kind === "host") {
     (async () => {
@@ -66,6 +87,7 @@ export function mountBattle({ code, kind, uid, test, players = [], liveInfo = {}
         if (disposed) return;
         const bank = await sourceTest(doc);
         if (disposed) return;
+        bankForScreen = bank;
         const questions = (doc.questions || []).map((q) => ({ ...q, correct: keys[q.id] || [] }));
         const game = BattleGame.restore({ doc, questions, rounds, liveInfo, store, now });
         hostView = buildBattleHost({
@@ -80,7 +102,13 @@ export function mountBattle({ code, kind, uid, test, players = [], liveInfo = {}
           }
         });
         hostView.start();
-        show(hostView.el);
+        // «Экран битвы» — заметная кнопка наверху: открывает полноэкранный
+        // просмотр поверх вида ведущего (без прокрутки и без смены страницы,
+        // поэтому игровой цикл hostView продолжает работать).
+        const openBtn = h("button", { type: "button", class: "btn primary battle-open-screen", "data-action": "open-battle-screen" }, "Экран битвы");
+        openBtn.addEventListener("click", () => openScreen(openBtn));
+        show(h("div", { class: "battle-host-wrap" },
+          h("div", { class: "battle-host-bar" }, openBtn), hostView.el));
       } catch (err) {
         show(message(err?.message || "Не удалось загрузить битву."));
       }
@@ -106,13 +134,22 @@ export function mountBattle({ code, kind, uid, test, players = [], liveInfo = {}
   };
 
   if (kind === "screen") {
-    start((t) => { screen = buildBattleScreen({ test: t, nameOf, now }); show(screen.el); });
+    start((t) => {
+      screen = buildBattleScreen({
+        test: t, nameOf, avatarOf, now,
+        controls: backHref ? [{ label: "Вернуться", href: backHref, kind: "back" }] : []
+      });
+      show(screen.el);
+      // Имена и аватары участников могут догрузиться позже битвы.
+      const refresh = setInterval(() => screen?.refresh(), 3000);
+      offs.push(() => clearInterval(refresh));
+    });
     return el;
   }
 
   start((t) => {
     play = buildBattlePlay({
-      uid, test: t, now, onToast,
+      uid, test: t, now, onToast, nameOf,
       api: {
         castVote: (x) => castVote(code, x),
         makeCaptainDecision: (x) => makeCaptainDecision(code, x)

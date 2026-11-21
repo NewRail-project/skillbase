@@ -51,7 +51,10 @@ export function buildBattlePlay({ uid, test, api, onToast = () => {}, now = () =
   const teamB = h("div", { class: "battle-team", "data-team": "b" }, h("div", {}, "Команда B"), scoreB, capB);
   const rope = buildRope(0);
   const body = h("div", { class: "battle-body" });
-  const el = h("div", { class: "battle-view" }, h("div", { class: "battle-head" }, teamA, timerEl, teamB), rope.el, body);
+  const el = h("div", { class: "battle-view battle-play" }, h("div", { class: "battle-head" }, teamA, timerEl, teamB), rope.el, body);
+  let countsEl = null;   // узел «N из M проголосовали»: обновляется без пересборки тела
+  let countsTeam = null;
+  let lastBodyKey = null;
 
   const info = () => roleInBattle(battle, uid);
   const cr = () => battle?.currentRound || null;
@@ -96,20 +99,36 @@ export function buildBattlePlay({ uid, test, api, onToast = () => {}, now = () =
     else selection = [i];
   }
 
+  const sameSet = (x, y) => Boolean(x) && x.length === y.length && x.every((v, i) => v === y[i]);
+  const countsText = (r, teamId) => {
+    const c = r?.voted?.[teamId];
+    return c ? `${c.voted} из ${c.total} проголосовали` : "";
+  };
+
+  // Голосование игрока: выбрать вариант → подтвердить → при необходимости
+  // изменить до закрытия. Чужих голосов и правильного ответа здесь нет.
   function voteBlock(r, content, teamId) {
     const multi = r.type === "multiple";
-    const counts = r.voted?.[teamId];
     const sendVote = () => run(() => api.castVote({ roundId: r.index, teamId, selected: selection }).then(() => { confirmed = [...selection]; }), "Голос принят.");
+    const unchanged = sameSet(confirmed, selection);
+    const mineText = (confirmed || []).map((i) => content.options[i] || `Вариант ${i + 1}`).join(", ");
+    const status = !confirmed
+      ? "Вы ещё не проголосовали."
+      : unchanged
+        ? `Голос отправлен: ${mineText}. Его можно изменить до закрытия голосования.`
+        : "Выбор изменён, но ещё не отправлен.";
+    countsEl = h("span", { class: "battle-counts" }, countsText(r, teamId));
+    countsTeam = teamId;
     return h("div", {},
       optionButtons(content, r, {
         multi, locked: false, team: teamId,
-        onClick: (i) => { toggle(i, multi); if (!multi) sendVote(); else render(); }
+        onClick: (i) => { toggle(i, multi); render(); }
       }),
-      multi ? h("div", { class: "battle-actions" },
-        h("button", { type: "button", class: "btn primary", disabled: selection.length === 0, onclick: sendVote }, confirmed ? "Изменить голос" : "Подтвердить голос")) : null,
-      h("p", { class: "battle-status", "aria-live": "polite" },
-        counts ? `${counts.voted} из ${counts.total} проголосовали` : "",
-        confirmed ? " · ваш голос принят, его можно изменить" : ""));
+      h("div", { class: "battle-actions battle-confirm" },
+        h("button", { type: "button", class: "btn primary", disabled: busy || selection.length === 0 || unchanged, onclick: sendVote },
+          confirmed ? "Изменить голос" : "Подтвердить голос")),
+      h("p", { class: "battle-status battle-vote-status", "data-sent": confirmed ? "1" : "0", "aria-live": "polite" }, status),
+      h("p", { class: "battle-status" }, countsEl));
   }
 
   function captainChoice(r, content, teamId) {
@@ -199,6 +218,20 @@ export function buildBattlePlay({ uid, test, api, onToast = () => {}, now = () =
       h("p", { class: "battle-status" }, "Отвечайте быстрее и точнее: побеждает первый правильный ответ."));
   }
 
+  // Запасной: статус и очередь на замену. Когда игрока заменят, документ
+  // битвы переведёт запасного в состав команды — следующий кадр update()
+  // сам покажет интерфейс полноценного игрока.
+  function reserveCard() {
+    const queue = (battle.reserve || []).filter((x) => !(battle.substituted || []).includes(x));
+    const place = queue.indexOf(uid) + 1;
+    return h("div", { class: "battle-reserve-card", "data-role": "reserve" },
+      h("span", { class: "battle-chip" }, "Запасной"),
+      h("p", { class: "battle-status" }, "Вы в резерве и пока не голосуете."),
+      h("p", { class: "battle-status" }, place > 0
+        ? `Очередь на замену: ${place} из ${queue.length}. Если игрок выбудет, вы займёте его место автоматически.`
+        : "Если игрок выбудет, вы займёте его место автоматически."));
+  }
+
   function renderBody() {
     const who = info();
     const phase = battle.phase;
@@ -213,7 +246,7 @@ export function buildBattlePlay({ uid, test, api, onToast = () => {}, now = () =
     const r = cr();
     if (!r) {
       return h("div", {},
-        h("p", { class: "battle-status" }, who.role === "reserve" ? "Вы в резерве: при выбытии игрока команда получит вас на замену." : "Битва скоро начнётся. Ждём первый вопрос."),
+        who.role === "reserve" ? reserveCard() : h("p", { class: "battle-status" }, "Битва скоро начнётся. Ждём первый вопрос."),
         who.teamId ? h("span", { class: "battle-chip", "data-team": who.teamId }, `Команда ${who.teamId.toUpperCase()}${who.role === "captain" ? " · капитан" : ""}`) : null);
     }
     const meta = (battle.questions || []).find((q) => q.id === r.questionId) || { id: r.questionId };
@@ -226,7 +259,7 @@ export function buildBattlePlay({ uid, test, api, onToast = () => {}, now = () =
     if (r.status === "closed") main = resultBlock(r, content, who);
     else if (who.role === "reserve" || who.role === "viewer") {
       main = h("div", {}, optionButtons(content, r, { multi: r.type === "multiple", locked: true }),
-        h("p", { class: "battle-status" }, "Вы наблюдаете за игрой."));
+        who.role === "reserve" ? reserveCard() : h("p", { class: "battle-status" }, "Вы наблюдаете за игрой."));
     } else {
       const mode = r.modes?.[who.teamId];
       if (r.status === "tiebreak") {
@@ -248,12 +281,34 @@ export function buildBattlePlay({ uid, test, api, onToast = () => {}, now = () =
     if (!battle) { body.replaceChildren(h("p", { class: "battle-status" }, "Загрузка…")); return; }
     scoreA.textContent = String(battle.scores?.a ?? 0);
     scoreB.textContent = String(battle.scores?.b ?? 0);
+    capA.textContent = battle.captains?.a ? `Капитан: ${nameOf(battle.captains.a)}` : "";
+    capB.textContent = battle.captains?.b ? `Капитан: ${nameOf(battle.captains.b)}` : "";
     const who = info();
     teamA.setAttribute("data-mine", String(who.teamId === "a"));
     teamB.setAttribute("data-mine", String(who.teamId === "b"));
     rope.set(battle.rope || 0);
     tick();
+    countsEl = null;
     body.replaceChildren(renderBody());
+  }
+
+  // Ключ «тела»: всё, что меняет разметку, кроме счётчика голосов и очков.
+  // Если ключ тот же, обновляем только числа — без пересборки вариантов.
+  function bodyKey(b) {
+    const r = b?.currentRound;
+    const w = roleInBattle(b, uid);
+    return JSON.stringify([
+      b?.phase, w, r ? [r.index, r.kind, r.status, r.questionId, r.modes, r.tiebreak, r.correct] : null,
+      (b?.roundSummaries || []).length, b?.winner, b?.reserve, b?.substituted, b?.lastExtra,
+      b?.captains?.a, b?.captains?.b
+    ]);
+  }
+  function patchLive(next) {
+    scoreA.textContent = String(next.scores?.a ?? 0);
+    scoreB.textContent = String(next.scores?.b ?? 0);
+    rope.set(next.rope || 0);
+    if (countsEl && countsTeam) countsEl.textContent = countsText(next.currentRound, countsTeam);
+    tick();
   }
 
   let timer = null;
@@ -263,8 +318,17 @@ export function buildBattlePlay({ uid, test, api, onToast = () => {}, now = () =
       const r = next?.currentRound;
       const key = r ? `${r.index}:${r.kind || "main"}` : "none";
       if (key !== roundKey) { roundKey = key; selection = []; confirmed = null; pickSelf = false; tbOptions = {}; }
+      const before = battle ? info().role : null;
+      const prevKey = lastBodyKey;
       battle = next;
-      render();
+      const nowRole = info();
+      // Запасного ввели в игру: интерфейс игрока включается сам.
+      if (before === "reserve" && (nowRole.role === "player" || nowRole.role === "captain")) {
+        onToast(`Вы заменили выбывшего игрока и теперь играете за команду ${nowRole.teamId.toUpperCase()}.`, "success");
+      }
+      lastBodyKey = bodyKey(next);
+      if (prevKey !== null && prevKey === lastBodyKey && !busy) patchLive(next);
+      else render();
       if (!timer && typeof setInterval === "function") timer = setInterval(tick, 500);
     },
     destroy() { if (timer) clearInterval(timer); timer = null; }

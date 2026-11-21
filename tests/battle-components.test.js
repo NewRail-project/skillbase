@@ -43,7 +43,7 @@ test("содержимое вопроса берётся из теста по sr
   assert.equal(battleQuestionContent(TEST, { id: "q0" }).text, "Столица Франции?");
 });
 
-test("игрок: видит варианты и счётчик «2 из 3», голос уходит одним кликом (single)", async () => {
+test("игрок: видит варианты и счётчик «2 из 3», голос уходит по кнопке подтверждения (single)", async () => {
   const sent = [];
   const v = buildBattlePlay({ uid: "a1", test: TEST, now: () => NOW, api: { castVote: async (x) => { sent.push(x); } } });
   v.update(battle());
@@ -52,8 +52,11 @@ test("игрок: видит варианты и счётчик «2 из 3», г
   assert.match(s, /2 из 3 проголосовали/);
   assert.equal(findAll(v.el, (e) => e.tag === "button" && e.attrs["aria-pressed"] !== undefined).length, 4);
   findAll(v.el, (e) => e.tag === "button" && text(e).includes("Париж"))[0].click();
+  assert.equal(sent.length, 0, "выбор варианта сам голос не отправляет");
+  btns(v.el, "Подтвердить голос")[0].click();
   await new Promise((r) => setImmediate(r));
   assert.deepEqual(sent, [{ roundId: 0, teamId: "a", selected: [1] }]);
+  assert.match(all(v.el), /Голос отправлен: Париж/);
   v.destroy();
 });
 
@@ -137,7 +140,8 @@ test("результат: правильный ответ и очки показ
 test("запасной и выбывший не голосуют", () => {
   const rs = buildBattlePlay({ uid: "r1", test: TEST, now: () => NOW, api: {} });
   rs.update(battle());
-  assert.match(all(rs.el), /наблюдаете/);
+  assert.match(all(rs.el), /Запасной/);
+  assert.match(all(rs.el), /Очередь на замену: 1 из 1/);
   assert.equal(findAll(rs.el, (e) => e.tag === "button" && !e.disabled).length, 0);
   const out = buildBattlePlay({ uid: "a2", test: TEST, now: () => NOW, api: {} });
   out.update(battle({ eliminated: ["a2"] }));
@@ -157,11 +161,12 @@ test("проектор: команды, капитаны, счёт, число �
   const s = buildBattleScreen({ test: TEST, nameOf: (u) => "Имя-" + u, now: () => NOW });
   s.update(battle());
   const t = all(s.el);
-  assert.match(t, /Капитан: Имя-ca/);
-  assert.match(t, /Проголосовали: A 2\/3 · B 0\/3/);
+  assert.match(t, /Имя-ca/);
+  assert.match(t, /Проголосовали: 2 из 3 · 67%/);
+  assert.match(t, /Проголосовали: 0 из 3 · 0%/);
   assert.doesNotMatch(t, /null|undefined/);
   s.update(battle({ phase: "finished", winner: "b", scores: { a: 1, b: 9 }, currentRound: null }));
-  assert.match(all(s.el), /Победила команда B/);
+  assert.match(all(s.el), /Победила Команда Б/);
   s.destroy();
 });
 
