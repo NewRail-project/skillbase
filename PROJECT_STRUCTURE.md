@@ -49,3 +49,8 @@ skillbase/
 ├── firestore.rules         # Правила Firestore
 └── index.html              # Точка входа приложения
 ```
+## Слайды учебного материала
+- `core/slides-logic.js` — чистая логика слайдов (лимиты, сжатие, сигнатуры страниц); слайд = страница книги с блоком `image` и `slide: true`.
+- `core/slides-client.js` — браузерная часть: ленивая загрузка pdf.js 3.11.174 (cdnjs, SRI), рендер PDF и сжатие картинок через canvas.
+- `core/material-library.js: saveLibraryPagesDiff` — запись только изменившихся страниц с прогрессом.
+- Тесты: `tests/slides-logic.test.js`. Предложения без применения: `docs/proposals/`.

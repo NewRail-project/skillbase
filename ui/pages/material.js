@@ -10,6 +10,7 @@ import { h } from "../../shared/dom.js";
 import { State, isStaff } from "../../core/auth.js";
 import { loadMaterial, loadMaterialProgress, saveMaterialProgress } from "../../core/materials.js";
 import { materialProgress } from "../../core/material-logic.js";
+import { isSlidePage } from "../../core/slides-logic.js";
 import {
   deriveChapters, hasToc,
   readerBackTarget,
@@ -306,7 +307,11 @@ export default async function MaterialPage() {
     book.style.transition = REDUCED ? "none" : "transform .25s ease";
     book.textContent = "";
     const blocks = material.pages[index];
-    const body = h("div", { class: "book-page" + (index === 0 ? " is-first" : "") },
+    // Страница-слайд (картинка из PDF/файла, core/slides-logic.js): шире
+    // «книга» и крупная картинка — для телефона и проектора.
+    const slide = isSlidePage(blocks);
+    book.classList.toggle("is-slide-book", slide);
+    const body = h("div", { class: "book-page" + (index === 0 && !slide ? " is-first" : "") + (slide ? " is-slide" : "") },
       ...blocks.map(blockEl).filter(Boolean));
     const pct = Math.round(((index + 1) / material.pages.length) * 100);
     progressBar.style.width = `${pct}%`;
@@ -395,8 +400,8 @@ export default async function MaterialPage() {
   nextBtn.addEventListener("click", () => turn(1));
 
   const keyHandler = (event) => {
-    if (event.key === "ArrowLeft") turn(-1);
-    else if (event.key === "ArrowRight") turn(1);
+    if (event.key === "ArrowLeft" || event.key === "PageUp") turn(-1);
+    else if (event.key === "ArrowRight" || event.key === "PageDown") turn(1);
   };
   document.addEventListener("keydown", keyHandler);
 

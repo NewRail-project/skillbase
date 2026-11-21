@@ -14,6 +14,7 @@ import {
 } from "../shared/firebase.js";
 import { State } from "./auth.js";
 import { validateMaterial } from "./material-logic.js";
+import { diffPages, slidePageError } from "./slides-logic.js";
 import {
   validateMaterialMeta, materialMetaPatch, normalizeStatus,
   MATERIAL_STATUS_DRAFT,
@@ -179,6 +180,57 @@ export async function saveLibraryMaterialPages(id, pages) {
     if (Number(item.id) >= pages.length) writes.push(deleteDoc(item.ref));
   });
   await Promise.all(writes);
+}
+
+// Сохранение страниц с картинками (слайды): пишет ТОЛЬКО изменившиеся
+// страницы — автосохранение редактора не должно каждые 8 секунд заново
+// заливать мегабайты неизменных картинок. signatures — сигнатуры, возвращённые
+// предыдущим сохранением (или null — записать всё). Страницы пишутся порциями
+// по `concurrency` документов, onProgress(done, total) — ход записи.
+// Порядок: страницы → удаление лишних → pageCount, чтобы читатель не увидел
+// карточку с числом страниц, которых ещё нет. Возвращает { signatures, written }.
+export async function saveLibraryPagesDiff(id, pages, { signatures = null, onProgress = null, concurrency = 3 } = {}) {
+  const errors = validateMaterial({ pageCount: pages.length, pages });
+  pages.forEach((blocks, i) => {
+    const message = slidePageError(blocks);
+    if (message) errors.push(`Страница ${i + 1}: ${message}`);
+  });
+  if (errors.length) {
+    const err = new Error(errors.join("\n"));
+    err.fields = errors;
+    throw err;
+  }
+
+  const plan = diffPages(signatures, pages);
+  const total = plan.changed.length;
+  const report = typeof onProgress === "function" ? onProgress : () => {};
+  report(0, total);
+
+  let done = 0;
+  let cursor = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(concurrency, total)) }, async () => {
+    while (cursor < total) {
+      const n = plan.changed[cursor++];
+      await setDoc(doc(db, "materials", id, "pages", String(n)), { blocks: pages[n] });
+      report(++done, total);
+    }
+  });
+  await Promise.all(workers);
+
+  if (signatures === null) {
+    // Полная запись: убрать страницы, оставшиеся от более длинной версии.
+    const current = await getDocs(collection(db, "materials", id, "pages"));
+    await Promise.all(current.docs
+      .filter(item => Number(item.id) >= pages.length)
+      .map(item => deleteDoc(item.ref)));
+  } else {
+    await Promise.all(plan.stale.map(n => deleteDoc(doc(db, "materials", id, "pages", String(n)))));
+  }
+  await setDoc(doc(db, "materials", id), {
+    pageCount: pages.length,
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+  return { signatures: plan.signatures, written: total };
 }
 
 // ---------- Вложение PDF ----------

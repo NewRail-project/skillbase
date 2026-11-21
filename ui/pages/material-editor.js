@@ -29,13 +29,20 @@ import {
 } from "../../core/material-library-logic.js";
 import {
   loadLibraryMaterial, createLibraryMaterial, updateLibraryMaterial,
-  saveLibraryMaterialPages, saveLibraryPdf, removeLibraryPdf,
+  saveLibraryMaterialPages, saveLibraryPagesDiff, saveLibraryPdf, removeLibraryPdf,
   readPdfFile
 } from "../../core/material-library.js";
 import { getSubjects, getTopics } from "../../core/subjects.js";
+import {
+  checkSourceFiles, materialSlideStats, capacityError, totalBytesError,
+  buildSlidePages, progressLabel, hasInlineImages, pageSignatures,
+  SLIDE_MAX_COUNT, SLIDE_MAX_TOTAL_BYTES, formatMegabytes, formatKilobytes
+} from "../../core/slides-logic.js";
+import { openPdf, pdfToSlides, imageFilesToSlides } from "../../core/slides-client.js";
 
 const DRAFT_LOCAL_MS = 1000;   // пауза перед записью локального черновика
 const DRAFT_REMOTE_MS = 8000;  // пауза перед записью в Firestore
+const LOCAL_DRAFT_MAX_CHARS = 3_000_000; // больше в localStorage не кладём (слайды)
 const BLOCK_TYPES = [
   ["heading", "Заголовок"], ["paragraph", "Абзац"], ["list", "Список"],
   ["callout", "Вызов"], ["image", "Изображение"], ["quote", "Цитата"]
@@ -134,6 +141,9 @@ export default async function MaterialEditorPage() {
   let saveInFlight = false;   // защита от конфликтующих параллельных записей
   let remoteTimer = null;
   let localTimer = null;
+  // Сигнатуры страниц, уже записанных в Firestore (только для материалов
+  // со слайдами): автосохранение пишет лишь изменившиеся страницы.
+  let savedSigs = null;
   const draftKey = draftKeyFor(materialId);
 
   const storage = (() => {
@@ -243,11 +253,17 @@ export default async function MaterialEditorPage() {
     if (localTimer) clearTimeout(localTimer);
     localTimer = setTimeout(() => {
       localTimer = null;
-      paintSaveStatus("Сохранено на устройстве…");
       const raw = serializeEditorDraft(state);
+      // Слайды — это мегабайты картинок: localStorage (≈5 МБ) их не вместит.
+      // Не пишем заведомо большой черновик и честно об этом говорим.
+      if (raw && raw.length > LOCAL_DRAFT_MAX_CHARS) {
+        paintSaveStatus("Слайды слишком объёмны для черновика на устройстве — сохраните материал в базе.", true);
+        return;
+      }
+      paintSaveStatus("Сохранено на устройстве…");
       try {
         if (raw) storage.setItem(draftKey, raw);
-      } catch (_) { /* приватный режим */ }
+      } catch (_) { /* приватный режим или переполнение */ }
     }, DRAFT_LOCAL_MS);
   }
 
@@ -275,7 +291,19 @@ export default async function MaterialEditorPage() {
     if (!silent) paintSaveStatus("Сохраняем…");
     try {
       await updateLibraryMaterial(state.id, state);
-      await saveLibraryMaterialPages(state.id, state.pages);
+      if (hasInlineImages(state.pages)) {
+        // Слайды: пишем только изменившиеся страницы, с индикатором хода.
+        const saved = await saveLibraryPagesDiff(state.id, state.pages, {
+          signatures: savedSigs,
+          onProgress: (done, total) => {
+            if (total > 1) paintSaveStatus(progressLabel("save", done, total));
+          }
+        });
+        savedSigs = saved.signatures;
+      } else {
+        await saveLibraryMaterialPages(state.id, state.pages);
+        savedSigs = null;
+      }
       dirty = false;
       if (storage) {
         try { storage.removeItem(draftKey); } catch (_) { /* пусто */ }
@@ -326,7 +354,11 @@ export default async function MaterialEditorPage() {
     }
     createBtn.disabled = true;
     try {
-      const id = await createLibraryMaterial(state);
+      // Со слайдами карточка создаётся с первой страницей, остальные пишет
+      // saveToFirestore ниже — порциями и с индикатором хода.
+      const id = await createLibraryMaterial(hasInlineImages(state.pages)
+        ? { ...state, pages: state.pages.slice(0, 1) }
+        : state);
       state.id = id;
       // Дальше редактор продолжает работу над созданным документом.
       window.history.replaceState(null, "", `#material-editor/${id}`);
@@ -543,7 +575,7 @@ export default async function MaterialEditorPage() {
     function rebuild() {
       subFields.textContent = "";
       if (block.type === "heading") {
-        subFields.appendChild(h("label", {}, "Уровень"), levelSelect,
+        subFields.append(h("label", {}, "Уровень"), levelSelect,
           h("label", {}, "Заголовок"), textInput);
       } else if (block.type === "list") {
         const itemsInput = h("textarea", { rows: "4", placeholder: "Пункт 1\nПункт 2" });
@@ -552,7 +584,7 @@ export default async function MaterialEditorPage() {
           block.items = itemsInput.value.split("\n").map(s => s.trim()).filter(Boolean);
           markDirty();
         });
-        subFields.appendChild(h("label", {}, "Пункты (по одному в строке)"), itemsInput);
+        subFields.append(h("label", {}, "Пункты (по одному в строке)"), itemsInput);
       } else if (block.type === "callout") {
         const kindSelect = h("select", {},
           [["info", "К сведению"], ["warning", "Важно"], ["rule", "Правило"]]
@@ -562,7 +594,7 @@ export default async function MaterialEditorPage() {
           block.kind = kindSelect.value;
           markDirty();
         });
-        subFields.appendChild(h("label", {}, "Вид вызова"), kindSelect,
+        subFields.append(h("label", {}, "Вид вызова"), kindSelect,
           h("label", {}, "Текст"), textInput);
       } else if (block.type === "image") {
         const fileInput = h("input", { type: "file", accept: "image/*" });
@@ -584,10 +616,10 @@ export default async function MaterialEditorPage() {
             paintSaveStatus(err?.message || "Изображение не загружено.", true);
           }
         });
-        subFields.appendChild(h("label", {}, "Файл изображения"), fileInput,
+        subFields.append(h("label", {}, "Файл изображения"), fileInput,
           h("label", {}, "Подпись"), caption);
       } else {
-        subFields.appendChild(h("label", {}, "Текст"), textInput);
+        subFields.append(h("label", {}, "Текст"), textInput);
       }
     }
 
@@ -636,6 +668,7 @@ export default async function MaterialEditorPage() {
   // ---------- Навигация по страницам ----------
   function paintPagesNav() {
     pagesNav.textContent = "";
+    if (typeof paintSlideInfo === "function") paintSlideInfo();
     state.pages.forEach((blocks, n) => {
       const chip = h("button", {
         type: "button",
@@ -726,6 +759,148 @@ export default async function MaterialEditorPage() {
   }
   replaceBtn.addEventListener("click", () => applyBulk("replace"));
   appendBtn.addEventListener("click", () => applyBulk("append"));
+
+  // ---------- Слайды: PDF и картинки → страницы-слайды ----------
+  // Слайд = страница книги с блоком «image» (core/slides-logic.js): читалка,
+  // прогресс и «обязательный материал перед тестом» работают без изменений.
+  // PDF рендерится в браузере (pdf.js грузится лениво, только здесь), каждая
+  // страница сразу жмётся до ≈200 КБ; сам PDF для слайдов в базу не пишется.
+  const slideInput = h("input", {
+    type: "file", multiple: "multiple", style: "display:none",
+    accept: "application/pdf,.pdf,image/*"
+  });
+  const slideInfo = h("div", { class: "form-hint" });
+  // Итог и ошибки импорта живут в самой панели: общий статус редактора
+  // через секунду затирается «Сохранено на устройстве…», и пользователь
+  // не успел бы прочитать, какие слайды не получились.
+  const slideResult = h("div", { class: "form-hint", role: "status", "aria-live": "polite" });
+  function paintSlideResult(text, isError) {
+    slideResult.textContent = text || "";
+    slideResult.className = isError ? "form-error" : "form-hint";
+  }
+  const slideProgress = h("progress", { class: "slide-progress", max: "100", value: "0", hidden: "hidden" });
+  const slideReplaceBtn = h("button", { type: "button", class: "btn primary" }, "Заменить страницы слайдами");
+  const slideAppendBtn = h("button", { type: "button", class: "btn secondary" }, "Добавить слайды в конец");
+  const slideCancelBtn = h("button", { type: "button", class: "btn secondary", hidden: "hidden" }, "Отменить");
+  let slideMode = "append";
+  let slideBusy = false;
+  let slideCancelled = false;
+
+  function paintSlideInfo() {
+    const stats = materialSlideStats(state.pages);
+    slideInfo.textContent = stats.slides
+      ? `Слайдов: ${stats.slides} из ${SLIDE_MAX_COUNT}, картинки: ${formatMegabytes(stats.bytes)} из ${formatMegabytes(SLIDE_MAX_TOTAL_BYTES)}.`
+      : "Слайдов пока нет.";
+  }
+
+  function setSlideBusy(on) {
+    slideBusy = on;
+    slideReplaceBtn.disabled = on;
+    slideAppendBtn.disabled = on;
+    slideCancelBtn.hidden = !on;
+    slideProgress.hidden = !on;
+    if (!on) slideProgress.value = 0;
+  }
+
+  function slideProgressReporter(stage) {
+    return (done, total) => {
+      slideProgress.value = total ? Math.round((done / total) * 100) : 0;
+      paintSlideResult(progressLabel(stage, done, total));
+    };
+  }
+
+  async function importSlides(files, mode) {
+    const check = checkSourceFiles(files);
+    if (!check.ok) {
+      paintSlideResult(check.errors.join(" "), true);
+      return;
+    }
+    const hasContent = state.pages.some(blocks => pageTextLength(blocks) > 0 || hasInlineImages([blocks]));
+    if (mode === "replace" && hasContent) {
+      const ok = await confirmAction({
+        title: "Заменить страницы слайдами?",
+        text: `Текущие страницы (${state.pages.length}) будут заменены слайдами.`,
+        confirmLabel: "Заменить",
+        tone: "danger"
+      });
+      if (!ok) return;
+    }
+    // Сколько места уже занято слайдами (при замене — ноль).
+    const existing = materialSlideStats(mode === "replace" ? [] : state.pages);
+    slideCancelled = false;
+    setSlideBusy(true);
+    try {
+      let result;
+      const isCancelled = () => slideCancelled;
+      if (check.files[0].kind === "pdf") {
+        paintSlideResult(progressLabel("read"));
+        const doc = await openPdf(check.files[0].file);
+        const limitError = capacityError(existing, doc.numPages);
+        if (limitError) {
+          try { await doc.destroy(); } catch (_) { /* пусто */ }
+          throw new Error(`В PDF страниц: ${doc.numPages}. ${limitError}`);
+        }
+        result = await pdfToSlides(doc, { onProgress: slideProgressReporter("render"), isCancelled });
+      } else {
+        const limitError = capacityError(existing, check.files.length);
+        if (limitError) throw new Error(limitError);
+        result = await imageFilesToSlides(check.files.map(item => item.file), {
+          onProgress: slideProgressReporter("render"), isCancelled
+        });
+      }
+      if (slideCancelled) {
+        paintSlideResult("Загрузка слайдов отменена, страницы не менялись.");
+        return;
+      }
+      const newBytes = result.slides.reduce((sum, item) => sum + item.bytes, 0);
+      const sizeError = totalBytesError(existing.bytes, newBytes);
+      if (sizeError) throw new Error(sizeError);
+      if (!result.slides.length) {
+        throw new Error(result.failed[0]?.message || "Ни один слайд не получился.");
+      }
+
+      const startNumber = (mode === "replace" ? 0 : materialSlideStats(state.pages).slides) + 1;
+      const pages = buildSlidePages(result.slides, { startNumber });
+      if (mode === "replace" || !hasContent) state.pages.length = 0;
+      else if (state.pages.length && !pageTextLength(state.pages[state.pages.length - 1])
+        && !hasInlineImages([state.pages[state.pages.length - 1]])) state.pages.pop();
+      pageIndex = state.pages.length;
+      state.pages.push(...pages);
+      markDirty();
+      paintPageEditor();
+      paintPagesNav();
+      paintSlideInfo();
+      const kb = formatKilobytes(newBytes / Math.max(1, result.slides.length));
+      const summary = `Готово: слайдов ${result.slides.length} (≈${kb} каждый).`
+        + (result.failed.length ? ` Не удалось: ${result.failed.map(f => f.name).join(", ")}.` : "");
+      if (state.id) {
+        // Материал уже создан: пишем слайды сразу, а не через 8 секунд.
+        paintSlideResult(`${summary} Сохраняем…`, result.failed.length > 0);
+        if (remoteTimer) { clearTimeout(remoteTimer); remoteTimer = null; }
+        await saveToFirestore(true);
+        paintSlideResult(summary, result.failed.length > 0);
+        if (result.failed.length) toast(`Не удалось обработать: ${result.failed.length}`, "error");
+      } else {
+        paintSlideResult(`${summary} Нажмите «Создать материал» — слайды сохранятся вместе с ним.`,
+          result.failed.length > 0);
+      }
+    } catch (err) {
+      // Страницы и введённый текст не трогаем — ошибка слайдов их не сбрасывает.
+      paintSlideResult(err?.message || "Слайды не загружены.", true);
+    } finally {
+      setSlideBusy(false);
+    }
+  }
+
+  slideReplaceBtn.addEventListener("click", () => { slideMode = "replace"; slideInput.click(); });
+  slideAppendBtn.addEventListener("click", () => { slideMode = "append"; slideInput.click(); });
+  slideCancelBtn.addEventListener("click", () => { slideCancelled = true; });
+  slideInput.addEventListener("change", async () => {
+    const files = Array.from(slideInput.files || []);
+    slideInput.value = "";
+    if (!files.length || slideBusy) return;
+    await importSlides(files, slideMode);
+  });
 
   // ---------- PDF ----------
   // Поле файла скрыто: открывается кнопкой «Загрузить PDF» (раньше торчал
@@ -846,6 +1021,17 @@ export default async function MaterialEditorPage() {
           h("div", { class: "btn-row" }, replaceBtn, appendBtn))),
       pagesNav, pageCanvas, canvasNote));
 
+  const slidesPanel = h("section", { class: "panel" },
+    h("div", { class: "panel-head" }, h("h2", {}, "Слайды")),
+    h("div", { class: "panel-body" },
+      h("p", { class: "form-hint" },
+        "Загрузите презентацию в PDF (каждая страница станет слайдом) или набор картинок — "
+        + "студент увидит их перед тестом. Картинки сжимаются до ≈200 КБ. "
+        + `Не больше ${SLIDE_MAX_COUNT} слайдов и ${formatMegabytes(SLIDE_MAX_TOTAL_BYTES)}. `
+        + "Подписи и текст к слайду правятся в книге выше."),
+      slideInfo, slideProgress, slideResult,
+      h("div", { class: "btn-row" }, slideReplaceBtn, slideAppendBtn, slideCancelBtn, slideInput)));
+
   const pdfPanel = h("section", { class: "panel" },
     h("div", { class: "panel-head" }, h("h2", {}, "PDF-вложение")),
     h("div", { class: "panel-body" },
@@ -855,11 +1041,12 @@ export default async function MaterialEditorPage() {
       pdfInfo,
       h("div", { class: "btn-row" }, pdfUploadBtn, pdfRemoveBtn, pdfInput)));
 
-  page.append(h("div", { class: "page-head" }, back, headTitle), metaPanel, bookPanel, pdfPanel);
+  page.append(h("div", { class: "page-head" }, back, headTitle), metaPanel, bookPanel, slidesPanel, pdfPanel);
 
   // ---------- Инициализация ----------
   paintPageEditor();
   paintPagesNav();
+  paintSlideInfo();
   loadSubjects();
   if (isNew) {
     loaded = true;
@@ -868,6 +1055,8 @@ export default async function MaterialEditorPage() {
   } else {
     const ok = await loadExisting();
     if (!ok) return page;
+    // Что уже лежит в Firestore: дальше автосохранение пишет только отличия.
+    savedSigs = hasInlineImages(state.pages) ? pageSignatures(state.pages) : null;
     // Правила разрешают изменять материал его автору или администратору
     // организации (та же модель, что у tests и удаления материалов);
     // остальные сотрудники читают и предпросматривают.
@@ -881,6 +1070,7 @@ export default async function MaterialEditorPage() {
     paintPagesNav();
     paintPageEditor();
     restoreDraft();
+    paintSlideInfo();
     pdfInfo.textContent = state.pdf ? `Вложение: ${state.pdf.name}` : "PDF не вложен.";
     pdfRemoveBtn.disabled = state.pdf ? "" : "disabled";
   }
