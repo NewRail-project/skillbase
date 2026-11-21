@@ -1,6 +1,8 @@
 // Хуки загрузки модулей Node: подменяют ТОЛЬКО слой доступа к Firebase
 // (auth/attempts/subjects/admins/assign) заглушками из tests/helpers/stubs.
 // Логика страницы, analytics-logic, charts, dom, access — настоящие.
+const ROOT = new URL("../../", import.meta.url).href;
+const NESTED = ROOT + "skillbase-master/";
 const STUBS = {
   "/core/auth.js": "auth.js",
   "/core/attempts.js": "attempts.js",
@@ -18,7 +20,7 @@ export async function resolve(specifier, context, nextResolve) {
   const resolved = await nextResolve(specifier, context);
   if (resolved.url.includes("/tests/helpers/")) return resolved;
   for (const [suffix, stub] of Object.entries(STUBS)) {
-    if (resolved.url.endsWith(suffix) && !resolved.url.includes("skillbase-master")) {
+    if (resolved.url.endsWith(suffix) && resolved.url.startsWith(ROOT) && !resolved.url.startsWith(NESTED)) {
       return { ...resolved, url: new URL(`./stubs/${stub}`, import.meta.url).href };
     }
   }

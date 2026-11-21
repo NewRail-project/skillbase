@@ -53,6 +53,13 @@ export async function saveLibraryMaterialPages(id, pages) {
   if (s.saveError) throw s.saveError;
 }
 
+export async function saveLibraryPagesDiff(id, pages, { signatures = null } = {}) {
+  const s = sb();
+  s.calls.push(["saveLibraryPagesDiff", id, clone(pages)]);
+  if (s.saveError) throw s.saveError;
+  return { signatures: pages.map(() => "stub"), written: signatures === null ? pages.length : 0 };
+}
+
 export async function deleteLibraryMaterial(id) {
   const s = sb();
   s.calls.push(["deleteLibraryMaterial", id]);
