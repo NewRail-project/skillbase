@@ -207,6 +207,19 @@ main#app {
 .panel-head h2 { margin: 0; font-size: 1rem; }
 .panel-body { padding: var(--space-5); }
 
+/* ---------- Панели преподавателя и студента ---------- */
+.dashboard-grid { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.dashboard-grid .list-row-end { flex-wrap: wrap; justify-content: flex-end; row-gap: var(--space-2); }
+.dashboard-grid .dot.danger { background: var(--danger); }
+@media (max-width: 640px) {
+  .dashboard-grid .list-row-end { margin-left: 0; }
+  .dashboard-grid .list-row .btn { min-height: var(--tap); display: inline-flex; align-items: center; justify-content: center; }
+}
+@media (min-width: 900px) {
+  .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+  .dashboard-grid > .dashboard-span { grid-column: 1 / -1; }
+}
+
 .grid { display: grid; gap: var(--space-4); }
 .grid-2 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
 .grid-3 { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
@@ -414,7 +427,7 @@ main#app {
 .list-row-main { flex: 1; min-width: 0; }
 .list-row-title { font-weight: 600; overflow-wrap: anywhere; }
 .list-row-sub { font-size: .8125rem; color: var(--text-2); }
-.list-row-end { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); flex: none; }
+.list-row-end { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); flex: none; flex-wrap: wrap; }
 
 .dot {
   width: 8px; height: 8px; border-radius: 50%;
