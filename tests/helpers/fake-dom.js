@@ -22,6 +22,27 @@ export class El {
     this.className = "";
     this.parentNode = null;
   }
+  // Как в настоящем DOM, свойство type отражает атрибут type (у button по умолчанию "submit").
+  get type() { return this.attrs.type ?? (this.tag === "button" ? "submit" : ""); }
+  set type(v) { this.attrs.type = String(v); }
+  // Минимальный classList поверх className — как в настоящем DOM.
+  get classList() {
+    const el = this;
+    const list = () => String(el.className || "").split(/\s+/).filter(Boolean);
+    const set = (items) => { el.className = items.join(" "); };
+    return {
+      contains: (c) => list().includes(c),
+      add: (...cs) => set([...new Set([...list(), ...cs])]),
+      remove: (...cs) => set(list().filter((c) => !cs.includes(c))),
+      toggle(c, force) {
+        const has = list().includes(c);
+        const on = force === undefined ? !has : Boolean(force);
+        if (on && !has) set([...list(), c]);
+        if (!on && has) set(list().filter((x) => x !== c));
+        return on;
+      }
+    };
+  }
   setAttribute(k, v) { this.attrs[k] = String(v); }
   getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
   appendChild(child) {

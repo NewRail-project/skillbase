@@ -22,6 +22,9 @@ import { icons } from "../../shared/icons.js";
 import { t as tr, lt } from "../../core/i18n.js";
 import { getSubjects, getTopics } from "../../core/subjects.js";
 import { listMaterials } from "../../core/material-library.js";
+import { buildBattleSetEditor } from "../components/battle-set-editor.js";
+import { loadBattleSet, saveBattleSet } from "../../core/battle-set-store.js";
+import { isEmptySet } from "../../core/battle-set.js";
 
 const EXAMPLE = `1. Какой сигнал разрешает движение?
 A) Красный
@@ -743,6 +746,16 @@ export default async function CreateTestPage() {
     deleteBtn
   );
 
+  // Вопросы для Battle и ничьих: хранятся вместе с тестом (testKeys/{id}__battle).
+  const battleEditor = buildBattleSetEditor();
+  let battleSetStored = false; // документ набора уже есть — пустой набор тоже нужно записать
+  if (editId) {
+    loadBattleSet(editId).then((set) => {
+      battleSetStored = !isEmptySet(set);
+      battleEditor.setSet(set);
+    }).catch(() => {});
+  }
+
   const editor = h("form", { class: "panel", novalidate: "novalidate", onsubmit: (event) => event.preventDefault() },
     h("div", { class: "field" },
       h("label", { for: "t-title" }, "Название"),
@@ -758,6 +771,7 @@ export default async function CreateTestPage() {
       h("span", { class: "form-hint" },
         "Правильный ответ отмечайте [+], [правильный] или * в конце строки. Несколько отмеченных вариантов — вопрос с множественным выбором. Короткий ответ: «Ответ: текст».")
     ),
+    battleEditor.el,
     bindingBox,
     settingsBox,
     catalogBox,
@@ -903,6 +917,13 @@ export default async function CreateTestPage() {
         settings: mergeSettings(base.settings, readSettingsForm())
       };
 
+      // Вопросы Battle и ничьих проверяем до записи теста: сохранять половину нельзя.
+      const battleErrors = battleEditor.errors();
+      if (battleErrors.length) {
+        say(`Исправьте вопросы Battle и ничьих:\n${battleErrors.slice(0, 5).join("\n")}`, true);
+        return;
+      }
+
       const validation = publish
         ? validateTestForPublish(draft)
         : validateTestDraft(draft);
@@ -917,6 +938,20 @@ export default async function CreateTestPage() {
 
       if (publish) await publishTest();
       else await saveTest();
+
+      // Набор вопросов Battle и ничьих — отдельным документом после записи теста.
+      const savedId = getCurrentTest().id;
+      const battleSet = battleEditor.getSet();
+      if (savedId && (battleSetStored || !isEmptySet(battleSet))) {
+        try {
+          await saveBattleSet(savedId, battleSet, { orgId: draft.orgId || getCurrentTest().orgId });
+          battleSetStored = true;
+        } catch (setError) {
+          console.error("Вопросы Battle:", setError);
+          say("Тест сохранён, но вопросы Battle и ничьих записать не удалось: " + (setError?.message || "проверьте сеть") + ". Нажмите «Сохранить» ещё раз.", true);
+          return;
+        }
+      }
       say(publish ? tr("ed.published") : (editId ? "Изменения сохранены." : "Черновик сохранён."), false);
     } catch (e) {
       if (e?.code === "validation") {

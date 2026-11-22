@@ -619,8 +619,7 @@ h2 a:focus-visible,
 
 /* Хлебные крошки и ссылки-заголовки: на наведении появляется подчёркивание
    (ясный признак интерактивности), покоящееся подчёркивание не возвращается. */
-h1 a:hover, h2 a:hover, h3 a:hover, .eyebrow a:hover, .crumb:hover,
-.list-row-title a:hover, .discipline-card-title a:hover, a.list-row-title:hover {
+h1 a:hover, h2 a:hover, h3 a:hover, .eyebrow a:hover, .crumb:hover {
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
@@ -677,3 +676,32 @@ h1 a:hover, h2 a:hover, h3 a:hover, .eyebrow a:hover, .crumb:hover,
 /* Таблицы: прокрутка внутри таблицы, а не всей страницы. */
 .table-wrap, .analytics-table-wrap, .history-list { max-width: 100%; overflow-x: auto; }
 table { max-width: 100%; }
+
+/* Названия в списках и карточках: при наведении меняется цвет, а не подчёркивание. */
+.list-row-title a:hover, .discipline-card-title a:hover, a.list-row-title:hover,
+.discipline-card h2 a:hover { color: var(--accent); text-decoration: none; }
+
+/* Панель со списком внутри: отступ задаёт сама панель. Раньше панель,
+   её шапка и строка списка добавляли каждая свой отступ, и содержимое
+   уезжало вправо (скриншот «Материалы»). */
+.panel:not(.panel-flush) > .panel-head { padding-inline: 0; }
+.panel:not(.panel-flush) > .list > .list-row { padding-inline: 0; }
+/* Строка списка с меню «Ещё»: название слева, меню справа, на телефоне тоже. */
+.list-row > .topic-actions { margin-left: auto; }
+@media (max-width: 640px) {
+  .list-row { flex-wrap: nowrap; }
+  .list-row > .topic-actions { flex: none; flex-wrap: nowrap; }
+  .list-row > .topic-actions .btn { width: auto; margin-bottom: 0; }
+  .list-row.topic-row { flex-wrap: wrap; }
+  .list-row.topic-row > .topic-actions { flex: 1 1 100%; justify-content: flex-end; }
+}
+.discipline-card .card-actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2); }
+
+/* Собственное фото: круглый чип и превью без искажения (квадрат уже обрезан клиентом). */
+.avatar-chip-img { overflow: hidden; padding: 0; background: var(--elevated); }
+.avatar-chip-img img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.avatar-preview .avatar-preview-img { display: block; width: 100%; height: 100%; max-height: none; border-radius: 0; object-fit: cover; }
+.avatar-upload { display: grid; gap: var(--space-2); margin: var(--space-3) 0; }
+.avatar-upload .btn-row { flex-wrap: wrap; }
+.avatar-upload .avatar-error:empty { display: none; }
+.profile-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }

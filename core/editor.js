@@ -7,6 +7,7 @@ import {
   query, where, serverTimestamp, orderBy, limit, getCountFromServer, writeBatch
 } from "../shared/firebase.js";
 import { State, isStaff } from "./auth.js";
+import { battleSetRefIfExists } from "./battle-set-store.js";
 import { parseQuiz } from "./import/parser.js";
 import { emptyTest, validateTest } from "./test-schema.js";
 import { splitForStorage, mergeKeys, sanitizePublicTest, sameVersionSnapshot } from "./test-storage.js";
@@ -483,6 +484,9 @@ export async function deleteTest(testId, plan = {}) {
     }));
 
   // Сами документы: тест + ключи ответов — в последнюю партию.
+  // Подготовленные вопросы Battle и ничьих (testKeys/{id}__battle) уходят вместе с тестом.
+  const battleSetRef = await battleSetRefIfExists(testId);
+  if (battleSetRef) deletes.push(battleSetRef);
   deletes.push(doc(db, "tests", testId), doc(db, "testKeys", testId));
 
   // Лимит батча Firestore — 500 операций: коммитим партиями.

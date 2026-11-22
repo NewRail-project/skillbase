@@ -60,10 +60,13 @@ export function summarizeRound(record) {
 }
 
 export class BattleGame {
-  constructor({ settings, roster, questions, liveInfo = {}, store, now = () => Date.now() }) {
+  constructor({ settings, roster, questions, extraQuestions = [], liveInfo = {}, store, now = () => Date.now() }) {
     this.store = store;
     this.now = now;
     this.questions = questions;
+    // Решающие вопросы, подготовленные заранее (набор «1-е место»); пусто —
+    // прежнее поведение: банк основных вопросов по кругу.
+    this.extras = Array.isArray(extraQuestions) ? extraQuestions : [];
     this.liveInfo = liveInfo;
     this.initialRoster = roster;
     this.state = createBattleState({ settings, roster, questionIds: questions.map((q) => q.id) });
@@ -78,13 +81,13 @@ export class BattleGame {
 
   // Восстановление после перезагрузки страницы ведущего.
   // doc — публичный battle-документ, rounds — полные записи из store.loadRounds().
-  static restore({ doc, questions, rounds = [], liveInfo = {}, store, now }) {
+  static restore({ doc, questions, extraQuestions = [], rounds = [], liveInfo = {}, store, now }) {
     const roster = {
       captains: doc.captains, teams: doc.teams, reserve: doc.reserve || [],
       substituted: doc.substituted || [], eliminated: doc.eliminated || [],
       availableFrom: doc.availableFrom || {}, availableTo: doc.availableTo || {}
     };
-    const g = new BattleGame({ settings: doc.settings, roster, questions, liveInfo, store, now });
+    const g = new BattleGame({ settings: doc.settings, roster, questions, extraQuestions, liveInfo, store, now });
     g.initialRoster = doc.initialRoster || roster;
     g.state = {
       ...g.state,
@@ -105,7 +108,7 @@ export class BattleGame {
     g.lastExtra = doc.lastExtra || null;
     const cr = doc.currentRound;
     if (cr && g.phase !== PHASES.READY && g.phase !== PHASES.FINISHED) {
-      const question = questions.find((q) => q.id === cr.questionId) || questions[cr.index];
+      const question = [...questions, ...extraQuestions].find((q) => q.id === cr.questionId) || questions[cr.index];
       g.round = {
         index: cr.index, kind: cr.kind || "main", question, startedAt: cr.startedAt,
         modes: cr.modes || {}, selfAnswers: {}, closedAt: cr.closedAt || {},
@@ -458,7 +461,7 @@ export class BattleGame {
   }
 
   nextExtraQuestion(bank) {
-    return pickExtraQuestion(bank, this.extraIndex);
+    return pickExtraQuestion(this.extras.length ? this.extras : bank, this.extraIndex);
   }
 
   async finish({ early = false } = {}) {

@@ -94,6 +94,15 @@ export function duelBank(questionCount) {
   return Array.from({ length: n }, (_, i) => String(i));
 }
 
+// Банк конкретной группы. Группа, делящая 1-е, 2-е или 3-е место, может иметь
+// собственный банк заранее подготовленных вопросов (group.bank — список qid
+// вида "t1:0"); иначе — прежний банк вопросов теста размером bankSize.
+export function groupBank(group, bankSize) {
+  return Array.isArray(group?.bank) && group.bank.length
+    ? group.bank.map(String)
+    : duelBank(bankSize);
+}
+
 // Следующий неиспользованный вопрос банка (null — банк исчерпан).
 export function nextDuelQid(bank, usedQids) {
   const used = new Set(usedQids || []);
@@ -103,7 +112,8 @@ export function nextDuelQid(bank, usedQids) {
 // ---------- Состояние группы дуэли ----------
 
 // Новая группа: все начинают с нуля очков, раундов нет.
-export function createDuelGroup(members, index) {
+// extra — необязательные поля: { place, bank } (подготовленные вопросы).
+export function createDuelGroup(members, index, extra = {}) {
   const uids = members.map(m => m.uid);
   const tally = {};
   uids.forEach(uid => { tally[uid] = 0; });
@@ -120,7 +130,9 @@ export function createDuelGroup(members, index) {
     stopped: false,
     stoppedReason: null,
     decision: null,
-    order: null
+    order: null,
+    ...(Number.isInteger(extra?.place) ? { place: extra.place } : {}),
+    ...(Array.isArray(extra?.bank) && extra.bank.length ? { bank: extra.bank.map(String) } : {})
   };
 }
 
@@ -128,7 +140,7 @@ export function createDuelGroup(members, index) {
 // раунда — по количеству сыгранных. Банк исчерпан → null (раунд открыть
 // нельзя — дальше только решение преподавателя).
 export function openDuelRound(group, bankSize) {
-  const qid = nextDuelQid(duelBank(bankSize), group?.usedQids);
+  const qid = nextDuelQid(groupBank(group, bankSize), group?.usedQids);
   if (qid == null) return null;
   return {
     ...group,
@@ -152,8 +164,10 @@ export function applyRound(group, qid, verdicts) {
   const tally = { ...(group?.tally || {}) };
   for (const uid of group?.uids || []) if (tally[uid] == null) tally[uid] = 0;
   if (winner && winner in tally) tally[winner] += 1;
+  // Открытый вопрос (текст для участников) после закрытия раунда убираем.
+  const { currentQuestion: _closed, ...rest } = group || {};
   return {
-    ...group,
+    ...rest,
     tally,
     usedQids: [...(group?.usedQids || []), String(qid)],
     rounds: [...(group?.rounds || []), round],
@@ -201,7 +215,7 @@ function tallyLevels(group) {
 export function groupProgress(group, bankSize, { stopped = false } = {}) {
   const remaining = stopped || group?.stopped === true
     ? 0
-    : Math.max(0, Math.trunc(Number(bankSize) || 0) - (group?.usedQids?.length || 0));
+    : Math.max(0, groupBank(group, bankSize).length - (group?.usedQids?.length || 0));
   const levels = tallyLevels(group);
   const separated = levels.every((level, i) =>
     level.length === 1
@@ -372,13 +386,19 @@ function finishDoc({ groups, rows }) {
 // Документ дуэлей по текущим строкам рейтинга. existing (если есть) —
 // прежний документ: группы совпадающего состава сохраняют раунды, очки
 // серий и решения; недостающие группы добавляются, исчезнувшие уходят.
-export function buildDuelsDoc({ rows, existing = null, questionCount = 0 } = {}) {
+// banks — { 1: [qid...], 2: [...], 3: [...] }: подготовленные вопросы для
+// ничьей за 1-е, 2-е и 3-е место; места без банка играют по вопросам теста.
+export function buildDuelsDoc({ rows, existing = null, questionCount = 0, banks = null } = {}) {
   const groups = tieGroups(rows).map((g, index) => {
     const uids = g.members.map(r => r.uid);
     const prev = (existing?.groups || [])
       .find(e => sameUidSet(e?.uids, uids));
-    return prev ? cloneGroup(prev) : createDuelGroup(
-      g.members.map(r => ({ uid: r.uid, name: r.name })), index
+    if (prev) return cloneGroup(prev);
+    const place = Number(g.members[0]?.place);
+    const bank = banks && Number.isInteger(place) ? banks[place] : null;
+    return createDuelGroup(
+      g.members.map(r => ({ uid: r.uid, name: r.name })), index,
+      { place: Number.isInteger(place) ? place : undefined, bank }
     );
   });
   return finishDoc({ groups, rows });

@@ -100,6 +100,22 @@ function imgEl(src) {
   return h("img", { src, alt: "", referrerpolicy: "no-referrer" });
 }
 
+// Слайд: пропорции берём у самой картинки (после загрузки), а запас под
+// интерфейс увеличиваем, если под картинкой есть текст. CSS (.is-slide) по
+// этим значениям вписывает слайд в экран без обрезки и без прокрутки.
+function fitSlide(body, blocks) {
+  const img = body.querySelector(".book-figure img");
+  if (!img) return;
+  const hasText = (Array.isArray(blocks) ? blocks.slice(1) : []).some(b => b && b.type !== "image" && String(b.text || "").trim());
+  if (hasText) body.style.setProperty("--slide-chrome", "330px");
+  const apply = () => {
+    if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+      body.style.setProperty("--slide-ar", String(img.naturalWidth / img.naturalHeight));
+    }
+  };
+  if (img.complete) apply(); else img.addEventListener("load", apply, { once: true });
+}
+
 export default async function MaterialPage() {
   const page = h("div", { class: "reader" });
   const routeParts = (State.routeParam || "").split("/");
@@ -317,6 +333,7 @@ export default async function MaterialPage() {
     progressBar.style.width = `${pct}%`;
     progressWrap.setAttribute("aria-valuenow", String(pct));
     book.appendChild(body);
+    if (slide) fitSlide(body, blocks);
 
     pageNumEl.textContent = `${index + 1} / ${material.pages.length}`;
     prevBtn.disabled = index === 0;

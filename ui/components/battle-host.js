@@ -120,7 +120,7 @@ export function buildBattleHost({ game, test, players = [], onToast = () => {}, 
         h("p", { class: "battle-status" }, "Капитаны отвечают самостоятельно; побеждает первый правильный ответ.")));
     }
     if (r && phase !== PHASES.FINISHED) {
-      const meta = { id: r.question.id, src: r.question.src };
+      const meta = { id: r.question.id, src: r.question.src, text: r.question.text, options: r.question.options };
       const content = battleQuestionContent(test, meta);
       const closed = phase === PHASES.QUESTION_RESULT;
       parts.push(h("div", { class: "battle-question" },

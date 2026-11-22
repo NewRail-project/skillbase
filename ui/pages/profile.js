@@ -1,7 +1,7 @@
 import { h } from "../../shared/dom.js";
 import { State, logout, refreshProfile, createOwnProfile, saveOwnProfile } from "../../core/auth.js";
-import { displayName, initialsAvatar, validateFullName, saveProfile, computeProfileStats } from "../../core/profile.js";
-import { avatarPreset, avatarSvg, DEFAULT_AVATAR_VALUE } from "../../shared/avatars.js";
+import { displayName, initialsAvatar, validateFullName, saveProfile, computeProfileStats, processAvatarFile } from "../../core/profile.js";
+import { avatarPreset, avatarSvg, DEFAULT_AVATAR_VALUE, isImageAvatar } from "../../shared/avatars.js";
 import { avatarPicker } from "../components/avatar.js";
 import { needsFullName } from "../../core/registration.js";
 import { listMyAttempts } from "../../core/attempts.js";
@@ -210,15 +210,14 @@ function missingNameBlock(profile) {
 
 function avatarNode(profile, avatarUrl) {
   const node = h("div", { class: "profile-avatar", "aria-hidden": "true" });
-  // Аватар теперь только пресетный: "preset:<id>". Унаследованные
-  // изображения (старые base64) продолжают показываться.
+  // Аватар: пресет "preset:<id>" или собственное фото (JPEG data-URL).
   const preset = avatarPreset(avatarUrl);
   if (preset) {
     if (avatarSvg(preset, 96)) node.innerHTML = avatarSvg(preset, 96); // статичный SVG из констант
     else node.textContent = preset.emoji;
     node.style.background = preset.bg;
     node.classList.add("avatar-preset");
-  } else if (typeof avatarUrl === "string" && avatarUrl.startsWith("data:image/")) {
+  } else if (isImageAvatar(avatarUrl)) {
     const img = h("img", { alt: "", src: avatarUrl });
     node.appendChild(img);
   } else {
@@ -513,9 +512,12 @@ function editForm(profile) {
 function avatarDialog(profile) {
   const dialog = modal();
   const errorBox = h("div", { class: "avatar-error", role: "alert" });
-  const initial = avatarPreset(profile.avatar) ? profile.avatar : DEFAULT_AVATAR_VALUE;
+  const initial = (avatarPreset(profile.avatar) || isImageAvatar(profile.avatar)) ? profile.avatar : DEFAULT_AVATAR_VALUE;
   let pending = initial;
-  const picker = avatarPicker({ value: initial, onChange: value => { pending = value; } });
+  const picker = avatarPicker({
+    value: initial, onChange: value => { pending = value; errorBox.textContent = ""; },
+    allowUpload: true, processFile: processAvatarFile
+  });
 
   const saveBtn = h("button", {
     type: "button",
@@ -537,7 +539,9 @@ function avatarDialog(profile) {
         dialog.close();
       } catch (err) {
         console.error("Ошибка сохранения аватара:", err);
-        errorBox.textContent = "Не удалось сохранить аватар. Проверьте подключение.";
+        errorBox.textContent = isImageAvatar(pending)
+          ? "Не удалось сохранить фото. Проверьте подключение; если ошибка повторяется — выберите готовый аватар или другое фото."
+          : "Не удалось сохранить аватар. Проверьте подключение.";
         saveBtn.disabled = false;
         saveBtn.textContent = "Сохранить";
       }
@@ -546,7 +550,7 @@ function avatarDialog(profile) {
 
   dialog.querySelector(".modal-content").append(
     h("h2", { style: "margin-top:0" }, "Аватар"),
-    h("p", { class: "muted" }, "Выберите значок железной дороги. Загрузка файлов не используется."),
+    h("p", { class: "muted" }, "Выберите значок железной дороги или загрузите своё фото."),
     picker.el,
     errorBox,
     h("div", { class: "btn-row" },

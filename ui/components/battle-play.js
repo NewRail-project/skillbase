@@ -21,7 +21,20 @@ export function roleInBattle(battle, uid) {
 }
 
 // Текст и варианты вопроса берутся из исходного теста по src (иначе из id "q{n}").
+// Вопрос раунда по id: основной (battle.questions) или решающий
+// (battle.extraQuestions, подготовленные заранее для ничьей).
+export function findBattleQuestion(battle, id) {
+  return (battle?.questions || []).find((q) => q.id === id)
+    || (battle?.extraQuestions || []).find((q) => q.id === id)
+    || { id };
+}
+
 export function battleQuestionContent(test, qMeta) {
+  // Подготовленные вопросы несут текст и варианты прямо в публичном документе
+  // (без правильных ответов); обычные — берутся из теста по номеру src.
+  if (typeof qMeta?.text === "string" && Array.isArray(qMeta.options)) {
+    return { text: qMeta.text || "Вопрос без текста", options: qMeta.options.map((o) => (typeof o === "string" ? o : o?.text ?? String(o))) };
+  }
   const idx = Number.isInteger(qMeta?.src) ? qMeta.src : Number(String(qMeta?.id || "").replace(/^q/, ""));
   const q = test?.questions?.[idx];
   const options = Array.isArray(q?.options) ? q.options.map((o) => (typeof o === "string" ? o : o?.text ?? String(o))) : [];
@@ -196,7 +209,7 @@ export function buildBattlePlay({ uid, test, api, onToast = () => {}, now = () =
     if (!r || r.kind !== "extra") {
       return h("div", {}, title, h("p", { class: "battle-status" }, `Счёт равный. ${lastText || "Готовим вопрос…"}`));
     }
-    const meta = (battle.questions || []).find((q) => q.id === r.questionId) || { id: r.questionId };
+    const meta = findBattleQuestion(battle, r.questionId);
     const content = battleQuestionContent(test, meta);
     const multi = r.type === "multiple";
     const isCap = who.role === "captain";
@@ -249,7 +262,7 @@ export function buildBattlePlay({ uid, test, api, onToast = () => {}, now = () =
         who.role === "reserve" ? reserveCard() : h("p", { class: "battle-status" }, "Битва скоро начнётся. Ждём первый вопрос."),
         who.teamId ? h("span", { class: "battle-chip", "data-team": who.teamId }, `Команда ${who.teamId.toUpperCase()}${who.role === "captain" ? " · капитан" : ""}`) : null);
     }
-    const meta = (battle.questions || []).find((q) => q.id === r.questionId) || { id: r.questionId };
+    const meta = findBattleQuestion(battle, r.questionId);
     const content = battleQuestionContent(test, meta);
     const head = h("div", { class: "battle-question" },
       h("h2", {}, content.text),

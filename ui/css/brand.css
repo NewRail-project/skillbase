@@ -916,11 +916,24 @@ body.sidebar-open { overflow: hidden; }
    помещался без прокрутки (запас под шапку, номер и кнопки). */
 .book.is-slide-book { max-width: min(96vw, 1100px); padding: clamp(10px, 2.5vw, 28px); }
 @media (min-width: 1600px) { .book.is-slide-book { max-width: min(94vw, 1500px); } }
-.book-page.is-slide .book-figure { margin: 0; }
+/* Слайд не растягивается на всю высоту сцены (раньше под ним оставалась
+   пустая «страница»), а центрируется. Размер считается по пропорциям
+   самой картинки (--slide-ar = ширина / высота, ставится из JS по
+   загруженному изображению): слайд занимает всю доступную ширину, но
+   его высота не больше экрана за вычетом шапки, подписи и кнопок
+   (--slide-chrome). Пропорции сохраняются, ничего не обрезается. */
+.book.is-slide-book { align-self: center; }
+.reader-stage:has(.is-slide-book) { align-items: center; }
+.book-page.is-slide { --slide-ar: 1.7778; --slide-chrome: 215px; }
+.book-page.is-slide .book-figure {
+  margin: 0 auto;
+  width: min(100%, calc((100vh - var(--slide-chrome)) * var(--slide-ar)));
+  width: min(100%, calc((100dvh - var(--slide-chrome)) * var(--slide-ar)));
+}
 .book-page.is-slide .book-figure img {
-  display: block; width: 100%; height: auto; margin: 0 auto;
-  max-height: max(40vh, calc(100vh - 210px)); max-height: max(40dvh, calc(100dvh - 210px));
-  object-fit: contain; background: #fff; border-radius: 8px;
+  display: block; width: 100%; height: auto; max-width: 100%;
+  aspect-ratio: var(--slide-ar); object-fit: contain;
+  background: #fff; border-radius: 8px;
 }
 .book-page.is-slide .book-caption { font-size: .8em; text-align: center; margin-top: .6em; }
 .book-page.is-slide .book-p { margin-top: .8em; text-align: left; }

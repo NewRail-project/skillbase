@@ -153,3 +153,44 @@ export function avatarPreset(value) {
 export function isValidAvatarValue(value) {
   return value == null || (typeof value === "string" && AVATAR_PATTERN.test(value));
 }
+
+
+// ---------- Собственное фото (только публичный профиль зарегистрированного) ----------
+
+// JPEG data-URL: сам холст перекодирует файл в JPEG, поэтому метаданные
+// (EXIF, геометки) и активное содержимое (SVG) не переносятся.
+export const IMAGE_AVATAR_PATTERN = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/;
+export const IMAGE_AVATAR_MAX_CHARS = 24000;      // то же число — в firestore.rules
+export const AVATAR_UPLOAD_MAX_BYTES = 5 * 1024 * 1024; // исходный файл
+export const AVATAR_UPLOAD_TYPES = ["image/jpeg", "image/png", "image/webp"];
+// Сторона квадрата и качество: пробуем от лучшего к более лёгкому,
+// пока результат не уложится в лимит.
+export const AVATAR_ENCODE_ATTEMPTS = [
+  { size: 128, quality: 0.82 }, { size: 128, quality: 0.68 },
+  { size: 112, quality: 0.62 }, { size: 96, quality: 0.6 },
+  { size: 80, quality: 0.55 }, { size: 64, quality: 0.5 }
+];
+
+export function isImageAvatar(value) {
+  return typeof value === "string"
+    && value.length <= IMAGE_AVATAR_MAX_CHARS
+    && IMAGE_AVATAR_PATTERN.test(value);
+}
+
+// Допустимое значение аватара в ПУБЛИЧНОМ профиле: пресет, свое фото или null.
+export function isValidProfileAvatar(value) {
+  return isValidAvatarValue(value) || isImageAvatar(value);
+}
+
+// Проверка выбранного файла до чтения. Возвращает текст ошибки или null.
+export function validateAvatarFile(file) {
+  if (!file) return "Файл не выбран.";
+  if (!AVATAR_UPLOAD_TYPES.includes(String(file.type || "").toLowerCase())) {
+    return "Подходят только изображения JPEG, PNG или WebP.";
+  }
+  if (!(Number(file.size) > 0)) return "Файл пустой.";
+  if (file.size > AVATAR_UPLOAD_MAX_BYTES) {
+    return `Файл слишком большой: не больше ${Math.round(AVATAR_UPLOAD_MAX_BYTES / 1024 / 1024)} МБ.`;
+  }
+  return null;
+}

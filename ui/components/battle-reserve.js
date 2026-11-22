@@ -17,7 +17,7 @@ export function buildBattleReserve({ test, room, player, onSubstitution, onReady
   };
 
   // Основной контейнер: информация о резерве + состояние битвы
-  const el = h("section", { class: "battle-interface reserve-interface" }, "aria-label": "Интерфейс запасного участника Командной битвы");
+  const el = h("section", { class: "battle-interface reserve-interface", "aria-label": "Интерфейс запасного участника Командной битвы" });
 
   // Header с информацией о резерве
   const reserveHeader = h("div", { class: "battle-header reserve-header" },

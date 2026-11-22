@@ -23,6 +23,7 @@ import { deleteMaterialFlow, deleteTestFlow } from "../components/delete-flows.j
 import { formDialog } from "../components/form-dialog.js";
 import { confirmAction } from "../components/confirm.js";
 import { toast } from "../components/toast.js";
+import { actionsMenu } from "../components/actions-menu.js";
 import { loading } from "../components/loading.js";
 import { error as errorState } from "../components/error.js";
 
@@ -195,11 +196,10 @@ export default async function DisciplinePage() {
           h("div", { class: "list-row-title" }, h("a", { href: hrefOf(item) }, item.title || "Без названия")),
           item.topicId ? h("div", { class: "list-row-sub" }, topics.find(t => t.id === item.topicId)?.title || "") : null),
         actions && actions.canDelete(item)
-          ? h("div", { class: "topic-actions" }, h("button", {
-            type: "button", class: "btn secondary btn-sm danger-text",
-            "aria-label": `Удалить: ${item.title || "Без названия"}`,
-            onclick: () => removeItem(actions, item)
-          }, "Удалить"))
+          ? h("div", { class: "topic-actions" }, actionsMenu({
+            label: "Ещё",
+            items: [{ label: "Удалить", tone: "danger", onClick: () => removeItem(actions, item) }]
+          }))
           : null))));
   }
 
@@ -228,12 +228,14 @@ export default async function DisciplinePage() {
       staff
         ? h("div", { class: "topic-actions" },
           h("a", { class: "btn secondary btn-sm", href: `#topic-analytics/${encode(topic.id)}` }, "Статистика"),
-          h("button", { type: "button", class: "btn secondary btn-sm btn-icon-sm", "aria-label": "Выше", disabled: index === 0,
-            onclick: () => move(t, -1) }, "↑"),
-          h("button", { type: "button", class: "btn secondary btn-sm btn-icon-sm", "aria-label": "Ниже", disabled: index === total - 1,
-            onclick: () => move(t, 1) }, "↓"),
-          h("button", { type: "button", class: "btn secondary btn-sm danger-text",
-            onclick: async () => { if (await deleteTopicFlow(topic)) await load(); } }, "Удалить"))
+          actionsMenu({
+            label: "Ещё",
+            items: [
+              { label: "Переместить выше", disabled: index === 0, onClick: () => move(t, -1) },
+              { label: "Переместить ниже", disabled: index === total - 1, onClick: () => move(t, 1) },
+              { label: "Удалить тему", tone: "danger", onClick: async () => { if (await deleteTopicFlow(topic)) await load(); } }
+            ]
+          }))
         : null);
   }
 

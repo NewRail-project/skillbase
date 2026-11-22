@@ -150,12 +150,17 @@ service cloud.firestore {
           || (hasProfile()
             && userDoc().orgId == resource.data.orgId));
 
-      // Аватар — только пресет «preset:<id>» (строка: латиница, цифры и
-      // дефисы, до 20 символов) или null. Загрузка файлов запрещена.
+      // Аватар публичного профиля — null, пресет «preset:<id>» (латиница,
+      // цифры и дефисы, до 20 символов) ИЛИ собственное фото: JPEG data-URL
+      // не длиннее 24 000 символов (квадрат ≤ 128 px, его готовит клиент).
+      // Это единственное место, где допустимы данные изображения: гости и
+      // документы игроков комнат (players) по-прежнему принимают только пресеты.
       function validAvatar() {
         return request.resource.data.get("avatar", null) == null
           || (request.resource.data.avatar is string
-            && request.resource.data.avatar.matches("^preset:[a-z0-9-]{1,20}$"));
+            && (request.resource.data.avatar.matches("^preset:[a-z0-9-]{1,20}$")
+              || (request.resource.data.avatar.size() <= 24000
+                && request.resource.data.avatar.matches("^data:image/jpeg;base64,[A-Za-z0-9+/=]+$"))));
       }
 
       allow create, update: if signedIn()

@@ -74,6 +74,10 @@ import { launchBattle } from "../../core/battle.js";
 import { listMyTests } from "../../core/editor.js";
 import { mountBattle, disposeBattle } from "./battle-room.js";
 import { createTopBoard } from "../components/top-board.js";
+import { loadBattleSet } from "../../core/battle-set-store.js";
+import {
+  duelBankForPlace, extraQuestionsForBattle, mainQuestionsForLaunch, isPreparedQid, countMain, countForPlace, PLACES
+} from "../../core/battle-set.js";
 import { jumpToRating, ratingJumpPending } from "../components/rating-jump.js";
 import { buildLaunchPlan, toBattleQuestions } from "../../core/battle-launch.js";
 import { getAttemptKeys } from "../../core/attempts.js";
@@ -201,6 +205,7 @@ function reset() {
   local = {
     room: null, players: [], scores: [], reveals: {}, reactions: [],
     profiles: new Map(), test: null, keys: null, keysReady: false,
+    battleSet: null,       // подготовленные вопросы Battle и ничьих (только ведущему)
     hasMaterial: false,    // у теста есть учебный материал (кнопка «Прочитать»)
     topicMaterials: [],    // опубликованные материалы темы теста (лобби)
     receivedMs: 0, code: "", playersLoaded: false,
@@ -608,7 +613,7 @@ export default async function RoomPage() {
   // Тест и ключи грузятся параллельно; недоступное (ключи у студента)
   // не ломает отрисовку.
   try {
-    const [testDoc, keys, materialExists] = await Promise.all([
+    const [testDoc, keys, materialExists, battleSet] = await Promise.all([
       loadTestPublic(probeResult.testId).catch(err => {
         console.error("Тест комнаты:", err);
         return null;
@@ -617,8 +622,12 @@ export default async function RoomPage() {
       // Материал читает участник с профилем; гостю правила его не отдают.
       isHost || State.user?.isAnonymous
         ? Promise.resolve(false)
-        : hasMaterial(probeResult.testId)
+        : hasMaterial(probeResult.testId),
+      // Вопросы Battle и ничьих, подготовленные вместе с тестом. Ошибка чтения
+      // не должна ломать обычный Live: loadBattleSet возвращает пустой набор.
+      isHost ? loadBattleSet(probeResult.testId) : Promise.resolve(null)
     ]);
+    local.battleSet = battleSet;
     local.hasMaterial = Boolean(materialExists);
     local.test = testDoc;
     local.keys = keys;
@@ -2163,6 +2172,34 @@ function duelBankSize() {
   return local.room?.questionCount || (local.test?.questions || []).length || 0;
 }
 
+// Подготовленные вопросы для ничьих за 1-е, 2-е и 3-е место:
+// { место: [qid...] }. Места без набора в карту не попадают — их дуэль идёт
+// по вопросам теста, как раньше.
+function duelPreparedBanks() {
+  const out = {};
+  for (const place of PLACES) {
+    const bank = duelBankForPlace(local.battleSet, place);
+    if (bank) out[place] = bank.map((b) => b.qid);
+  }
+  return out;
+}
+
+// Вопрос раунда дуэли для показа: подготовленный (текст лежит в группе, без
+// правильного ответа) или вопрос теста по номеру.
+function duelQuestionOf(group) {
+  if (group?.currentQuestion) return group.currentQuestion;
+  return (local.test?.questions || [])[Number(group?.currentQid)];
+}
+
+// Ключ раунда дуэли: подготовленные вопросы — из набора ведущего.
+function duelKeyFor(qid) {
+  if (isPreparedQid(qid)) {
+    const place = Number(String(qid).slice(1, 2));
+    return duelBankForPlace(local.battleSet, place)?.find((b) => b.qid === String(qid))?.key || null;
+  }
+  return duelKeys()[String(qid)] || null;
+}
+
 // Ключи теста в виде карты "индекс вопроса" → ключ (вердикты раундов
 // считает ведущий; у участников ключей нет — им они и не нужны).
 function duelKeys() {
@@ -2201,13 +2238,15 @@ function manageDuels() {
       if (!local.duels) {
         await ensureDuelsDoc(local.code, buildDuelsDoc({
           rows: boardData(),
-          questionCount: duelBankSize()
+          questionCount: duelBankSize(),
+          banks: duelPreparedBanks()
         }));
       } else if (duelGroupsChanged(local.duels, groups)) {
         await updateDuelsDoc(local.code, buildDuelsDoc({
           rows: boardData(),
           existing: local.duels,
-          questionCount: duelBankSize()
+          questionCount: duelBankSize(),
+          banks: duelPreparedBanks()
         }));
       }
     } catch (err) {
@@ -2241,10 +2280,17 @@ function freshDuelGroup(group) {
 async function duelOpenRound(group) {
   const fresh = freshDuelGroup(group);
   if (fresh.currentQid != null) return; // раунд уже открыт
-  const next = openDuelRound(fresh, duelBankSize());
+  let next = openDuelRound(fresh, duelBankSize());
   if (!next) {
     toast("Вопросы дуэли закончились — используйте решение преподавателя.", "info");
     return;
+  }
+  if (isPreparedQid(next.currentQid)) {
+    // Участникам нужен текст вопроса: кладём публичную часть (без ответа) в группу.
+    const place = Number(String(next.currentQid).slice(1, 2));
+    const item = duelBankForPlace(local.battleSet, place)?.find((b) => b.qid === next.currentQid);
+    if (!item) { toast("Подготовленный вопрос не найден — проверьте набор вопросов теста.", "error"); return; }
+    next = { ...next, currentQuestion: item.question };
   }
   try {
     await writeDuels(withGroup(local.duels, fresh.id, next, boardData()));
@@ -2265,12 +2311,11 @@ async function duelCloseRound(group) {
   }
   try {
     const answers = await readDuelAnswers(local.code);
-    const keys = duelKeys();
     const prefix = `${fresh.id}__${fresh.currentRound}__`;
     const verdicts = {};
     for (const uid of fresh.uids) {
       const answer = answers[`${prefix}${uid}`];
-      const key = keys[String(fresh.currentQid)] || null;
+      const key = duelKeyFor(fresh.currentQid);
       verdicts[uid] = answer == null ? null : isCorrect(key, answer);
     }
     const played = applyRound(fresh, fresh.currentQid, verdicts);
@@ -2369,7 +2414,7 @@ function duelsPanel() {
     }
 
     if (group.status === "running" && group.currentQid != null) {
-      const question = (local.test?.questions || [])[Number(group.currentQid)];
+      const question = duelQuestionOf(group);
       body.appendChild(h("div", { class: "btn-row" },
         h("button", {
           type: "button", class: "btn primary",
@@ -3367,6 +3412,16 @@ function saveBattleSettings(settings) {
   }).catch(err => console.warn("battleSettings:", err?.message || err));
 }
 
+// Что уже подготовлено в тесте: показывается в панели подготовки Battle.
+function preparedBattleHint() {
+  const set = local.battleSet;
+  const main = countMain(set);
+  const ties = PLACES.map((p) => `${p}-е место — ${countForPlace(set, p)}`);
+  const anyTie = PLACES.some((p) => countForPlace(set, p) > 0);
+  if (!main && !anyTie) return "Вопросы Battle и ничьих в тесте не подготовлены: используются вопросы самого теста.";
+  return `Подготовлено в тесте: вопросов Battle — ${main || "нет (берутся вопросы теста)"}; для ничьих: ${ties.join(", ")}.`;
+}
+
 function battlePrepPanel(room) {
   const players = battlePlayers();
   // Капитаны — по ИТОГОВЫМ местам Live (после «Дуэли»): равное место у двух
@@ -3383,11 +3438,15 @@ function battlePrepPanel(room) {
   return buildBattlePrep({
     players,
     ranking,
+    // Значения по умолчанию берутся из набора, подготовленного вместе с тестом:
+    // ведущему не нужно ничего настраивать во время мероприятия.
     settings: {
       battleTestId: saved.battleTestId,
-      questionCount: saved.questionCount,
-      questionSeconds: saved.questionSeconds
+      questionCount: saved.questionCount ?? local.battleSet?.main?.count ?? undefined,
+      questionSeconds: saved.questionSeconds ?? local.battleSet?.main?.questionSeconds ?? undefined,
+      ...(countMain(local.battleSet) ? { questionOrder: local.battleSet.main.order } : {})
     },
+    hint: preparedBattleHint(),
     duelsDoc: local.duels,
     currentTestId: local.test?.id || "",
     onSaveSettings: saveBattleSettings,
@@ -3635,7 +3694,7 @@ function duelPlayerWidget() {
           "Дуэль не дала перевеса — ведущий примет решение. Итоговый рейтинг обновится автоматически.")));
   }
   if (group.currentQid != null) {
-    const question = (local.test?.questions || [])[Number(group.currentQid)];
+    const question = duelQuestionOf(group);
     if (question) return duelAnswerForm(group, question);
     return h("div", { class: "panel" },
       h("div", { class: "panel-body" }, h("p", { class: "muted" }, "Загружаем вопрос дуэли…")));
@@ -3722,16 +3781,29 @@ async function startBattleFromPrep(room, settings, roster) {
     const test = bankId ? await loadTestPublic(bankId) : liveTest;
     if (!test) return toast("Набор вопросов не найден.", "error");
     if (test.status && test.status !== "published") return toast("Набор вопросов должен быть опубликован.", "error");
-    const keys = normalizeKeys(await getAttemptKeys(test.id));
-    const built = toBattleQuestions({
-      questions: test.questions || [],
-      keys,
-      count: settings.questionCount,
-      order: settings.questionOrder
-    });
+    // Заранее подготовленные вопросы Battle (если ведущий не выбрал другой
+    // тест как банк): текст и ответы берутся из набора, ничего вставлять не нужно.
+    const prepared = bankId ? { used: false, questions: [], errors: [] }
+      : mainQuestionsForLaunch(local.battleSet, { count: settings.questionCount, order: settings.questionOrder });
+    if (prepared.used && prepared.errors.length) return toast(prepared.errors[0], "error");
+    let built;
+    if (prepared.used) {
+      built = { questions: prepared.questions, errors: [] };
+    } else {
+      const keys = normalizeKeys(await getAttemptKeys(test.id));
+      built = toBattleQuestions({
+        questions: test.questions || [],
+        keys,
+        count: settings.questionCount,
+        order: settings.questionOrder
+      });
+    }
     if (built.errors.length) return toast(built.errors[0], "error");
+    // Решающие вопросы капитанов при ничьей команд — набор «1-е место».
+    // Нет набора — прежнее поведение (банк основных вопросов по кругу).
+    const extraQuestions = bankId ? [] : extraQuestionsForBattle(local.battleSet);
     const { plan, errors } = buildLaunchPlan({
-      roster, questions: built.questions, settings,
+      roster, questions: built.questions, extraQuestions, settings,
       hostId: State.user?.uid, testId: test.id, orgId: room.orgId
     });
     if (errors) return toast(errors[0], "error");

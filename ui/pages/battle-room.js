@@ -89,13 +89,14 @@ export function mountBattle({ code, kind, uid, test, players = [], getPlayers = 
         if (disposed) return;
         bankForScreen = bank;
         const questions = (doc.questions || []).map((q) => ({ ...q, correct: keys[q.id] || [] }));
-        const game = BattleGame.restore({ doc, questions, rounds, liveInfo, store, now });
+        const extraQuestions = (doc.extraQuestions || []).map((q) => ({ ...q, correct: keys[q.id] || [] }));
+        const game = BattleGame.restore({ doc, questions, extraQuestions, rounds, liveInfo, store, now });
         hostView = buildBattleHost({
           game, test: bank, players, onToast, getPresence,
           onFinish: async (g) => {
             const snap = buildBattleSnapshot({
               state: g.state, liveInfo, initialRoster: g.initialRoster, events: g.events,
-              questions: questions.map(({ correct, ...pub }) => pub), finishedAtMs: now()
+              questions: [...questions, ...extraQuestions].map(({ correct, ...pub }) => pub), finishedAtMs: now()
             });
             const res = await attachBattleToHistory(code, snap);
             onToast(res.saved ? "Итоги битвы сохранены в историю." : "Итоги не сохранены в историю (" + (res.reason === "exists" ? "уже сохранены" : "история Live не найдена") + ").", res.saved ? "success" : "info");

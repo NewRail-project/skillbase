@@ -13,7 +13,7 @@
 //   · составы — пересборка только при смене состава или имён/аватаров.
 import { h } from "../../shared/dom.js";
 import { withSvg, avatarChip } from "./avatar.js";
-import { battleQuestionContent } from "./battle-play.js";
+import { battleQuestionContent, findBattleQuestion } from "./battle-play.js";
 import { isFullyCorrect } from "../../core/battle-logic.js";
 
 const TEAMS = ["a", "b"];
@@ -199,7 +199,7 @@ export function buildBattleScreen({ test, nameOf = (u) => u, avatarOf = () => nu
       return;
     }
     if (!r) { questionBox.replaceChildren(h("p", { class: "bs-note" }, "Битва скоро начнётся.")); return; }
-    const meta = (b.questions || []).find((q) => q.id === r.questionId) || { id: r.questionId };
+    const meta = findBattleQuestion(b, r.questionId);
     const content = battleQuestionContent(test, meta);
     const closed = r.status === "closed";
     const correct = closed ? (r.correct || []) : [];

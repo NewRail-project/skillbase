@@ -2,6 +2,7 @@ import { db } from "../shared/firebase.js";
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from "../shared/firebase.js";
 import { State } from "./auth.js";
 import { validateFullName } from "./registration.js";
+import { validateAvatarFile, AVATAR_ENCODE_ATTEMPTS, isImageAvatar } from "../shared/avatars.js";
 
 // Единый валидатор ФИО живёт в core/registration.js; реэкспорт сохраняет
 // прежний импорт из core/profile.js для страниц и тестов.
@@ -23,29 +24,41 @@ export function initialsAvatar(name, uid) {
   return { initials, hue };
 }
 
+// Файл → квадратный JPEG data-URL, уложенный в лимит публичного профиля.
+// Холст перекодирует картинку: метаданные не переносятся, SVG не принимается.
 export async function processAvatarFile(file) {
-  if (!file.type.startsWith("image/")) throw new Error("Неверный формат файла");
-  if (file.size > 3 * 1024 * 1024) throw new Error("Файл слишком большой (макс 3 МБ)");
-  
-  return new Promise((resolve, reject) => {
+  const problem = validateAvatarFile(file);
+  if (problem) throw new Error(problem);
+
+  const url = await new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        canvas.width = 128;
-        canvas.height = 128;
-        const ctx = canvas.getContext("2d");
-        const size = Math.min(img.width, img.height);
-        ctx.drawImage(img, (img.width - size) / 2, (img.height - size) / 2, size, size, 0, 0, 128, 128);
-        resolve(canvas.toDataURL("image/jpeg", 0.8));
-      };
-      img.onerror = () => reject(new Error("Ошибка обработки изображения"));
-      img.src = e.target.result;
-    };
-    reader.onerror = () => reject(new Error("Ошибка чтения файла"));
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Не удалось прочитать файл."));
     reader.readAsDataURL(file);
   });
+  const img = await new Promise((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error("Не удалось открыть изображение: файл повреждён или не поддерживается."));
+    el.src = url;
+  });
+  const side = Math.min(img.naturalWidth || img.width, img.naturalHeight || img.height);
+  if (!(side >= 32)) throw new Error("Изображение слишком маленькое: нужно хотя бы 32×32 пикселя.");
+  const sx = ((img.naturalWidth || img.width) - side) / 2;
+  const sy = ((img.naturalHeight || img.height) - side) / 2;
+
+  for (const { size, quality } of AVATAR_ENCODE_ATTEMPTS) {
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff"; // прозрачность PNG → белый фон, а не чёрный
+    ctx.fillRect(0, 0, size, size);
+    ctx.drawImage(img, sx, sy, side, side, 0, 0, size, size);
+    const out = canvas.toDataURL("image/jpeg", quality);
+    if (isImageAvatar(out)) return out;
+  }
+  throw new Error("Не удалось уменьшить изображение до нужного размера. Выберите другое фото.");
 }
 
 // Сохраняет личные поля профиля. Набор полей совпадает с правилом update

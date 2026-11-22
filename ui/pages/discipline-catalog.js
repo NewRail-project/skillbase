@@ -7,6 +7,7 @@ import { isStaff } from "../../core/auth.js";
 import { lt } from "../../core/i18n.js";
 import { getSubjects, getTopics, createSubject, updateSubject } from "../../core/subjects.js";
 import { deleteSubjectFlow, clearArchiveFlow } from "../components/delete-flows.js";
+import { actionsMenu } from "../components/actions-menu.js";
 import { TITLE_MAX, DESCRIPTION_MAX, STATUS_ARCHIVED, STATUS_ACTIVE, activeTopics, disciplineProgress, shortDescription, nextScheduledTopic } from "../../core/subjects-logic.js";
 import { formatTopicDate, dateMs } from "../../core/schedule-logic.js";
 import { formDialog } from "../components/form-dialog.js";
@@ -122,23 +123,27 @@ export default async function DisciplineCatalogPage() {
           h("span", { class: `badge ${progress > 0 ? "badge-success" : "badge-neutral"}` },
             `${active.length} из ${topics.length} тем`),
           subject.status === STATUS_ARCHIVED ? h("span", { class: "badge badge-warning" }, "В архиве") : null),
-        staff ? h("div", { class: "btn-row" }, cardButtons(subject)) : null));
+        staff ? h("div", { class: "card-actions" }, cardButtons(subject)) : null));
   }
+
+  // Главное действие — на виду («Изменить» у активной, «Вернуть» у архивной);
+  // «В архив» и «Удалить» уходят в меню «Ещё» и не стоят первыми.
+  const editClick = (subject) => () => openEdit(subject);
+  const restoreClick = (subject) => () => toggleArchive(subject, false);
 
   function cardButtons(subject) {
     const archived = subject.status === STATUS_ARCHIVED;
+    const remove = { label: "Удалить", tone: "danger", onClick: async () => { if (await deleteSubjectFlow(subject)) await load(); } };
     return [
-      h("button", {
-        type: "button", class: "btn secondary btn-sm",
-        onclick: () => toggleArchive(subject, !archived)
-      }, archived ? "Вернуть" : "В архив"),
-      h("button", {
-        type: "button", class: "btn secondary btn-sm", onclick: () => openEdit(subject)
-      }, "Изменить"),
-      h("button", {
-        type: "button", class: "btn secondary btn-sm danger-text",
-        onclick: async () => { if (await deleteSubjectFlow(subject)) await load(); }
-      }, "Удалить")
+      archived
+        ? h("button", { type: "button", class: "btn secondary btn-sm", onclick: restoreClick(subject) }, "Вернуть")
+        : h("button", { type: "button", class: "btn secondary btn-sm", onclick: editClick(subject) }, "Изменить"),
+      actionsMenu({
+        label: "Ещё",
+        items: archived
+          ? [{ label: "Изменить", onClick: () => openEdit(subject) }, remove]
+          : [{ label: "В архив", onClick: () => toggleArchive(subject, true) }, remove]
+      })
     ];
   }
 

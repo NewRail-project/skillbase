@@ -50,18 +50,30 @@ export function validateRoster(roster) {
 
 // buildLaunchPlan({ roster, questions, settings, hostId, testId, orgId })
 // Возвращает { errors } либо { plan }.
-export function buildLaunchPlan({ roster, questions, settings = {}, hostId, testId, orgId } = {}) {
+export function buildLaunchPlan({ roster, questions, extraQuestions = [], settings = {}, hostId, testId, orgId } = {}) {
   const { settings: s, errors: sErrors } = normalizeSettings(settings);
   const errors = [...sErrors, ...validateRoster(roster), ...validateQuestions(questions)];
+  // Решающие вопросы необязательны: пустой список — прежнее поведение.
+  const extras = Array.isArray(extraQuestions) ? extraQuestions : [];
+  if (extras.length) {
+    const used = new Set((questions || []).map((q) => q?.id));
+    for (const msg of validateQuestions(extras)) errors.push(`Решающие вопросы: ${msg}`);
+    if (extras.some((q) => used.has(q?.id))) errors.push("Решающие вопросы: идентификатор совпадает с основным вопросом.");
+  }
   if (!hostId) errors.push("Не указан ведущий.");
   if (!testId) errors.push("Не указан тест.");
   if (errors.length) return { errors };
 
-  const publicQuestions = questions.map((q) => ({
+  // Публичная часть вопроса: без правильных ответов. src — номер вопроса в
+  // исходном тесте (клиенты берут текст и варианты из него); у подготовленных
+  // заранее вопросов текст и варианты лежат прямо здесь.
+  const toPublic = (q) => ({
     id: q.id, type: q.type, optionCount: q.optionCount,
-    // src — номер вопроса в исходном тесте: по нему клиенты берут текст и варианты.
-    ...(Number.isInteger(q.src) ? { src: q.src } : {})
-  }));
+    ...(Number.isInteger(q.src) ? { src: q.src } : {}),
+    ...(typeof q.text === "string" && Array.isArray(q.options) ? { text: q.text, options: q.options.map(String) } : {})
+  });
+  const publicQuestions = questions.map(toPublic);
+  const publicExtras = extras.map(toPublic);
   const playerFields = {};
   for (const uid of TEAM_IDS.flatMap((t) => roster.teams[t])) {
     playerFields[uid] = {
@@ -82,6 +94,7 @@ export function buildLaunchPlan({ roster, questions, settings = {}, hostId, test
         hostId,
         settings: s,
         questions: publicQuestions,
+        extraQuestions: publicExtras,
         captains: { a: roster.captains.a, b: roster.captains.b },
         teams: { a: [...roster.teams.a], b: [...roster.teams.b] },
         reserve: [...roster.reserve],
@@ -96,7 +109,7 @@ export function buildLaunchPlan({ roster, questions, settings = {}, hostId, test
         winner: null,
         finishedEarly: false
       },
-      keys: questions.map((q) => ({ id: q.id, correct: [...q.correct] })),
+      keys: [...questions, ...extras].map((q) => ({ id: q.id, correct: [...q.correct] })),
       playerFields
     }
   };

@@ -4109,7 +4109,115 @@ function testCases() {
             functionMocks: profileMocks("student1", "student")
         },
         {
-            name: "Аватары: загружаемый файл (base64) — отказ",
+            name: "Аватары: собственное фото (JPEG data-URL в пределах лимита) — разрешено",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/publicProfiles/student1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: { data: { displayName: "Student One", orgId: ORG } },
+            newDoc: {
+                displayName: "Student One",
+                orgId: ORG,
+                avatar: "data:image/jpeg;base64," + "A".repeat(8000),
+                updatedAt: ISO
+            },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Аватары: JPEG ровно на границе лимита (24 000 символов) — разрешено",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/publicProfiles/student1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: { data: { displayName: "Student One", orgId: ORG } },
+            newDoc: {
+                displayName: "Student One",
+                orgId: ORG,
+                avatar: "data:image/jpeg;base64," + "A".repeat(24000 - "data:image/jpeg;base64,".length),
+                updatedAt: ISO
+            },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Аватары: JPEG длиннее лимита — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/publicProfiles/student1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: { data: { displayName: "Student One", orgId: ORG } },
+            newDoc: {
+                displayName: "Student One",
+                orgId: ORG,
+                avatar: "data:image/jpeg;base64," + "A".repeat(24000),
+                updatedAt: ISO
+            },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Аватары: SVG data-URL — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/publicProfiles/student1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: { data: { displayName: "Student One", orgId: ORG } },
+            newDoc: {
+                displayName: "Student One",
+                orgId: ORG,
+                avatar: "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=",
+                updatedAt: ISO
+            },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Аватары: JPEG с недопустимыми символами — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/publicProfiles/student1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: { data: { displayName: "Student One", orgId: ORG } },
+            newDoc: {
+                displayName: "Student One",
+                orgId: ORG,
+                avatar: "data:image/jpeg;base64,AA<script>",
+                updatedAt: ISO
+            },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Аватары: чужой URL изображения — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/publicProfiles/student1`,
+                method: "update",
+                requestResource: true
+            },
+            resource: { data: { displayName: "Student One", orgId: ORG } },
+            newDoc: {
+                displayName: "Student One",
+                orgId: ORG,
+                avatar: "https://example.com/a.jpg",
+                updatedAt: ISO
+            },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "Аватары: PNG data-URL (разрешён только JPEG) — отказ",
             expectation: "DENY",
             request: {
                 auth: { uid: "student1" },

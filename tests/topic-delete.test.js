@@ -206,13 +206,15 @@ test("потоки удаления: подтверждение с перечн�
   assert.match(src, /deleteSubjectFlow/);
 });
 
-test("интерфейс: у тем и дисциплин есть отдельная кнопка «Удалить» для сотрудников", () => {
+test("интерфейс: удаление тем и дисциплин доступно сотрудникам (в меню «Ещё»)", () => {
   const page = read("ui/pages/discipline-page.js");
   assert.match(page, /deleteTopicFlow\(topic\)/);
   const catalog = read("ui/pages/discipline-catalog.js");
   assert.match(catalog, /deleteSubjectFlow\(subject\)/);
   // Кнопка появляется только у staff: рендер внутри staff-ветки.
-  assert.match(catalog, /staff \? h\("div", \{ class: "btn-row" \}, cardButtons\(subject\)\) : null/);
+  // (действия карточки теперь в .card-actions: «Изменить» + меню «Ещё» с пунктом «Удалить»).
+  assert.match(catalog, /staff \? h\("div", \{ class: "card-actions" \}, cardButtons\(subject\)\) : null/);
+  assert.match(catalog, /label: "Удалить", tone: "danger"/);
 });
 
 // ---------- лобби: кнопка «Прочитать материал» ----------

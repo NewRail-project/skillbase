@@ -41,6 +41,7 @@ import { icons } from "../../shared/icons.js";
 import { confirmAction } from "../components/confirm.js";
 import { formDialog } from "../components/form-dialog.js";
 import { toast } from "../components/toast.js";
+import { actionsMenu } from "../components/actions-menu.js";
 
 const encode = encodeURIComponent;
 
@@ -290,38 +291,17 @@ export default async function TopicPage() {
         class: "btn secondary",
         href: `#topic-analytics/${encode(topic.id)}`
       }, "Аналитика"),
-      h("button", {
-        type: "button",
-        class: "btn secondary",
-        "aria-label": "Переместить тему выше",
-        onclick: () => reorder(-1)
-      }, "↑"),
-      h("button", {
-        type: "button",
-        class: "btn secondary",
-        "aria-label": "Переместить тему ниже",
-        onclick: () => reorder(1)
-      }, "↓"),
-      h("button", {
-        type: "button",
-        class: "btn secondary",
-        onclick: copyThis
-      }, "Копировать"),
-      h("button", {
-        type: "button",
-        class: "btn secondary",
-        onclick: moveToSubject
-      }, "Перенести"),
-      h("button", {
-        type: "button",
-        class: "btn secondary",
-        onclick: toggleArchive
-      }, storedArchived ? "Вернуть" : "В архив"),
-      h("button", {
-        type: "button",
-        class: "btn secondary",
-        onclick: removeTopic
-      }, "Удалить")
+      actionsMenu({
+        label: "Ещё",
+        items: [
+          { label: "Переместить выше", onClick: () => reorder(-1) },
+          { label: "Переместить ниже", onClick: () => reorder(1) },
+          { label: "Копировать", onClick: copyThis },
+          { label: "Перенести в другую дисциплину", onClick: moveToSubject },
+          { label: storedArchived ? "Вернуть из архива" : "В архив", onClick: toggleArchive },
+          { label: "Удалить тему", tone: "danger", onClick: removeTopic }
+        ]
+      })
     ) : null;
 
     const content = h("section", { class: "panel" },
@@ -357,9 +337,11 @@ export default async function TopicPage() {
   }
 
   function topicBack() {
-    return h("p", { class: "muted" },
-      h("a", { href: subject ? `#discipline/${encode(subject.id)}` : "#disciplines" },
-        "← К дисциплине"));
+    return h("p", { class: "crumb-line" },
+      h("a", {
+        class: "crumb",
+        href: subject ? `#discipline/${encode(subject.id)}` : "#disciplines"
+      }, "← К дисциплине"));
   }
 
   function stateBadgeClass(state) {

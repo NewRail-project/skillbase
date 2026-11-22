@@ -18,7 +18,7 @@ import { duelWinnersFor } from "../../core/duel-logic.js";
 //              придумываются: панель не должна блокировать распределение,
 //              если дуэль уже проведена. Если группы нет или не разрешена —
 //              панель попросит провести дуэль.
-export function buildBattlePrep({ players = [], ranking = [], settings = {}, onStart, onToast = () => {}, duelsDoc = null, loadBanks = null, currentTestId = "", onSaveSettings = null } = {}) {
+export function buildBattlePrep({ players = [], ranking = [], settings = {}, onStart, onToast = () => {}, duelsDoc = null, loadBanks = null, currentTestId = "", onSaveSettings = null, hint = "" } = {}) {
   const root = h("div", { class: "panel battle-prep" });
   const name = (uid) => players.find((p) => p.uid === uid)?.displayName || uid;
   const form = { ...DEFAULT_BATTLE_SETTINGS, ...settings };
@@ -107,6 +107,7 @@ export function buildBattlePrep({ players = [], ranking = [], settings = {}, onS
     root.replaceChildren(
       h("h2", {}, "Подготовка Командной битвы"),
       h("p", { class: "muted" }, `Участников: ${players.length}. Капитаны — 1-е и 2-е места Live; остальные распределяются случайно.`),
+      hint ? h("p", { class: "form-hint battle-prep-hint", role: "status" }, hint) : null,
       h("fieldset", { class: "field" },
         h("label", { class: "field" }, "Набор вопросов для битвы",
           h("select", { onchange: (e) => { bankId = e.target.value; notify(); } },
