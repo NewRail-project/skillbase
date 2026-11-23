@@ -16,14 +16,16 @@ html[data-ui="operations"][data-theme="light"] {
   --text: #111820;
   --text-2: #54626E;
   --accent: #D9A441;
+  /* Акцент как цвет текста/ссылок (≥4.5 на светлом фоне). Фон кнопок — --accent. */
+  --accent-text: #7A5200;
   --on-accent: #111820;
-  --accent-2: #477FA6;
+  --accent-2: #1B5A7A;
   --signal: #D9A441;
   --warn: #7A4E00;
   --on-warn: #FFFFFF;
-  --ok: #72B995;
-  --danger: #D97979;
-  --focus: #477FA6;
+  --ok: #1E6B47;
+  --danger: #A32B2B;
+  --focus: #1B5A7A;
   --ok-bg: #E8F5EE;
   --ok-border: #B7DFC9;
   --warn-bg: #FAF3E6;
@@ -36,7 +38,7 @@ html[data-ui="operations"][data-theme="light"] {
   --row-bg: #DDE5EA;
   --row-text: #111820;
   --row-text-2: #54626E;
-  --row-me-bg: #477FA6;
+  --row-me-bg: #1B5A7A;
   --row-me-text: #FFFFFF;
   --medal-gold-bg: #F2B233;
   --medal-silver-bg: #C9D1D9;

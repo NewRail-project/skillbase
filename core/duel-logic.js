@@ -388,14 +388,29 @@ function finishDoc({ groups, rows }) {
 // серий и решения; недостающие группы добавляются, исчезнувшие уходят.
 // banks — { 1: [qid...], 2: [...], 3: [...] }: подготовленные вопросы для
 // ничьей за 1-е, 2-е и 3-е место; места без банка играют по вопросам теста.
+// Группа, которая ещё не играла, получает подготовленный банк, если ведущий
+// подготовил вопросы для её места ПОСЛЕ создания группы. Уже начатую группу
+// банк не меняет — иначе вопросы сменились бы посреди дуэли.
+function bankNotStarted(group) {
+  return !(group?.rounds?.length) && group?.currentQid == null;
+}
+
 export function buildDuelsDoc({ rows, existing = null, questionCount = 0, banks = null } = {}) {
   const groups = tieGroups(rows).map((g, index) => {
     const uids = g.members.map(r => r.uid);
     const prev = (existing?.groups || [])
       .find(e => sameUidSet(e?.uids, uids));
-    if (prev) return cloneGroup(prev);
     const place = Number(g.members[0]?.place);
-    const bank = banks && Number.isInteger(place) ? banks[place] : null;
+    const preparedBank = banks && Number.isInteger(place) ? banks[place] : null;
+    if (prev) {
+      const copy = cloneGroup(prev);
+      const missingBank = !(copy.bank?.length);
+      if (preparedBank?.length && missingBank && bankNotStarted(copy)) {
+        return { ...copy, bank: preparedBank.map(String), place };
+      }
+      return copy;
+    }
+    const bank = preparedBank;
     return createDuelGroup(
       g.members.map(r => ({ uid: r.uid, name: r.name })), index,
       { place: Number.isInteger(place) ? place : undefined, bank }
@@ -406,11 +421,19 @@ export function buildDuelsDoc({ rows, existing = null, questionCount = 0, banks 
 
 // Сверка состава групп документа с текущими группами ничьей (пересчёт
 // очков после завершения теста мог сдвинуть состав).
-export function duelGroupsChanged(doc, groups) {
+export function duelGroupsChanged(doc, groups, banks = null) {
   const have = new Set((doc?.groups || [])
     .map(g => [...(g?.uids || [])].sort().join("\n")));
   const want = groups.map(g => g.members.map(r => r.uid).sort().join("\n"));
-  return have.size !== want.length || want.some(key => !have.has(key));
+  if (have.size !== want.length || want.some(key => !have.has(key))) return true;
+  // Подготовленный банк появился для не начатой группы — документ нужно обновить.
+  if (banks) {
+    return (doc?.groups || []).some(g => {
+      const place = Number(g?.place);
+      return bankNotStarted(g) && !(g?.bank?.length) && banks[place]?.length > 0;
+    });
+  }
+  return false;
 }
 
 // Замена одной группы в документе с пересчётом статуса и порядка.

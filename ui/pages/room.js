@@ -2241,7 +2241,7 @@ function manageDuels() {
           questionCount: duelBankSize(),
           banks: duelPreparedBanks()
         }));
-      } else if (duelGroupsChanged(local.duels, groups)) {
+      } else if (duelGroupsChanged(local.duels, groups, duelPreparedBanks())) {
         await updateDuelsDoc(local.code, buildDuelsDoc({
           rows: boardData(),
           existing: local.duels,
@@ -2280,6 +2280,18 @@ function freshDuelGroup(group) {
 async function duelOpenRound(group) {
   const fresh = freshDuelGroup(group);
   if (fresh.currentQid != null) return; // раунд уже открыт
+  // Вопросы для места заполнены, но с ошибкой — раньше дуэль молча шла по
+  // вопросам теста. Теперь ведущий видит причину.
+  const place = Number(fresh.place);
+  if (Number.isInteger(place) && !(fresh.bank?.length)
+      && countForPlace(local.battleSet, place) > 0
+      && !duelBankForPlace(local.battleSet, place)) {
+    toast(`Вопросы для ${place}-го места заполнены с ошибкой — дуэль идёт по вопросам теста. Исправьте набор.`, "error");
+  }
+  if (!(fresh.bank?.length) && !(duelBankSize() > 0)) {
+    toast("В тесте не задано число вопросов — дуэль некуда открыть.", "error");
+    return;
+  }
   let next = openDuelRound(fresh, duelBankSize());
   if (!next) {
     toast("Вопросы дуэли закончились — используйте решение преподавателя.", "info");

@@ -62,9 +62,10 @@ const pairsToCheck = [
   ['text-2', 'elevated'],
   ['on-accent', 'accent'],
   ['on-warn', 'warn'],
-  ['accent', 'bg'],
-  ['accent', 'surface'],
-  ['accent', 'elevated'],
+  // Акцент как цвет текста: --accent-text (если темы его задают, иначе --accent).
+  ['accent-text', 'bg'],
+  ['accent-text', 'surface'],
+  ['accent-text', 'elevated'],
   ['ok', 'surface'],
   ['danger', 'surface'],
   ['text', 'ok-bg'],
@@ -90,8 +91,8 @@ for (const theme of themes) {
     if (!themed) continue;
     console.log(`\n[${theme.name}] ${selector}`);
     for (const [fgName, bgName] of pairsToCheck) {
-      const fg = tokens[fgName];
-      const bg = tokens[bgName];
+      const fg = tokens[fgName] ?? (fgName === 'accent-text' ? tokens.accent : undefined);
+      const bg = tokens[bgName] ?? (bgName === 'accent-text' ? tokens.accent : undefined);
       if (!fg || !bg) continue;
       if (!fg.startsWith('#') || !bg.startsWith('#')) continue;
       const cr = getContrastRatio(
