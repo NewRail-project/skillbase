@@ -9,6 +9,9 @@
   --team-a-soft: color-mix(in srgb, var(--team-a) 14%, var(--surface, #fff));
   --team-b-soft: color-mix(in srgb, var(--team-b) 14%, var(--surface, #fff));
   --team-on: #fff;
+  /* --accent-soft раньше нигде не объявлялся: правило капитана в панели
+     подготовки молча отбрасывалось. Объявляем здесь — только для Battle. */
+  --accent-soft: color-mix(in srgb, var(--accent) 18%, var(--surface, #fff));
 }
 html[data-theme="dark"] {
   --team-a: #6FB1E8;
@@ -77,43 +80,309 @@ html[data-ui="workforce"][data-theme="dark"] { --team-a: #7DB8EC; --team-b: #F2A
   border-radius: var(--radius, 10px);
 }
 
-.battle-prep-group {
-  margin-bottom: 1.5rem;
+/* --- Составы команд: два одинаковых блока с разными акцентами --- */
+.battle-prep-out {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.battle-prep-out > .btn-row { margin-top: 0; }
+
+.battle-prep-group { margin-bottom: 0; }
+
+.battle-prep-group.bp-team,
+.battle-prep-group.bp-reserve {
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 10px);
+  background: var(--surface);
+  overflow: hidden;
 }
 
-.battle-prep-group h3 {
-  margin: 0 0 0.5rem;
-  color: var(--text-2);
-  font-size: 0.9rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+.battle-prep-group.bp-team[data-team="a"] {
+  border-color: var(--team-a);
+  box-shadow: inset 0 3px 0 var(--team-a);
 }
+.battle-prep-group.bp-team[data-team="b"] {
+  border-color: var(--team-b);
+  box-shadow: inset 0 3px 0 var(--team-b);
+}
+
+.bp-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+}
+.bp-team[data-team="a"] .bp-head { background: var(--team-a-soft); }
+.bp-team[data-team="b"] .bp-head { background: var(--team-b-soft); }
+.bp-reserve .bp-head { background: var(--surface-2, var(--surface)); }
+
+.bp-no {
+  flex: none;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--team-a);
+  color: var(--team-on);
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+.bp-team[data-team="b"] .bp-no { background: var(--team-b); }
+
+.bp-head-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+/* Заголовок команды — главный текст блока на проекторе, поэтому не мелкий
+   и не прописной, как общие подписи панели. */
+.battle-prep-group h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 1.05rem;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.bp-count { color: var(--text-2); font-size: 0.85rem; }
 
 .battle-prep-rosters {
   display: grid;
   gap: 1rem;
 }
 
-@media (min-width: 400px) {
+/* Две колонки только с простором: на телефоне и узком планшете длинные ФИО
+   и кнопки переносов в двух колонках теснились. */
+@media (min-width: 640px) {
   .battle-prep-rosters {
     grid-template-columns: repeat(2, 1fr);
   }
 }
 
+.bp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.bp-none { margin: 0; padding: 0.75rem 0.9rem; }
+
 .battle-prep-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  margin: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--surface-2, var(--surface));
+}
+
+/* Капитан: цвет его команды + отдельный значок роли. Раньше этот класс
+   вообще не вешался на строку, а --accent-soft нигде не был объявлен. */
+.battle-prep-row.captain {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.bp-team[data-team="a"] .battle-prep-row.captain { background: var(--team-a-soft); border-color: var(--team-a); }
+.bp-team[data-team="b"] .battle-prep-row.captain { background: var(--team-b-soft); border-color: var(--team-b); }
+
+.bp-avatar { width: 32px; height: 32px; margin-right: 0; font-size: 1rem; }
+.bp-avatar svg { width: 100%; height: 100%; display: block; }
+
+/* Длинные ФИО переносятся по словам и не распирают карточку. */
+.bp-name {
+  flex: 1 1 8rem;
+  min-width: 0;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.bp-role {
+  flex: none;
+  padding: 0.15rem 0.6rem;
+  border-radius: var(--radius-pill, 999px);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.bp-team[data-team="a"] .bp-role { background: var(--team-a); color: var(--team-on); }
+.bp-team[data-team="b"] .bp-role { background: var(--team-b); color: var(--team-on); }
+
+.bp-actions { margin-top: 0; margin-left: auto; gap: 0.25rem; }
+
+.battle-prep-empty {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius, 10px);
+  padding: 1.25rem 1rem;
+  text-align: center;
+}
+.battle-prep-empty p { margin: 0 0 0.4rem; }
+.battle-prep-empty p:last-child { margin-bottom: 0; }
+.bp-empty-title { font-weight: 700; font-size: 1.05rem; }
+.bp-summary { margin: 0; text-align: center; }
+
+/* Телефон: кнопки переносов занимают всю строку строки участника. */
+@media (max-width: 639px) {
+  .bp-actions { width: 100%; margin-left: 0; }
+  .bp-actions .btn { min-width: 0; flex: 1 1 auto; }
+}
+
+/* --- Исходное состояние: участники до распределения --- */
+.bp-pool-head { margin-bottom: 0.75rem; }
+.bp-pool-head p { margin: 0 0 0.4rem; }
+.bp-pool-head p:last-child { margin-bottom: 0; }
+
+.bp-pool-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}
+.bp-pool-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 100%;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill, 999px);
+  background: var(--surface-2, var(--surface));
+}
+.bp-pool-item .bp-name { flex: 0 1 auto; font-weight: 500; overflow-wrap: anywhere; }
+
+/* --- Анимация распределения: одноразовый оверлей поверх страницы --- */
+.bp-fly {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.bp-ghost {
+  position: absolute;
+  left: 0;
+  top: 0;
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.6rem 0.8rem;
-  margin: 0.25rem 0;
-  border-bottom: 1px solid var(--border-soft);
+  box-sizing: border-box;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm, 6px);
   background: var(--surface);
+  color: var(--text);
+  opacity: 0;
+  will-change: transform, opacity;
+  /* Пульс подготовительного этапа + проявление; transform не трогаем —
+     им управляет inline-переход из JS. */
+  animation: bp-ghost-in 240ms ease-out both;
+}
+@keyframes bp-ghost-in {
+  from { opacity: 0; filter: blur(3px); }
+  to { opacity: 1; filter: none; }
 }
 
-.battle-prep-row.captain {
-  background: var(--accent-soft);
-  border-color: var(--accent-soft);
+.bp-ghost.team-a { border-color: var(--team-a); }
+.bp-ghost.team-b { border-color: var(--team-b); }
+.bp-ghost.captain { border-width: 2px; }
+.bp-ghost.flying {
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28),
+    0 0 16px 3px color-mix(in srgb, var(--team-a) 35%, transparent);
+}
+.bp-ghost.team-b.flying {
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28),
+    0 0 16px 3px color-mix(in srgb, var(--team-b) 35%, transparent);
+}
+.bp-ghost .bp-avatar { margin-right: 0; }
+.bp-ghost .bp-name { font-size: 0.95rem; }
+
+/* Частицы-следы: создаются в JS в момент старта карточки и удаляются
+   вместе с ней — постоянных элементов на частицы нет. */
+.bp-spark {
+  position: absolute;
+  left: 8px;
+  bottom: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--team-a);
+  box-shadow: 0 0 8px 2px color-mix(in srgb, var(--team-a) 65%, transparent);
+  opacity: 0;
+  animation: bp-spark-fly 520ms ease-out forwards;
+  pointer-events: none;
+}
+.bp-spark-1 { left: 45%; bottom: 2px; animation-delay: 90ms; }
+.bp-spark-2 { left: 80%; bottom: 6px; animation-delay: 180ms; }
+.bp-ghost.team-b .bp-spark {
+  background: var(--team-b);
+  box-shadow: 0 0 8px 2px color-mix(in srgb, var(--team-b) 65%, transparent);
+}
+@keyframes bp-spark-fly {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.5); }
+  20% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-22px, 26px) scale(0.2); }
+}
+
+/* Строка в команде скрыта, пока её карточка в пути: двойного списка нет. */
+.battle-prep-row.bp-landing { visibility: hidden; }
+@keyframes bp-land {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+.battle-prep-row.bp-land { animation: bp-land 340ms cubic-bezier(0.2, 0.9, 0.3, 1); }
+
+/* Пока карточки летят, панелью не управляют — и сразу отпускается в конце. */
+.battle-prep-out.is-flying { pointer-events: none; }
+
+/* Появление команд после приземления всех участников. */
+@keyframes bp-team-pop {
+  0% { opacity: 0.35; transform: scale(0.97); }
+  60% { transform: scale(1.015); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.battle-prep-group.bp-pop { animation: bp-team-pop 520ms cubic-bezier(0.2, 0.9, 0.3, 1); }
+
+/* Капитаны вспыхивают в конце распределения. */
+@keyframes bp-cap-a {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--team-a) 70%, transparent); }
+  100% { box-shadow: 0 0 0 16px transparent; }
+}
+@keyframes bp-cap-b {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--team-b) 70%, transparent); }
+  100% { box-shadow: 0 0 0 16px transparent; }
+}
+.bp-team[data-team="a"] .battle-prep-row.captain.bp-flash { animation: bp-cap-a 900ms ease-out; }
+.bp-team[data-team="b"] .battle-prep-row.captain.bp-flash { animation: bp-cap-b 900ms ease-out; }
+
+/* Доступность: при reduced-motion эффект вообще не запускается (см. JS),
+   а эти правила — страховка, если классы уже повешены. */
+@media (prefers-reduced-motion: reduce) {
+  .bp-fly { display: none; }
+  .bp-ghost,
+  .bp-spark,
+  .battle-prep-group.bp-pop,
+  .battle-prep-row.bp-land,
+  .battle-prep-row.captain.bp-flash { animation: none !important; }
+  .bp-ghost { transition: none !important; }
+  .battle-prep-row.bp-landing { visibility: visible !important; }
+  .battle-prep-out.is-flying { pointer-events: auto !important; }
 }
 
 .battle-prep .btn-row {
@@ -135,6 +404,15 @@ html[data-ui="workforce"][data-theme="dark"] { --team-a: #7DB8EC; --team-b: #F2A
     font-size: 1rem;
     padding: 0.5rem 1rem;
   }
+  /* Проектор: составы читаются с последнего ряда. */
+  .bp-avatar { width: 40px; height: 40px; font-size: 1.15rem; }
+  .bp-name { font-size: 1.1rem; }
+  .bp-role { font-size: 0.85rem; padding: 0.2rem 0.7rem; }
+  .bp-no { width: 2.5rem; height: 2.5rem; font-size: 1.1rem; }
+  .battle-prep-group h3 { font-size: 1.25rem; }
+  .bp-count { font-size: 0.95rem; }
+  .bp-list { padding: 0.75rem; gap: 0.55rem; }
+  .battle-prep-row { padding: 0.6rem 0.75rem; }
 }
 
 /* --- Оформление экрана Battle (черновик): правила .battle-view и .battle-score
@@ -306,7 +584,7 @@ html[data-ui="workforce"][data-theme="dark"] { --team-a: #7DB8EC; --team-b: #F2A
 }
 .bs-person .avatar-chip { width: 1.8em; height: 1.8em; flex: none; font-size: .8em; }
 .bs-person .avatar-chip svg { width: 100%; height: 100%; }
-.bs-person-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.bs-person-name { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
 .bs-person-tag { flex: none; font-size: .75em; font-weight: 700; padding: .05rem .4rem; border-radius: 999px; background: rgb(0 0 0 / .28); color: inherit; }
 .bs-person[data-state="out"] { opacity: .55; text-decoration: line-through; }
 .bs-person[data-state="captain"] { border-bottom-color: currentColor; }
@@ -321,7 +599,7 @@ html[data-ui="workforce"][data-theme="dark"] { --team-a: #7DB8EC; --team-b: #F2A
 .bs-cap-avatar .avatar-chip svg { width: 100%; height: 100%; }
 .bs-cap-text { display: grid; min-width: 0; }
 .bs-cap-label { color: var(--bs-muted); font-size: .8em; }
-.bs-cap-name { font-weight: 800; font-size: 1.15em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bs-cap-name { font-weight: 800; font-size: 1.15em; overflow-wrap: anywhere; }
 
 /* Счёт и таймер */
 .bs-scoreboard { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: .75rem; }
@@ -410,7 +688,7 @@ html[data-ui="workforce"][data-theme="dark"] { --team-a: #7DB8EC; --team-b: #F2A
 .battle-play .battle-head { gap: .4rem; }
 .battle-play .battle-team { padding: .35rem .55rem; }
 .battle-play .battle-team .battle-score { font-size: 1.35rem; }
-.battle-play .battle-team .battle-status { font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.battle-play .battle-team .battle-status { font-size: .8rem; overflow-wrap: anywhere; }
 .battle-play .battle-rope { height: 1.2rem; }
 .battle-play .battle-question h2 { font-size: 1.05rem; margin-bottom: .4rem; }
 .battle-play .battle-option { min-height: 3rem; padding: .6rem .75rem; }
