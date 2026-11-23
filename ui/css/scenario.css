@@ -1,0 +1,119 @@
+/* ui/css/scenario.css — экран проигрывания сценария (#admin/scenario).
+   Только существующие токены темы; новых цветов нет. Подключается точечно
+   через loadCss() и не нужен остальным страницам. */
+
+.scn-page { display: grid; gap: var(--space-4); min-width: 0; }
+.scn-page > * { min-width: 0; }
+
+/* ---------- Настройки ---------- */
+.scn-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+.scn-field { display: grid; gap: var(--space-1); align-content: start; min-width: 0; }
+.scn-field label { font-weight: 600; color: var(--text); }
+.scn-field input, .scn-field select { width: 100%; min-width: 0; }
+.scn-field .btn { margin-top: var(--space-1); }
+.scn-status { margin: var(--space-3) 0 0; color: var(--text-2); }
+
+/* ---------- Таймер и полоса ---------- */
+.scn-top {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.scn-clock {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  font-size: 2rem;
+  line-height: 1;
+  color: var(--text);
+}
+.scn-top .badge { justify-self: start; }
+.scn-progress {
+  grid-column: 1 / -1;
+  height: 10px;
+  border-radius: var(--radius-pill);
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.scn-progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width .2s linear;
+}
+
+/* ---------- Лента и рейтинг ---------- */
+.scn-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+.scn-col { min-width: 0; }
+.scn-col-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.scn-col-head h2 { margin: 0 0 var(--space-2); }
+.scn-check { display: inline-flex; align-items: center; gap: var(--space-2); font-size: .875rem; color: var(--text-2); }
+
+.scn-feed {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 40vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+}
+.scn-feed-item, .scn-empty { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border); color: var(--text); }
+.scn-feed-item:last-child, .scn-empty:last-child { border-bottom: 0; }
+.scn-empty { color: var(--text-2); }
+.scn-feed-q { color: var(--text-2); }
+/* Результат передаётся и значком, и цветом — не одним цветом. */
+.scn-ok { color: var(--ok); font-weight: 600; }
+.scn-bad { color: var(--danger); font-weight: 600; }
+
+/* Таблица прокручивается внутри своего блока, страница — нет. */
+.scn-table-wrap {
+  max-height: 40vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+}
+.scn-table { width: 100%; border-collapse: collapse; min-width: 280px; }
+.scn-table th, .scn-table td { padding: var(--space-2) var(--space-3); text-align: left; border-bottom: 1px solid var(--border); color: var(--text); }
+.scn-table th { position: sticky; top: 0; background: var(--elevated); color: var(--text-2); font-size: .8125rem; }
+.scn-table td:nth-child(n+3), .scn-table th:nth-child(n+3) { text-align: right; font-variant-numeric: tabular-nums; }
+.scn-place { font-weight: 800; font-variant-numeric: tabular-nums; }
+
+/* ---------- Итог, ничьи, показ дуэли ---------- */
+.scn-finale h3 { margin: var(--space-4) 0 var(--space-2); }
+.scn-ties { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.scn-tie { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.scn-duel-holder { flex-basis: 100%; }
+.scn-duel { padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-m); background: var(--elevated); }
+.scn-duel ol { margin: var(--space-2) 0; padding-left: var(--space-5); }
+.scn-duel-outcome { margin: 0; font-weight: 700; color: var(--text); }
+
+/* ---------- Широкий экран / доска 1920×1080 ---------- */
+@media (min-width: 720px) {
+  .scn-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (min-width: 1200px) {
+  .scn-fields { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .scn-top { grid-template-columns: auto auto 1fr; }
+  .scn-progress { grid-column: auto; }
+  .scn-clock { font-size: clamp(2.5rem, 4vw, 4rem); }
+  .scn-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* Главный экран помещается без прокрутки страницы: прокручиваются сами списки. */
+  .scn-feed, .scn-table-wrap { max-height: calc(100vh - 430px); min-height: 220px; }
+  .scn-place { font-size: 1.5rem; }
+  .scn-table td, .scn-table th { font-size: 1.125rem; }
+}
+
+/* ---------- Без анимаций по запросу системы ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .scn-progress-fill { transition: none; }
+}
