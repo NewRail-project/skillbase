@@ -6,14 +6,77 @@ import { icons } from "../../shared/icons.js";
 import { brandLockup } from "../../ui/components/brand.js";
 import { t as tr, lt, roleLabel } from "../../core/i18n.js";
 import { createIcon } from "../../shared/svg.js";
-import AdminScenarioPage, { cleanup as cleanupScenario } from "./admin-scenario.js";
 
 // Экран проигрывания сценария открывается как #admin/scenario: роутеру
 // достаточно маршрута admin (он уже только для администраторов).
 const SCENARIO_OPENER_KEY = "sb:scenario-opener";
+const SCENARIO_FILE = "admin-scenario.js";
+
+// Подэкран подгружается отдельно от панели. Раньше здесь был статический
+// import "./admin-scenario.js": модульный граф всего #admin зависел от одного
+// файла — если тот недоступен (не опубликован, устаревший кэш, ошибка
+// синтаксиса), падал ВЕСЬ раздел с общей ошибкой «Не удалось загрузить код
+// страницы». Теперь панель загружается всегда, а неполадка называет конкретный
+// модуль. Загрузка настоящая, с тем же одним обходом кэша, что у роутера.
+let scenarioModule = null;
+
+async function importScenarioModule() {
+  if (scenarioModule) return scenarioModule;
+  try {
+    return await import(`./${SCENARIO_FILE}`);
+  } catch (firstError) {
+    console.warn(`Импорт ${SCENARIO_FILE} не удался, повторяю с обходом кэша:`, firstError);
+    return import(`./${SCENARIO_FILE}?retry=${Date.now()}`);
+  }
+}
+
+async function loadScenarioModule() {
+  const mod = await importScenarioModule();
+  if (typeof mod.default !== "function") {
+    throw Object.assign(
+      new Error(`Модуль ui/pages/${SCENARIO_FILE} не экспортирует функцию по умолчанию`),
+      { code: "page-no-default" }
+    );
+  }
+  scenarioModule = mod;
+  return mod;
+}
+
+// Ошибка подэкрана не должна выглядеть как полный сбой админки: показываем,
+// какой именно модуль не загрузился и почему, плюс кнопку повтора.
+function scenarioLoadError(cause) {
+  const reason = cause?.cause?.message || cause?.message || "";
+  let node;
+  const retry = h("button", {
+    type: "button", class: "btn primary",
+    onclick: async () => { node.replaceWith(await scenarioScreen()); }
+  }, "Повторить");
+  node = h("div", { class: "page" },
+    h("div", { class: "card", role: "alert" },
+      h("p", { class: "error-msg" },
+        `Не удалось загрузить код раздела «Проигрывание сценария». Модуль: ui/pages/${SCENARIO_FILE}.`),
+      reason ? h("p", { class: "muted" }, `Причина: ${reason}`) : null,
+      h("p", { class: "muted" },
+        "Админ-панель и остальные разделы работают. Обновите страницу; если не поможет — обновите кэш сайта (настройки браузера)."),
+      h("div", { class: "btn-row" }, retry,
+        h("a", { class: "btn", href: "#admin" }, "К админ-панели"))));
+  return node;
+}
+
+async function scenarioScreen() {
+  let mod;
+  try {
+    mod = await loadScenarioModule();
+  } catch (cause) {
+    console.error(`Админ-панель: не удалось загрузить ui/pages/${SCENARIO_FILE}:`, cause);
+    if (cause?.cause) console.error("Исходная причина:", cause.cause);
+    return scenarioLoadError(cause);
+  }
+  return mod.default();
+}
 
 export function cleanup() {
-  cleanupScenario();
+  if (typeof scenarioModule?.cleanup === "function") scenarioModule.cleanup();
 }
 
 
@@ -33,7 +96,7 @@ function tile({ icon, title, text, href, action }) {
 }
 
 export default async function AdminPanelPage() {
-  if (String(State.routeParam || "") === "scenario") return AdminScenarioPage();
+  if (String(State.routeParam || "") === "scenario") return scenarioScreen();
   const page = h("div", { class: "page" });
   const profile = State.profile || {};
 
