@@ -54,3 +54,11 @@ skillbase/
 - `core/slides-client.js` — браузерная часть: ленивая загрузка pdf.js 3.11.174 (cdnjs, SRI), рендер PDF и сжатие картинок через canvas.
 - `core/material-library.js: saveLibraryPagesDiff` — запись только изменившихся страниц с прогрессом.
 - Тесты: `tests/slides-logic.test.js`. Предложения без применения: `docs/proposals/`.
+
+## Проигрывание сценария (админ-панель)
+- `core/bots-plan.js` — план ответов ботов (seed, до 30 ботов, задержка 800–15000 мс).
+- `core/scenario-sim.js` — `runScenario`, общее правило мест `rankBoard`, `boardFromEvents`.
+- `core/scenario-player.js` — настройки (`clampSettings`), шкала времени, пауза, сброс, живой рейтинг, «дуэль только показ».
+- `ui/pages/admin-scenario.js` + `ui/css/scenario.css` — экран `#admin/scenario` (только admin); подключается из `ui/pages/admin-panel.js`.
+- Всё только в памяти браузера: Firestore, `core/rooms.js` и `core/battle*.js` не импортируются.
+- Тесты: `tests/bots-plan.test.js`, `tests/scenario-sim.test.js`, `tests/scenario-screen.test.js`.

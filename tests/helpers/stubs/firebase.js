@@ -2,8 +2,14 @@
 // в Node он не подключается. Экспортируется только то, что просят страницы;
 // значения-заглушки намеренно падают при вызове — страница обязана работать
 // через слои-заглушки (core/*), а не через прямой запрос из UI.
+// Вызовы записи считаются в globalThis.__FS_WRITES: тест может убедиться, что
+// страница ничего не пишет в Firestore (ожидается пустой список).
+const WRITE_NAMES = new Set(["setDoc", "updateDoc", "addDoc", "deleteDoc", "runTransaction", "writeBatch"]);
 function unavailable(name) {
-  return () => { throw new Error(`shared/firebase.js: ${name} недоступен в тесте`); };
+  return () => {
+    if (WRITE_NAMES.has(name)) (globalThis.__FS_WRITES ||= []).push(name);
+    throw new Error(`shared/firebase.js: ${name} недоступен в тесте`);
+  };
 }
 
 export const db = { __test: true };

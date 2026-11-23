@@ -6,6 +6,15 @@ import { icons } from "../../shared/icons.js";
 import { brandLockup } from "../../ui/components/brand.js";
 import { t as tr, lt, roleLabel } from "../../core/i18n.js";
 import { createIcon } from "../../shared/svg.js";
+import AdminScenarioPage, { cleanup as cleanupScenario } from "./admin-scenario.js";
+
+// Экран проигрывания сценария открывается как #admin/scenario: роутеру
+// достаточно маршрута admin (он уже только для администраторов).
+const SCENARIO_OPENER_KEY = "sb:scenario-opener";
+
+export function cleanup() {
+  cleanupScenario();
+}
 
 
 function tile({ icon, title, text, href, action }) {
@@ -24,6 +33,7 @@ function tile({ icon, title, text, href, action }) {
 }
 
 export default async function AdminPanelPage() {
+  if (String(State.routeParam || "") === "scenario") return AdminScenarioPage();
   const page = h("div", { class: "page" });
   const profile = State.profile || {};
 
@@ -134,6 +144,26 @@ export default async function AdminPanelPage() {
       })
     )
   ));
+
+  // Проигрывание сценария — только для администратора. Роль проверяется здесь
+  // и на самой странице сценария; скрытие кнопки — лишь удобство.
+  if (profile.role === "admin") {
+    const open = h("button", {
+      type: "button", class: "btn", id: "scenario-open",
+      onclick: () => { window.location.hash = "#admin/scenario"; }
+    }, "Проиграть сценарий");
+    page.appendChild(h("section", { class: "panel" },
+      h("div", { class: "section-title" }, h("h2", {}, "Проигрывание сценария")),
+      h("p", { class: "muted" }, "Боты отвечают на вопросы, рейтинг и ничьи пересчитываются на экране. Ничего не записывается в базу."),
+      h("div", { class: "btn-row" }, open)));
+    // Возвращаем фокус на кнопку, с которой открывали экран.
+    let returned = false;
+    try { returned = sessionStorage.getItem(SCENARIO_OPENER_KEY) === "1" && window.location.hash === "#admin"; } catch { /* нет storage */ }
+    if (returned) {
+      try { sessionStorage.removeItem(SCENARIO_OPENER_KEY); } catch { /* нет storage */ }
+      setTimeout(() => open.focus?.(), 60);
+    }
+  }
 
   page.appendChild(h("section", { class: "panel" },
     h("div", { class: "section-title" },
