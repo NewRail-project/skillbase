@@ -81,6 +81,20 @@ body.has-sidebar #nav { display: none; }
 @media (max-width: 899px) {
   body.has-sidebar #sidebar-toggle { display: inline-flex; }
 }
+/* Скрытие меню на широком экране (кнопка «⟨» в шапке меню). */
+.sidebar-collapse { display: none; margin-left: auto; min-width: 36px; min-height: 36px;
+  border: 1px solid var(--border); border-radius: var(--radius-s); background: transparent;
+  color: var(--text); cursor: pointer; font-size: 18px; }
+.sidebar-restore { display: none; position: fixed; bottom: 16px; left: 16px; z-index: 1000;
+  min-height: 40px; padding: 0 14px; border: 1px solid var(--border); border-radius: var(--radius-s);
+  background: var(--surface); color: var(--text); cursor: pointer; font-size: 15px; }
+@media (min-width: 900px) {
+  body.has-sidebar .sidebar-collapse { display: inline-flex; align-items: center; justify-content: center; }
+  body.has-sidebar.sidebar-hidden .sidebar { display: none; }
+  body.has-sidebar.sidebar-hidden .shell { margin-left: 0; }
+  body.has-sidebar.sidebar-hidden .sidebar-restore { display: inline-flex; align-items: center; }
+  body.has-sidebar.sidebar-hidden main#app { max-width: none; }
+}
 @media (min-width: 900px) {
   body.has-sidebar .sidebar { transform: none; box-shadow: none; max-width: none; }
   body.has-sidebar .shell { margin-left: var(--sidebar-w); }

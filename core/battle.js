@@ -35,8 +35,11 @@ function requireOnline(message) {
   if (!navigator.onLine) throw new Error(message || "Нет подключения к интернету.");
 }
 
+// Документ битвы — внутри подколлекции комнаты: rooms/{code}/battle/state.
+// Путь rooms/{code}/battle (3 сегмента) — это коллекция, Firestore отклоняет
+// его как «Invalid document reference» и битва не запускалась.
 function battleRef(code) {
-  return doc(db, "rooms", code, "battle");
+  return doc(db, "rooms", code, "battle", "state");
 }
 
 function votesRef(code) {

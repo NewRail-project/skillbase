@@ -74,7 +74,13 @@ export function renderSidebar(onChange) {
     "aria-label": "Основная навигация"
   });
 
-  aside.appendChild(h("div", { class: "sidebar-header" }, brandLockup({ size: 30 })));
+  aside.appendChild(h("div", { class: "sidebar-header" },
+    brandLockup({ size: 30 }),
+    h("button", {
+      type: "button", class: "sidebar-collapse",
+      "aria-label": "Скрыть меню", title: "Скрыть меню",
+      onclick: () => setSidebarHidden(true)
+    }, "⟨")));
 
   const nav = h("nav", { class: "sidebar-nav" });
   GROUPS.forEach(group => {
@@ -152,12 +158,41 @@ export function renderSidebar(onChange) {
   return aside;
 }
 
+// Скрыть боковое меню на широком экране (доска, проектор). Настройка
+// запоминается на устройстве. На телефоне не действует: там меню и так
+// открывается кнопкой и закрывается по умолчанию.
+const HIDDEN_KEY = "skillbase.sidebarHidden";
+export function isSidebarHidden() {
+  try { return localStorage.getItem(HIDDEN_KEY) === "1"; } catch (_) { return false; }
+}
+export function setSidebarHidden(value) {
+  const hidden = !!value;
+  try { localStorage.setItem(HIDDEN_KEY, hidden ? "1" : "0"); } catch (_) { /* приватный режим */ }
+  document.body.classList.toggle("sidebar-hidden", hidden);
+  const restore = document.getElementById("sidebar-restore");
+  if (restore) restore.setAttribute("aria-expanded", String(!hidden));
+}
+
+function ensureSidebarControls() {
+  if (!document.getElementById("sidebar-restore")) {
+    const btn = h("button", {
+      type: "button", id: "sidebar-restore", class: "sidebar-restore",
+      "aria-label": "Показать меню", "aria-expanded": "false",
+      title: "Показать меню",
+      onclick: () => setSidebarHidden(false)
+    }, "☰ Меню");
+    document.body.appendChild(btn);
+  }
+}
+
 let wired = false;
 export function initSidebar() {
   if (wired) return;
   wired = true;
+  setSidebarHidden(isSidebarHidden());
   const toggle = document.getElementById("sidebar-toggle");
   const backdrop = document.getElementById("sidebar-backdrop");
+  ensureSidebarControls();
   if (toggle) toggle.addEventListener("click", () => setSidebarOpen(!isOpen));
   if (backdrop) backdrop.addEventListener("click", () => setSidebarOpen(false));
   document.addEventListener("keydown", (e) => {

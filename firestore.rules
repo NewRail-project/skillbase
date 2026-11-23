@@ -1349,7 +1349,7 @@ function isGuest() {
 
       // Документ battle (rooms/{code}/battle).
       function battleDoc() {
-        return get(/databases/$(database)/documents/rooms/$(roomId)/battle).data;
+        return get(/databases/$(database)/documents/rooms/$(roomId)/battle/state).data;
       }
 
       // Документ участника комнаты.
@@ -1387,7 +1387,7 @@ function isGuest() {
           : -1;
       }
 
-      match /battle {
+      match /battle/state {
         // Чтение: все в комнате (host, players, observers).
         allow read: if isRoomHost() || inRoomAnyRole();
 

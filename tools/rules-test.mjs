@@ -274,7 +274,7 @@ function battleDocMocks(overrides = {}) {
     return [
         {
             function: "get",
-            args: [{ exactValue: `${DB}/rooms/r1/battle` }],
+            args: [{ exactValue: `${DB}/rooms/r1/battle/state` }],
             result: { value: { data: battleDocData(overrides) } }
         }
     ];
@@ -1294,7 +1294,7 @@ function battleCases() {
             expectation: "ALLOW",
             request: {
                 auth: { uid: "teacher1" },
-                path: `${DB}/rooms/r1/battle`,
+                path: `${DB}/rooms/r1/battle/state`,
                 method: "create",
                 resource: {
                     data: { key: "battle", orgId: ORG, hostId: "teacher1", status: "active" }
@@ -1310,7 +1310,7 @@ function battleCases() {
             expectation: "DENY",
             request: {
                 auth: { uid: "student1" },
-                path: `${DB}/rooms/r1/battle`,
+                path: `${DB}/rooms/r1/battle/state`,
                 method: "create",
                 resource: {
                     data: { key: "battle", orgId: ORG, hostId: "student1", status: "active" }
@@ -1326,7 +1326,7 @@ function battleCases() {
             expectation: "DENY",
             request: {
                 auth: { uid: "teacher2" },
-                path: `${DB}/rooms/r1/battle`,
+                path: `${DB}/rooms/r1/battle/state`,
                 method: "create",
                 resource: {
                     data: { key: "battle", orgId: ORG, hostId: "teacher2", status: "active" }
@@ -1342,7 +1342,7 @@ function battleCases() {
             expectation: "ALLOW",
             request: {
                 auth: { uid: "teacher1" },
-                path: `${DB}/rooms/r1/battle`,
+                path: `${DB}/rooms/r1/battle/state`,
                 method: "update",
                 requestResource: true
             },
@@ -1358,7 +1358,7 @@ function battleCases() {
             expectation: "DENY",
             request: {
                 auth: { uid: "student1" },
-                path: `${DB}/rooms/r1/battle`,
+                path: `${DB}/rooms/r1/battle/state`,
                 method: "update",
                 requestResource: true
             },
@@ -1374,7 +1374,7 @@ function battleCases() {
             expectation: "DENY",
             request: {
                 auth: { uid: "student1" },
-                path: `${DB}/rooms/r1/battle`,
+                path: `${DB}/rooms/r1/battle/state`,
                 method: "get"
             },
             resource: { data: battleDocData({ orgId: "other-org" }) },
@@ -1389,7 +1389,7 @@ function battleCases() {
             expectation: "ALLOW",
             request: {
                 auth: { uid: "student1" },
-                path: `${DB}/rooms/r1/battle`,
+                path: `${DB}/rooms/r1/battle/state`,
                 method: "get"
             },
             resource: { data: battleDocData() },
