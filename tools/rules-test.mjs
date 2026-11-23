@@ -3303,6 +3303,105 @@ function testCases() {
             ]
         },
         {
+            name: "Попытки: администратор удаляет проверенную попытку своей организации",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "admin1" },
+                path: `${DB}/attempts/a-del`,
+                method: "delete"
+            },
+            existingDoc: attemptDoc({ status: "graded" }),
+            functionMocks: profileMocks("admin1", "admin")
+        },
+        {
+            name: "Попытки: администратор удаляет отправленную (ожидающую проверки) попытку",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "admin1" },
+                path: `${DB}/attempts/a-del`,
+                method: "delete"
+            },
+            existingDoc: attemptDoc({ status: "submitted" }),
+            functionMocks: profileMocks("admin1", "admin")
+        },
+        {
+            name: "Попытки: удалить незавершённую попытку нельзя никому — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "admin1" },
+                path: `${DB}/attempts/a-del`,
+                method: "delete"
+            },
+            existingDoc: attemptDoc({ status: "in_progress" }),
+            functionMocks: profileMocks("admin1", "admin")
+        },
+        {
+            name: "Попытки: преподаватель без ограничения групп удаляет завершённую попытку",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" },
+                path: `${DB}/attempts/a-del`,
+                method: "delete"
+            },
+            existingDoc: attemptDoc({ status: "graded" }),
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "Попытки: преподаватель удаляет попытку своей группы",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher3" },
+                path: `${DB}/attempts/a-del`,
+                method: "delete"
+            },
+            existingDoc: attemptDoc({ status: "graded", groupId: "group-a" }),
+            functionMocks: profileMocks("teacher3", "teacher", ORG, { teacherGroups: ["group-a"] })
+        },
+        {
+            name: "Попытки: преподаватель не удаляет попытку чужой группы — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher3" },
+                path: `${DB}/attempts/a-del`,
+                method: "delete"
+            },
+            existingDoc: attemptDoc({ status: "graded", groupId: "group-b" }),
+            functionMocks: profileMocks("teacher3", "teacher", ORG, { teacherGroups: ["group-a"] })
+        },
+        {
+            name: "Попытки: преподаватель с ограничением не удаляет попытку без группы — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher3" },
+                path: `${DB}/attempts/a-del`,
+                method: "delete"
+            },
+            existingDoc: attemptDoc({ status: "graded", groupId: null }),
+            functionMocks: profileMocks("teacher3", "teacher", ORG, { teacherGroups: ["group-a"] })
+        },
+        {
+            name: "Попытки: сотрудник другой организации не удаляет попытку — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "admin2" },
+                path: `${DB}/attempts/a-del`,
+                method: "delete"
+            },
+            existingDoc: attemptDoc({ status: "graded" }),
+            functionMocks: profileMocks("admin2", "admin", "org-other")
+        },
+        {
+            name: "Попытки: студент не удаляет даже свою завершённую попытку — отказ",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "student1" },
+                path: `${DB}/attempts/a-del`,
+                method: "delete"
+            },
+            existingDoc: attemptDoc({ status: "graded" }),
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
             name: "Попытки: преподаватель оценивает отправленную попытку",
             expectation: "ALLOW",
             request: {

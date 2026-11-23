@@ -691,14 +691,27 @@ table { max-width: 100%; }
    уезжало вправо (скриншот «Материалы»). */
 .panel:not(.panel-flush) > .panel-head { padding-inline: 0; }
 .panel:not(.panel-flush) > .list > .list-row { padding-inline: 0; }
-/* Строка списка с меню «Ещё»: название слева, меню справа, на телефоне тоже. */
-.list-row > .topic-actions { margin-left: auto; }
+/* Строка списка: переносится ВСЕГДА (раньше на телефоне стояло nowrap и
+   название сжималось до одной буквы). Название получает минимальную базу
+   12rem — если вместе с кнопками не помещается, кнопки уходят на свою строку. */
+.list-row { flex-wrap: wrap; row-gap: var(--space-2); }
+.list-row > .list-row-main { flex: 1 1 12rem; }
+/* Строка с меню «Ещё»: название слева, меню справа в той же строке. */
+.list-row > .topic-actions { margin-left: auto; flex: none; }
+.list-row > .list-row-main:has(+ .topic-actions) { flex: 1 1 8rem; }
 @media (max-width: 640px) {
-  .list-row { flex-wrap: nowrap; }
-  .list-row > .topic-actions { flex: none; flex-wrap: nowrap; }
+  .list-row > .topic-actions { flex-wrap: nowrap; }
   .list-row > .topic-actions .btn { width: auto; margin-bottom: 0; }
+  .list-row > .list-row-main:has(+ .topic-actions) { flex: 1 1 8rem; }
   .list-row.topic-row { flex-wrap: wrap; }
   .list-row.topic-row > .topic-actions { flex: 1 1 100%; justify-content: flex-end; }
+}
+/* Узкий телефон: вложенные панели не должны съедать ширину отступами. */
+@media (max-width: 480px) {
+  .topic-content { padding: var(--space-2); }
+  .panel { padding: var(--space-3); }
+  .panel-head, .panel-body { padding-inline: var(--space-2); }
+  .list-row { padding-inline: var(--space-2); }
 }
 .discipline-card .card-actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2); }
 
@@ -710,3 +723,98 @@ table { max-width: 100%; }
 .avatar-upload .btn-row { flex-wrap: wrap; }
 .avatar-upload .avatar-error:empty { display: none; }
 .profile-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+
+/* =====================================================================
+   Адаптивность: первопричины, а не симптомы (ТЗ §3).
+   1) Дети flex/grid по умолчанию имеют min-width: auto и не могут стать
+      уже своего содержимого — отсюда горизонтальная прокрутка страницы и
+      сжатие названий до одной буквы. Цепочка контейнеров получает
+      min-width: 0.
+   2) Блок кнопок строки (.list-row-end) был flex: none — его ширина равна
+      ширине всех кнопок в одну линию и не сжимается; теперь он сжимается
+      и переносит кнопки.
+   3) Таблицы на телефоне показываются карточками (подписи колонок — из
+      data-label, их расставляет ui/components/responsive-table.js), поэтому
+      имена не уезжают за край, а кнопка «Отчёт» не сжимается в столбик.
+   ===================================================================== */
+.page, .panel, .panel-body, .panel-head, .topic-content, .topic-block,
+.list, .list-row, .list-row-main, .card, .discipline-card { min-width: 0; max-width: 100%; }
+.list-row-end { flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.list-row-sub, .page-head p, .muted { overflow-wrap: anywhere; }
+/* Кнопка — это текст в одну строку: в ячейках таблицы и переключателях не переносим. */
+td .btn, th .btn, .mode-toggle-btn, .btn-nowrap, .back-button { white-space: nowrap; }
+
+@media (max-width: 640px) {
+  /* Кнопки строки занимают строку целиком и делят её поровну; не помещаются — переносятся. */
+  .list-row > .list-row-end { flex: 1 1 100%; margin-left: 0; justify-content: flex-start; }
+  .list-row-end > .btn { flex: 1 1 auto; max-width: 100%; margin-top: 0; }
+  .topic-block .list-row-end { justify-content: flex-start; }
+
+  /* Шапка: на узком экране знак вместо надписи (полный логотип — в боковой панели),
+     кнопка «Назад» — одна стрелка. */
+  body.has-sidebar .topbar .brand-text { display: none; }
+  .back-button .back-text { display: none; }
+
+  /* Таблицы-карточки */
+  .analytics-table-wrap, .table-wrap:has(.table-stack) { overflow-x: visible; }
+  .analytics-table, .table.table-stack { display: block; width: 100%; }
+  .analytics-table thead, .table.table-stack thead {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  }
+  .analytics-table tbody, .table.table-stack tbody { display: grid; gap: var(--space-2); }
+  .analytics-table tr, .table.table-stack tr {
+    display: grid; gap: 2px; padding: var(--space-3);
+    border: 1px solid var(--border); border-radius: var(--radius, 10px); background: var(--surface);
+  }
+  .analytics-table td, .table.table-stack td {
+    display: flex; justify-content: space-between; align-items: center; gap: var(--space-3);
+    padding: 2px 0; border: 0; white-space: normal; overflow-wrap: anywhere; text-align: right;
+  }
+  .analytics-table td::before, .table.table-stack td::before {
+    content: attr(data-label); flex: none; max-width: 55%; text-align: left;
+    color: var(--text-2); font-size: .8125rem;
+  }
+  .analytics-table td:not([data-label])::before, .table.table-stack td:not([data-label])::before { display: none; }
+  .analytics-table td:first-child, .table.table-stack td:first-child {
+    display: block; text-align: left; font-weight: 650; font-size: 1rem;
+  }
+  .analytics-table td:first-child::before, .table.table-stack td:first-child::before { display: none; }
+  .analytics-table td:last-child:has(.btn), .table.table-stack td:last-child:has(.btn) { justify-content: flex-end; padding-top: var(--space-2); }
+}
+
+/* Панель графика на главной: сводка словами, график на всю ширину, подписи не сжимаются. */
+.chart-panel .chart-summary { margin: 0 0 var(--space-2); color: var(--text-2); overflow-wrap: anywhere; }
+.chart-panel .chart { margin: 0; }
+.chart-line text { font-size: 11px; }
+
+/* ---------- Управление результатами (#results) ---------- */
+.results-filters { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.results-filters > input[type="search"] { flex: 1 1 14rem; min-width: 0; }
+.results-filters select { flex: 1 1 10rem; min-width: 0; max-width: 100%; }
+.results-period { display: inline-flex; align-items: center; gap: var(--space-1); flex: 1 1 9rem; min-width: 0; }
+.results-period input { flex: 1; min-width: 0; }
+.results-bulk {
+  position: sticky; top: var(--topbar-h, 60px); z-index: 4;
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3);
+  margin: var(--space-2) 0; padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--danger, #c0392b); border-radius: var(--radius, 10px); background: var(--surface);
+}
+.results-bulk[hidden] { display: none; }
+.results-check { display: flex; align-items: center; gap: var(--space-2); cursor: pointer; min-width: 0; }
+.results-check input[type="checkbox"] { flex: none; width: 1.25rem; height: 1.25rem; }
+.results-check > span { min-width: 0; overflow-wrap: anywhere; }
+.results-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+tr[data-selected="1"] { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.btn.danger:disabled { opacity: .5; }
+@media (max-width: 640px) {
+  .results-filters select, .results-period { flex: 1 1 100%; }
+  .table-stack td.results-actions { justify-content: flex-end; }
+  .table-stack td.results-actions::before { display: none; }
+}
+
+/* Таблица результатов на планшете и мониторе: текст переносится, а не
+   растягивает таблицу за экран (брендовое правило nowrap оставлено только
+   для кнопок и дат). */
+.table.table-stack th, .table.table-stack td { white-space: normal; overflow-wrap: anywhere; vertical-align: top; }
+.table.table-stack td.muted { white-space: nowrap; }
+@media (min-width: 641px) { .table.table-stack td:first-child { min-width: 12rem; } }

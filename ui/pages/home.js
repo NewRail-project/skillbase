@@ -11,6 +11,8 @@ import { toast } from "../../ui/components/toast.js";
 import { getStudentAssignments, listAssignments } from "../../core/assign.js";
 import { icons } from "../../shared/icons.js";
 import { createRailScene, createIcon } from "../../shared/svg.js";
+import { lineChart } from "../components/charts.js";
+import { recentResultPoints } from "../../core/progress.js";
 
 // Тексты героя зависят от режима Education / Workforce: функции (lt) обновляются
 // на месте при переключении, страница не перерисовывается.
@@ -160,53 +162,33 @@ function quickActions(items) {
   );
 }
 
-// Компактный график последних результатов: только реальные попытки.
+// График последних результатов: только реальные проверенные попытки.
+// Шкала 0–100 %, даты по оси, значение каждой точки в подсказке, итог —
+// словами над графиком. Меньше двух точек линию не строим: показываем
+// единственный результат и честно говорим, что для динамики нужна ещё
+// одна попытка. Нет ни одной попытки — панель не показывается.
 function resultChart(attempts) {
-  const graded = attempts.filter(a => a.status === "graded" && a.total)
-    .slice(0, 8)
-    .reverse();
-  if (!graded.length) return null;
+  const points = recentResultPoints(attempts, 8);
+  if (!points.length) return null;
+  const fmt = (ms) => (ms ? new Date(ms).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" }) : "");
+  const last = points.at(-1);
+  const summary = points.length >= 2
+    ? (() => {
+      const delta = Math.round((last.value - points.at(-2).value) * 10) / 10;
+      const trend = delta > 0 ? `выше на ${delta} п.п.` : delta < 0 ? `ниже на ${Math.abs(delta)} п.п.` : "без изменений";
+      return `Последний результат: ${Math.round(last.value)}% — ${trend}, чем предыдущий.`;
+    })()
+    : `Единственный результат: ${Math.round(last.value)}%. Для графика динамики нужна ещё одна проверенная попытка.`;
 
-  const height = 64;
-  const barWidth = 18;
-  const gap = 8;
-  const width = graded.length * (barWidth + gap) - gap;
-  // График собирается через DOM (createElementNS): числа попадают в атрибуты,
-  // а не в разметку строкой.
-  const NS = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(NS, "svg");
-  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  svg.setAttribute("width", "100%");
-  svg.setAttribute("height", String(height));
-  svg.setAttribute("preserveAspectRatio", "none");
-  svg.setAttribute("role", "img");
-  svg.setAttribute("aria-label", "Проценты последних попыток");
-  graded.forEach((a, i) => {
-    const percent = Math.round((a.score / a.total) * 100);
-    const barH = Math.max(4, Math.round((percent / 100) * (height - 8)));
-    const rect = document.createElementNS(NS, "rect");
-    rect.setAttribute("x", String(i * (barWidth + gap)));
-    rect.setAttribute("y", String(height - barH));
-    rect.setAttribute("width", String(barWidth));
-    rect.setAttribute("height", String(barH));
-    rect.setAttribute("rx", "3");
-    rect.setAttribute("fill", percent >= 60 ? "var(--accent)" : "var(--signal)");
-    const title = document.createElementNS(NS, "title");
-    title.textContent = `${percent}%`;
-    rect.appendChild(title);
-    svg.appendChild(rect);
-  });
-
-  const wrap = h("div", { class: "panel" },
+  return h("section", { class: "panel chart-panel", "aria-label": lt("home.chartTitle") },
     h("div", { class: "section-title" },
       h("h2", {}, lt("home.chartTitle")),
-      h("span", { class: "muted" }, "последние " + graded.length)
-    )
-  );
-  const chart = h("div", { style: "margin-top:12px" });
-  chart.appendChild(svg);
-  wrap.appendChild(chart);
-  return wrap;
+      h("span", { class: "muted" }, "последние " + points.length)),
+    h("p", { class: "chart-summary" }, summary),
+    h("div", { class: "chart" }, points.length >= 2
+      ? lineChart(points.map(p => ({ label: fmt(p.ms), value: p.value })),
+        { ariaLabel: "Проценты последних проверенных попыток по датам", height: 200 })
+      : null));
 }
 
 function listPanel({ title, action, items, emptyText, emptyAction }) {

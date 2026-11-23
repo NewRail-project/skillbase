@@ -34,7 +34,14 @@ function ensureButton() {
   btn.type = "button";
   btn.className = "back-button";
   btn.setAttribute("aria-label", "Назад на предыдущую страницу");
-  btn.textContent = "← Назад";
+  // «←» всегда виден; слово «Назад» прячется на узком экране (components.css).
+  const arrow = document.createElement("span");
+  arrow.setAttribute("aria-hidden", "true");
+  arrow.textContent = "←";
+  const word = document.createElement("span");
+  word.className = "back-text";
+  word.textContent = " Назад";
+  btn.append(arrow, word);
   btn.hidden = true;
   btn.addEventListener("click", () => {
     if (stack.length > 1) window.history.back();

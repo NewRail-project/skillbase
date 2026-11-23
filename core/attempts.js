@@ -133,6 +133,34 @@ export async function submitAttemptById(attemptId, answers, { expired = false } 
   await batch.commit();
 }
 
+// Удаление завершённых попыток (управление старыми результатами).
+// Права и состояние проверяют firestore.rules (allow delete на attempts): только
+// submitted/graded, администратор — своей организации, преподаватель — доступных
+// ему групп. Удаляем по одной с ограниченным параллелизмом, чтобы отказ по
+// одной записи не отменял остальные (batch откатывается целиком).
+// → { deleted: [id], failed: [{ id, code }] }
+export async function deleteAttempts(ids, { concurrency = 5, onProgress = null } = {}) {
+  const queue = [...new Set((ids || []).filter(Boolean))];
+  const deleted = [];
+  const failed = [];
+  let done = 0;
+  async function worker() {
+    while (queue.length) {
+      const id = queue.shift();
+      try {
+        await deleteDoc(doc(db, "attempts", id));
+        deleted.push(id);
+      } catch (err) {
+        failed.push({ id, code: err?.code || "unknown" });
+      }
+      done += 1;
+      if (onProgress) onProgress(done);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, queue.length || 1)) }, worker));
+  return { deleted, failed };
+}
+
 export async function getAttempt(attemptId) {
   const snap = await getDoc(doc(db, "attempts", attemptId));
   return snap.exists() ? { id: attemptId, ...snap.data() } : null;

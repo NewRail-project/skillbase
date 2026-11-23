@@ -35,8 +35,10 @@ export function lineChart(points = [], { ariaLabel = "График", height = 18
     title.textContent = `${p.label}: ${Math.round(p.value)}%`;
     dot.appendChild(title);
     svg.appendChild(dot);
-    if (i % step === 0) {
-      const t = createSVGElement("text", { x: x(i).toFixed(1), y: height - 6, "text-anchor": "middle" });
+    if (i % step === 0 || (i === data.length - 1 && (data.length - 1) % step >= Math.ceil(step / 2))) {
+      // Крайние подписи прижаты внутрь, иначе последняя дата обрезается краем графика.
+      const anchor = data.length > 1 && i === 0 ? "start" : (data.length > 1 && i >= data.length - 1 - (data.length - 1) % step && i === data.length - 1) ? "end" : "middle";
+      const t = createSVGElement("text", { x: x(i).toFixed(1), y: height - 6, "text-anchor": anchor });
       t.textContent = String(p.label ?? "");
       svg.appendChild(t);
     }

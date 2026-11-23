@@ -713,7 +713,21 @@ service cloud.firestore {
             "finishedAt", "gradedAt", "gradedBy", "updatedAt"
           ]);
 
-      allow delete: if false;
+      // Удаление завершённых попыток (управление старыми результатами).
+      // Только сотрудник той же организации и только submitted/graded —
+      // незавершённая попытка связана с маркером activeAttempts и закрытым
+      // материалом, её удалять нельзя. Администратор — любые; преподаватель —
+      // только доступных ему групп (та же функция, что и в правиле чтения).
+      // Студенты и гости удалять не могут. Чтение и изменение не расширены.
+      allow delete: if signedIn()
+        && isStaffOf(resource.data.orgId)
+        && resource.data.status in ["submitted", "graded"]
+        && (role() == "admin"
+          || teacherCanSeeGroup(
+            "groupId" in resource.data.keys()
+              ? resource.data.groupId
+              : null
+          ));
     }
 
     // ---------- assignments ----------

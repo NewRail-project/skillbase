@@ -8,6 +8,7 @@
 // 404: ui/pages/404.js. Очистка страницы при уходе. Один вызов router() при старте.
 
 import { trackRoute } from "../ui/components/back-button.js";
+import { observeTables } from "../ui/components/responsive-table.js";
 import { State, applyTheme, logout } from "../core/auth.js";
 import { initMode, subscribeMode } from "../core/mode.js";
 import { t } from "../core/i18n.js";
@@ -186,6 +187,7 @@ export async function router() {
   State.route = name;
   const route = routes[name];
   trackRoute(window.location.hash);
+  observeTables(document.getElementById("app"));
 
   // Уходим со старой страницы сразу, ещё до редиректов и проверки ролей:
   // иначе таймеры и автосохранение прохождения остались бы работать.

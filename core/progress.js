@@ -11,6 +11,28 @@ function attemptTimeMs(value) {
   return Number.isNaN(t) ? 0 : t;
 }
 
+// Точки графика «Динамика результатов» на главной: последние `limit` проверенных
+// попыток в хронологическом порядке. Процент — из a.percent, а если его нет —
+// из score/total. Попытки в процессе, без оценки или без числа в график не
+// попадают: он показывает только реальные результаты.
+export function recentResultPoints(attempts, limit = 8) {
+  const points = [];
+  for (const a of attempts || []) {
+    if (!a || a.status !== "graded") continue;
+    const percent = typeof a.percent === "number"
+      ? a.percent
+      : (Number(a.total) > 0 && Number.isFinite(Number(a.score)) ? (Number(a.score) / Number(a.total)) * 100 : null);
+    if (!Number.isFinite(percent)) continue;
+    points.push({
+      value: Math.max(0, Math.min(100, Math.round(percent * 10) / 10)),
+      ms: attemptTimeMs(a.finishedAt ?? a.submittedAt ?? a.startedAt),
+      title: a.testTitle || ""
+    });
+  }
+  points.sort((x, y) => x.ms - y.ms);
+  return points.slice(-Math.max(1, limit));
+}
+
 // Динамика результатов: хронологический ряд процентов завершённых попыток
 // и сдвиг последнего результата относительно предыдущего. Незавершённые
 // попытки и попытки без процента в динамику не попадают.

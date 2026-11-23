@@ -5,13 +5,16 @@ import { modal } from "./modal.js";
 // true — пользователь подтвердил, false — отменил или закрыл окно.
 //
 // details — дополнительные элементы (например, выбор новой роли).
+// requirePhrase — слово, которое нужно ввести для подтверждения (массовое
+// удаление): пока оно не введено, кнопка подтверждения недоступна.
 export function confirmAction({
   title,
   text,
   details = [],
   confirmLabel = "Подтвердить",
   cancelLabel = "Отмена",
-  tone = "primary"
+  tone = "primary",
+  requirePhrase = null
 } = {}) {
   return new Promise(resolve => {
     const dialog = modal();
@@ -36,11 +39,21 @@ export function confirmAction({
       }
     }
 
+    const phraseOk = (value) => String(value || "").trim().toUpperCase() === String(requirePhrase).toUpperCase();
+    const phraseInput = requirePhrase
+      ? h("input", { type: "text", autocomplete: "off", autocapitalize: "characters", placeholder: String(requirePhrase), "aria-label": `Введите слово ${requirePhrase} для подтверждения` })
+      : null;
     const confirmBtn = h("button", {
       type: "button",
       class: `btn ${tone}`,
-      onclick: () => finish(true)
+      onclick: () => { if (!phraseInput || phraseOk(phraseInput.value)) finish(true); }
     }, confirmLabel);
+    if (phraseInput) {
+      confirmBtn.disabled = true;
+      phraseInput.addEventListener("input", () => { confirmBtn.disabled = !phraseOk(phraseInput.value); });
+      details = [...details, h("label", { class: "field" },
+        h("span", {}, `Для подтверждения введите слово «${requirePhrase}»`), phraseInput)];
+    }
 
     const cancelBtn = h("button", {
       type: "button",
@@ -71,7 +84,7 @@ export function confirmAction({
 
     document.addEventListener("keydown", onKeydown, true);
     dialog.show();
-    confirmBtn.focus();
+    (phraseInput || confirmBtn).focus();
   });
 }
 
