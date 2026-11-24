@@ -11,7 +11,7 @@
 // и набранный текст).
 import { h } from "../../shared/dom.js";
 import {
-  TEAMS, TASK_STATUS, SUBMISSION, cellId, canEditSubmission, evaluateSubmission, compareTeams
+  TEAMS, TASK_STATUS, SUBMISSION, cellId, canEditSubmission, evaluateSubmission, compareTeams, answerCellIds
 } from "../../core/practical.js";
 
 const TEAM_NAME = { a: "Команда А", b: "Команда Б" };
@@ -265,9 +265,19 @@ export function buildPracticalHost({ api, confirmAction = (msg) => (typeof windo
       back.addEventListener("click", () => run("Возвращаем", async () => { if (confirmAction(`Вернуть таблицу ${TEAM_NAME[team]} на доработку?`)) await api.returnForRevision(team); }));
       actions.push(back);
     }
+    // Прогресс и черновик: ведущий видит, как идёт заполнение, ещё до отправки.
+    const ids = t ? answerCellIds(t) : [];
+    const filled = ids.filter(id => String(s?.cells?.[id] ?? "").trim()).length;
+    const progress = t && ids.length
+      ? h("p", { class: "pr-progress", "data-filled": String(filled) }, `Заполнено ячеек: ${filled} из ${ids.length}`) : null;
+    const draftView = t && s && filled > 0 && !confirmed()
+      ? h("details", { class: "pr-draft" },
+        h("summary", {}, submitted ? "Посмотреть отправленную таблицу" : "Посмотреть черновик"),
+        renderTable(t, { values: s.cells || {} }).el)
+      : null;
     return h("article", { class: "pr-team-card", "data-team": team },
       h("h3", {}, TEAM_NAME[team]), h("p", { class: "pr-team-task" }, t?.title || "—"),
-      h("div", { class: "pr-chips" }, ...chips), ...actions);
+      h("div", { class: "pr-chips" }, ...chips), progress, draftView, ...actions);
   }
 
   function reviewPanel() {

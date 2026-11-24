@@ -124,3 +124,6 @@
 .lesson-facts { list-style: none; margin: var(--space-2) 0 var(--space-3); padding: 0; display: grid; gap: 2px; color: var(--text-2); }
 
 @media (prefers-reduced-motion: reduce) { .lesson-bar, .practical, .pr-announce { transition: none; animation: none; } }
+.pr-progress { margin: 0; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.pr-draft summary { cursor: pointer; font-weight: 600; color: var(--text); }
+.pr-draft .pr-table-wrap { margin-top: var(--space-2); }

@@ -6,6 +6,8 @@
 // ответа до закрытия (в публичном документе их нет вовсе).
 import { h } from "../../shared/dom.js";
 import { buildRope } from "./battle-rope.js";
+import { createScoreFxTracker, limitEffects, teamStatus } from "../../core/score-fx.js";
+import { createScoreFxPlayer, animateNumber } from "./battle-fx.js";
 
 export function roleInBattle(battle, uid) {
   if (!battle || !uid) return { role: "viewer", teamId: null };
@@ -60,11 +62,27 @@ export function buildBattlePlay({ uid, test, api, onToast = () => {}, now = () =
   const scoreB = h("div", { class: "battle-score" }, "0");
   const capA = h("div", { class: "battle-status" }, "");
   const capB = h("div", { class: "battle-status" }, "");
-  const teamA = h("div", { class: "battle-team", "data-team": "a" }, h("div", {}, "Команда A"), scoreA, capA);
-  const teamB = h("div", { class: "battle-team", "data-team": "b" }, h("div", {}, "Команда B"), scoreB, capB);
+  // Что сейчас делает команда (активная — подсвечена).
+  const stA = h("div", { class: "battle-team-state", "aria-live": "polite" }, "");
+  const stB = h("div", { class: "battle-team-state", "aria-live": "polite" }, "");
+  const teamA = h("div", { class: "battle-team", "data-team": "a" }, h("div", {}, "Команда A"), scoreA, capA, stA);
+  const teamB = h("div", { class: "battle-team", "data-team": "b" }, h("div", {}, "Команда B"), scoreB, capB, stB);
+  const numState = { a: {}, b: {} };
+  const fxTracker = createScoreFxTracker();
+  const fxLayer = h("div", { class: "bs-fx-layer", "aria-hidden": "true" });
   const rope = buildRope(0);
   const body = h("div", { class: "battle-body" });
-  const el = h("div", { class: "battle-view battle-play" }, h("div", { class: "battle-head" }, teamA, timerEl, teamB), rope.el, body);
+  const el = h("div", { class: "battle-view battle-play" }, h("div", { class: "battle-head" }, teamA, timerEl, teamB), rope.el, body, fxLayer);
+  const fxPlayer = createScoreFxPlayer({ layer: fxLayer, scoreOf: (t) => (t === "a" ? scoreA : scoreB), panelOf: (t) => (t === "a" ? teamA : teamB) });
+  const paintScores = (b) => {
+    animateNumber(scoreA, Number(b.scores?.a) || 0, numState.a);
+    animateNumber(scoreB, Number(b.scores?.b) || 0, numState.b);
+    for (const [id, st, box] of [["a", stA, teamA], ["b", stB, teamB]]) {
+      const t = teamStatus(b, id);
+      st.textContent = t.label;
+      box.setAttribute("data-active", String(t.active));
+    }
+  };
   let countsEl = null;   // узел «N из M проголосовали»: обновляется без пересборки тела
   let countsTeam = null;
   let lastBodyKey = null;
@@ -292,8 +310,7 @@ export function buildBattlePlay({ uid, test, api, onToast = () => {}, now = () =
 
   function render() {
     if (!battle) { body.replaceChildren(h("p", { class: "battle-status" }, "Загрузка…")); return; }
-    scoreA.textContent = String(battle.scores?.a ?? 0);
-    scoreB.textContent = String(battle.scores?.b ?? 0);
+    paintScores(battle);
     capA.textContent = battle.captains?.a ? `Капитан: ${nameOf(battle.captains.a)}` : "";
     capB.textContent = battle.captains?.b ? `Капитан: ${nameOf(battle.captains.b)}` : "";
     const who = info();
@@ -317,8 +334,7 @@ export function buildBattlePlay({ uid, test, api, onToast = () => {}, now = () =
     ]);
   }
   function patchLive(next) {
-    scoreA.textContent = String(next.scores?.a ?? 0);
-    scoreB.textContent = String(next.scores?.b ?? 0);
+    paintScores(next);
     rope.set(next.rope || 0);
     if (countsEl && countsTeam) countsEl.textContent = countsText(next.currentRound, countsTeam);
     tick();
@@ -339,12 +355,14 @@ export function buildBattlePlay({ uid, test, api, onToast = () => {}, now = () =
       if (before === "reserve" && (nowRole.role === "player" || nowRole.role === "captain")) {
         onToast(`Вы заменили выбывшего игрока и теперь играете за команду ${nowRole.teamId.toUpperCase()}.`, "success");
       }
+      // Эффекты начисления — только по НОВЫМ раундам (первый снимок не играется).
+      fxPlayer.play(limitEffects(fxTracker.consume(next), 4));
       lastBodyKey = bodyKey(next);
       if (prevKey !== null && prevKey === lastBodyKey && !busy) patchLive(next);
       else render();
       if (!timer && typeof setInterval === "function") timer = setInterval(tick, 500);
     },
-    destroy() { if (timer) clearInterval(timer); timer = null; }
+    destroy() { if (timer) clearInterval(timer); timer = null; fxPlayer.destroy(); }
   };
   render();
   return api2;

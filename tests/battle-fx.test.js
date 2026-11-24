@@ -141,3 +141,37 @@ test("экран: повторные обновления с тем же рау�
   assert.match(text(findOne(screen.el, e => e.className === "bs-score" && e.parentNode.getAttribute("data-team") === "a")), /\d/);
   screen.destroy();
 });
+
+// ---------- активная команда на экранах ----------
+const { buildBattlePlay } = await import("../ui/components/battle-play.js");
+const roundOpen = (r = {}) => ({ index: 0, kind: "main", status: "open", questionId: "q0", type: "single", optionCount: 2, durationSec: 30, startedAt: 1, modes: {}, closedAt: {}, tiebreak: {}, voted: {}, ...r });
+
+test("экран ведущего: активная команда подсвечена и подписана", () => {
+  const screen = buildBattleScreen({ test: { questions: [] }, fullscreen: false });
+  screen.update(base({ phase: "voting", currentRound: roundOpen({ modes: { a: "vote", b: "self" }, closedAt: { b: 5 }, voted: { a: { voted: 2, total: 5 } } }) }));
+  const a = findOne(screen.el, e => e.className === "bs-team" && e.getAttribute("data-team") === "a");
+  const b = findOne(screen.el, e => e.className === "bs-team" && e.getAttribute("data-team") === "b");
+  assert.equal(a.getAttribute("data-active"), "true");
+  assert.equal(b.getAttribute("data-active"), "false");
+  assert.match(text(a), /Голосует: 2 из 5/);
+  assert.match(text(b), /Ответила/);
+  screen.update(base({ phase: "finished", winner: "a", scores: { a: 1, b: 0 } }));
+  assert.equal(a.getAttribute("data-active"), "false", "после финала активных нет");
+  screen.destroy();
+});
+
+test("экран игрока: счёт, активная команда и первый снимок без «+N»", () => {
+  const play = buildBattlePlay({ uid: "u1", test: { questions: [] }, api: {} });
+  const snap = (over = {}) => base({ phase: "voting", teams: { a: ["u1"], b: ["u2"] }, captains: { a: "u1", b: "u2" }, currentRound: roundOpen(), ...over });
+  play.update(snap());
+  const teamBox = (id) => findOne(play.el, e => e.className === "battle-team" && e.getAttribute("data-team") === id);
+  assert.equal(teamBox("a").getAttribute("data-active"), "true");
+  assert.match(text(teamBox("a")), /Капитан выбирает способ/);
+  assert.equal(findAll(play.el, e => e.className === "bs-fx").length, 0, "первый снимок эффектов не создаёт");
+  play.update(snap({ scores: { a: 10, b: 0 }, currentRound: roundOpen({ modes: { a: "self", b: "vote" }, closedAt: { a: 3 }, voted: { b: { voted: 1, total: 3 } } }), roundSummaries: [summary(0, 10, 0)] }));
+  assert.equal(teamBox("a").getAttribute("data-active"), "false");
+  assert.equal(teamBox("b").getAttribute("data-active"), "true");
+  assert.match(text(teamBox("b")), /Голосует: 1 из 3/);
+  assert.match(text(teamBox("a")), /10/);
+  play.destroy();
+});

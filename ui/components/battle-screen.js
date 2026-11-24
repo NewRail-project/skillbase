@@ -15,8 +15,8 @@ import { h } from "../../shared/dom.js";
 import { withSvg, avatarChip } from "./avatar.js";
 import { battleQuestionContent, findBattleQuestion } from "./battle-play.js";
 import { isFullyCorrect } from "../../core/battle-logic.js";
-import { createScoreFxTracker, limitEffects } from "../../core/score-fx.js";
-import { createScoreFxPlayer } from "./battle-fx.js";
+import { createScoreFxTracker, limitEffects, teamStatus } from "../../core/score-fx.js";
+import { createScoreFxPlayer, animateNumber } from "./battle-fx.js";
 
 const TEAMS = ["a", "b"];
 const TEAM_NAME = { a: "Команда А", b: "Команда Б" };
@@ -36,27 +36,6 @@ const fmtClock = (ms) => {
 };
 const reducedMotion = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 const setVar = (el, k, v) => { if (el.style?.setProperty) el.style.setProperty(k, v); else if (el.style) el.style[k] = v; };
-
-// Плавная смена числа: без перерисовки узла, только textContent.
-function animateNumber(el, to, state) {
-  const from = state.v;
-  state.v = to;
-  if (state.raf && typeof cancelAnimationFrame === "function") cancelAnimationFrame(state.raf);
-  if (from === undefined || from === to || reducedMotion() || typeof requestAnimationFrame !== "function") {
-    el.textContent = fmtNum(to);
-    return;
-  }
-  const t0 = typeof performance !== "undefined" ? performance.now() : Date.now();
-  const dur = 700;
-  const step = (t) => {
-    const k = Math.min(1, ((t ?? Date.now()) - t0) / dur);
-    el.textContent = fmtNum(from + (to - from) * (1 - Math.pow(1 - k, 3)));
-    state.raf = k < 1 ? requestAnimationFrame(step) : 0;
-  };
-  state.raf = requestAnimationFrame(step);
-  el.setAttribute("data-bump", "1");
-  setTimeout(() => el.removeAttribute("data-bump"), 700);
-}
 
 // buildBattleScreen({ test, nameOf, avatarOf, now, title, controls })
 //   avatarOf(uid) → "preset:<id>" | null
@@ -100,11 +79,13 @@ export function buildBattleScreen({ test, nameOf = (u) => u, avatarOf = () => nu
   for (const id of TEAMS) {
     const score = h("div", { class: "bs-score", "aria-live": "polite" }, "0");
     const roster = h("ul", { class: "bs-roster", "aria-label": `Состав: ${TEAM_NAME[id]}` });
+    // Что сейчас делает команда: «Капитан выбирает способ», «Голосует: 2 из 5»…
+    const state = h("p", { class: "bs-team-state", "aria-live": "polite" }, "");
     const emblem = withSvg(h("div", { class: "bs-emblem" }), EMBLEM[id]);
     teamEls[id] = {
-      score, roster,
+      score, roster, state,
       panel: h("section", { class: "bs-team", "data-team": id, "aria-label": TEAM_NAME[id] },
-        emblem, h("h2", { class: "bs-team-name" }, TEAM_NAME[id]), roster)
+        emblem, h("h2", { class: "bs-team-name" }, TEAM_NAME[id]), state, roster)
     };
   }
 
@@ -297,6 +278,12 @@ export function buildBattleScreen({ test, nameOf = (u) => u, avatarOf = () => nu
     for (const id of TEAMS) {
       if (finished && battle.winner === id) teamEls[id].panel.setAttribute("data-winner", "1");
       else teamEls[id].panel.removeAttribute("data-winner");
+    }
+    // Активная команда — та, от которой раунд ещё ждёт действия.
+    for (const id of TEAMS) {
+      const st = teamStatus(battle, id);
+      teamEls[id].state.textContent = st.label;
+      teamEls[id].panel.setAttribute("data-active", String(st.active));
     }
     fxPlayer.play(limitEffects(fxTracker.consume(battle), 4));
     renderRosters();

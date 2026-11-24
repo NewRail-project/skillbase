@@ -276,3 +276,25 @@ test("таблица: заголовки строк — th, ответы — п�
   assert.equal(findAll(t.el, e => e.tag === "th" && e.getAttribute("scope") === "row").length, 3);
   assert.equal(Object.keys(t.inputs).length, 3);
 });
+
+test("ведущий: видит прогресс заполнения и черновик до отправки", () => {
+  const { view } = hostRig();
+  view.update({
+    tasks: { a: taskDoc("open"), b: { ...taskDoc("open"), team: "b" } },
+    submissions: { a: { status: "draft", cells: { r0c1: "4", r1c1: "  ", r2c1: "заменить" } } }
+  });
+  const progress = findAll(view.el, e => e.className === "pr-progress");
+  assert.equal(progress.length, 2);
+  assert.match(text(progress[0]), /Заполнено ячеек: 2 из 3/, "пустые и из одних пробелов не считаются");
+  assert.match(text(progress[1]), /Заполнено ячеек: 0 из 3/);
+  const draft = findAll(view.el, e => e.className === "pr-draft");
+  assert.equal(draft.length, 1, "у команды без ответов черновика нет");
+  assert.match(text(draft[0]), /Посмотреть черновик/);
+  assert.match(text(draft[0]), /заменить/);
+  assert.equal(findAll(draft[0], e => e.tag === "input").length, 0, "черновик только для чтения");
+  view.update({
+    tasks: { a: taskDoc("open"), b: { ...taskDoc("open"), team: "b" } },
+    submissions: { a: { status: "submitted", cells: { r0c1: "4" } } }
+  });
+  assert.match(text(findAll(view.el, e => e.className === "pr-draft")[0]), /Посмотреть отправленную таблицу/);
+});

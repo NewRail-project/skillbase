@@ -102,3 +102,26 @@ export function createScoreFxPlayer({
     }
   };
 }
+
+// Плавная смена числа без перерисовки узла (только textContent). Общая для
+// экрана ведущего/проектора и экрана игрока. state — { v, raf } на счётчик.
+// Без движения (prefers-reduced-motion) число меняется сразу.
+export function animateNumber(el, to, state, { reduced = defaultReduced } = {}) {
+  const from = state.v;
+  state.v = to;
+  if (state.raf && typeof cancelAnimationFrame === "function") cancelAnimationFrame(state.raf);
+  if (from === undefined || from === to || reduced() || typeof requestAnimationFrame !== "function") {
+    el.textContent = fmt(to);
+    return;
+  }
+  const t0 = typeof performance !== "undefined" ? performance.now() : Date.now();
+  const dur = 700;
+  const step = (t) => {
+    const k = Math.min(1, ((t ?? Date.now()) - t0) / dur);
+    el.textContent = fmt(from + (to - from) * (1 - Math.pow(1 - k, 3)));
+    state.raf = k < 1 ? requestAnimationFrame(step) : 0;
+  };
+  state.raf = requestAnimationFrame(step);
+  el.setAttribute("data-bump", "1");
+  setTimeout(() => el.removeAttribute("data-bump"), 700);
+}

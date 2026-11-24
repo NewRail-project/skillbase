@@ -69,3 +69,36 @@ test("limitEffects не заваливает экран, решающие эфф
   assert.deepEqual(limitEffects([], 4), []);
   assert.equal(limitEffects(many.slice(0, 3), 4).length, 3);
 });
+
+// ---------- активная команда ----------
+import { teamStatus, activeTeams } from "../core/score-fx.js";
+
+const live = (r, phase = "voting") => ({ phase, currentRound: { index: 0, kind: "main", status: "open", modes: {}, closedAt: {}, tiebreak: {}, voted: {}, ...r } });
+
+test("активная команда: пока капитан не выбрал способ, активны обе", () => {
+  const b = live({});
+  assert.deepEqual(activeTeams(b), ["a", "b"]);
+  assert.equal(teamStatus(b, "a").state, "choosing");
+  assert.match(teamStatus(b, "a").label, /Капитан выбирает/);
+});
+
+test("активная команда: голосование показывает прогресс, ответившая перестаёт быть активной", () => {
+  const b = live({ modes: { a: "vote", b: "self" }, closedAt: { b: 5 }, voted: { a: { voted: 2, total: 5 } } });
+  assert.equal(teamStatus(b, "a").label, "Голосует: 2 из 5");
+  assert.equal(teamStatus(b, "b").state, "answered");
+  assert.deepEqual(activeTeams(b), ["a"]);
+});
+
+test("активная команда: при ничьей голосов активна только команда с ничьей", () => {
+  const b = live({ status: "tiebreak", modes: { a: "vote", b: "vote" }, closedAt: { b: 9 }, tiebreak: { a: [0, 2] } });
+  assert.equal(teamStatus(b, "a").state, "tiebreak");
+  assert.deepEqual(activeTeams(b), ["a"]);
+});
+
+test("активная команда: закрытый раунд, финал и отсутствие раунда — никто не активен", () => {
+  assert.deepEqual(activeTeams(live({ status: "closed" })), []);
+  assert.deepEqual(activeTeams({ phase: "finished", currentRound: { status: "open", modes: {} } }), []);
+  assert.deepEqual(activeTeams({ phase: "waiting" }), []);
+  assert.deepEqual(activeTeams(null), []);
+  assert.equal(teamStatus(null, "a").label, "");
+});

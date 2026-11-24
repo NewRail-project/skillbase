@@ -78,3 +78,30 @@ export function limitEffects(effects, max = 4) {
     .sort((x, y) => effects.indexOf(x) - effects.indexOf(y))
     .slice(-max);
 }
+
+// ---------- Состояние команды в текущем раунде ----------
+// Из публичных данных раунда (modes, closedAt, voted, tiebreak) определяет, что
+// сейчас делает команда. «Активная» — та, от которой раунд ещё ждёт действия.
+// Игровую механику не затрагивает: только подпись и подсветка.
+const hasTie = (v) => (Array.isArray(v) ? v.length > 0 : Boolean(v));
+
+export function teamStatus(battle, team) {
+  const idle = { state: "idle", label: "", active: false };
+  const r = battle?.currentRound;
+  if (!r || battle.phase === "finished" || r.status === "closed") return idle;
+  if (r.closedAt && r.closedAt[team] != null) return { state: "answered", label: "Ответила", active: false };
+  if (r.status === "tiebreak") {
+    return hasTie(r.tiebreak?.[team])
+      ? { state: "tiebreak", label: "Капитан решает при ничьей", active: true }
+      : { state: "answered", label: "Ответила", active: false };
+  }
+  const mode = r.modes?.[team];
+  if (mode === "vote") {
+    const v = r.voted?.[team];
+    return { state: "voting", label: v ? `Голосует: ${v.voted} из ${v.total}` : "Голосует", active: true };
+  }
+  if (!mode) return { state: "choosing", label: "Капитан выбирает способ", active: true };
+  return { state: "answered", label: "Ответила", active: false };
+}
+
+export const activeTeams = (battle) => ["a", "b"].filter(t => teamStatus(battle, t).active);

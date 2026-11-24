@@ -759,3 +759,33 @@ html[data-ui="workforce"][data-theme="dark"] { --team-a: #7DB8EC; --team-b: #F2A
   .bs-scorebox[data-hit="2"], .bs-team[data-hit="2"] { animation: none; }
   .bs-result[data-winner] { animation: none; }
 }
+
+/* =====================================================================
+   Активная команда и эффекты на экране игрока
+   ===================================================================== */
+/* Подпись: что команда делает сейчас. */
+.bs-team-state, .battle-team-state { margin: 0; min-height: 1.2em; font-size: .9em; color: var(--bs-muted, var(--text-2)); }
+.bs-team[data-active="true"] .bs-team-state, .battle-team[data-active="true"] .battle-team-state { color: var(--bs-text, var(--text)); font-weight: 700; }
+/* Подсветка активной: рамка/свечение, без бесконечной анимации. */
+.bs-team[data-active="true"] { box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 35%, transparent); }
+.bs-team[data-team="a"][data-active="true"] { box-shadow: 0 0 0 3px var(--bs-a); }
+.bs-team[data-team="b"][data-active="true"] { box-shadow: 0 0 0 3px var(--bs-b); }
+.battle-team[data-team="a"][data-active="true"] { box-shadow: 0 0 0 3px var(--team-a); }
+.battle-team[data-team="b"][data-active="true"] { box-shadow: 0 0 0 3px var(--team-b); }
+
+/* Экран игрока: «+N» и подсветка при начислении очков. */
+.battle-play { position: relative; }
+.battle-play .bs-fx { font-size: clamp(1.4rem, 7vw, 2.4rem); }
+.battle-play .bs-fx[data-level="2"] { font-size: clamp(2rem, 10vw, 3.4rem); }
+.battle-play .bs-fx[data-team="a"] { color: var(--team-a); }
+.battle-play .bs-fx[data-team="b"] { color: var(--team-b); }
+.battle-team[data-hit] { transition: box-shadow .25s ease; }
+.battle-team[data-team="a"][data-hit] { box-shadow: 0 0 0 3px var(--team-a), 0 0 22px color-mix(in srgb, var(--team-a) 50%, transparent); }
+.battle-team[data-team="b"][data-hit] { box-shadow: 0 0 0 3px var(--team-b), 0 0 22px color-mix(in srgb, var(--team-b) 50%, transparent); }
+.battle-team[data-hit="2"] { animation: bs-decisive 1.4s ease-out; }
+.battle-score[data-bump] { animation: bs-bump .5s ease-out; }
+@keyframes bs-bump { 0% { transform: scale(1); } 40% { transform: scale(1.18); } 100% { transform: scale(1); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .battle-team[data-hit], .battle-team[data-hit="2"], .battle-score[data-bump] { transition: none; animation: none; }
+}
