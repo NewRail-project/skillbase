@@ -45,6 +45,8 @@ export class El {
   }
   setAttribute(k, v) { this.attrs[k] = String(v); }
   getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
+  removeAttribute(k) { delete this.attrs[k]; }
+  hasAttribute(k) { return k in this.attrs; }
   appendChild(child) {
     child.parentNode = this;
     this.children.push(child);

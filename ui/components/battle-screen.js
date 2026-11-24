@@ -15,6 +15,8 @@ import { h } from "../../shared/dom.js";
 import { withSvg, avatarChip } from "./avatar.js";
 import { battleQuestionContent, findBattleQuestion } from "./battle-play.js";
 import { isFullyCorrect } from "../../core/battle-logic.js";
+import { createScoreFxTracker, limitEffects } from "../../core/score-fx.js";
+import { createScoreFxPlayer } from "./battle-fx.js";
 
 const TEAMS = ["a", "b"];
 const TEAM_NAME = { a: "Команда А", b: "Команда Б" };
@@ -65,6 +67,9 @@ export function buildBattleScreen({ test, nameOf = (u) => u, avatarOf = () => nu
   let rosterSig = null;
   let timer = null;
   const numState = { a: {}, b: {} };
+  // Эффекты начисления очков: трекер даёт только НОВЫЕ раунды (без повторов).
+  const fxTracker = createScoreFxTracker();
+  const fxLayer = h("div", { class: "bs-fx-layer", "aria-hidden": "true" });
 
   // ---- шапка ----
   const phaseEl = h("span", { class: "bs-phase" }, "");
@@ -141,6 +146,14 @@ export function buildBattleScreen({ test, nameOf = (u) => u, avatarOf = () => nu
     scoreRow, questionBox, stats, reserve);
   const el = h("div", { class: "bs battle-view battle-screen", "data-phase": "wait" }, top,
     h("div", { class: "bs-main" }, teamEls.a.panel, center, teamEls.b.panel));
+  el.appendChild(fxLayer);
+  const fxPlayer = createScoreFxPlayer({
+    layer: fxLayer,
+    scoreOf: (id) => teamEls[id].score,
+    panelOf: (id) => teamEls[id].panel,
+    // Подсвечиваем рамку счётчика (bs-scorebox) и панель команды.
+    hitTargets: (id) => [teamEls[id].score.parentNode, teamEls[id].panel]
+  });
   rootRef.el = el;
 
   // ---------- обновление ----------
@@ -189,9 +202,14 @@ export function buildBattleScreen({ test, nameOf = (u) => u, avatarOf = () => nu
     const b = battle;
     const r = b.currentRound;
     if (b.phase === "finished") {
-      questionBox.replaceChildren(h("div", { class: "bs-result" },
-        h("h2", {}, b.winner ? `Победила ${TEAM_NAME[b.winner]}` : "Ничья"),
-        h("p", {}, `Итоговый счёт: ${fmtNum(b.scores?.a)} : ${fmtNum(b.scores?.b)}`)));
+      // Победитель — по существующим правилам (b.winner); равный счёт без
+      // победителя показывается как «Ничья», а не «Победила команда null».
+      const win = b.winner === "a" || b.winner === "b" ? b.winner : null;
+      questionBox.replaceChildren(h("div", { class: "bs-result", "data-winner": win || "tie", role: "status" },
+        h("p", { class: "bs-result-kicker" }, win ? "Победитель битвы" : "Результат битвы"),
+        h("h2", { class: "bs-result-title" }, win ? `Победила ${TEAM_NAME[win]}` : "Ничья"),
+        h("p", { class: "bs-result-score" }, `Итоговый счёт: ${fmtNum(b.scores?.a)} : ${fmtNum(b.scores?.b)}`),
+        win ? null : h("p", { class: "bs-note" }, "Счёт равный: места делятся.")));
       return;
     }
     if (b.phase === "sudden_death" && (!r || r.kind !== "extra")) {
@@ -274,6 +292,13 @@ export function buildBattleScreen({ test, nameOf = (u) => u, avatarOf = () => nu
     el.setAttribute("data-phase", battle.phase || "wait");
     phaseEl.textContent = PHASE[battle.phase] || "";
     for (const id of TEAMS) animateNumber(teamEls[id].score, Number(battle.scores?.[id]) || 0, numState[id]);
+    // Победитель выделяет свою панель (CSS), ничья — никого.
+    const finished = battle.phase === "finished";
+    for (const id of TEAMS) {
+      if (finished && battle.winner === id) teamEls[id].panel.setAttribute("data-winner", "1");
+      else teamEls[id].panel.removeAttribute("data-winner");
+    }
+    fxPlayer.play(limitEffects(fxTracker.consume(battle), 4));
     renderRosters();
     const r = battle.currentRound;
     const key = `${battle.phase}|${r ? `${r.index}:${r.kind || "main"}:${r.status}:${r.questionId}` : "none"}|${(battle.roundSummaries || []).length}`;
@@ -295,6 +320,7 @@ export function buildBattleScreen({ test, nameOf = (u) => u, avatarOf = () => nu
     destroy() {
       if (timer) clearInterval(timer);
       timer = null;
+      fxPlayer.destroy();
       for (const id of TEAMS) if (numState[id].raf && typeof cancelAnimationFrame === "function") cancelAnimationFrame(numState[id].raf);
       document.removeEventListener?.("fullscreenchange", onFsChange);
     }

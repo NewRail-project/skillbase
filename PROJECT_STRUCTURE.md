@@ -62,3 +62,12 @@ skillbase/
 - `ui/pages/admin-scenario.js` + `ui/css/scenario.css` — экран `#admin/scenario` (только admin); подключается из `ui/pages/admin-panel.js`.
 - Всё только в памяти браузера: Firestore, `core/rooms.js` и `core/battle*.js` не импортируются.
 - Тесты: `tests/bots-plan.test.js`, `tests/scenario-sim.test.js`, `tests/scenario-screen.test.js`.
+
+## Открытое занятие (см. docs/LESSON.md)
+- `core/lesson-plan.js` — план, этапы, переходы, процент выполнения; `core/lesson-report.js` — отчёт, рекомендуемая оценка, готовность.
+- `core/practical.js` — таблицы-задания, ключи отдельно от публичных данных, проверка, подсчёт, сравнение команд.
+- `core/lesson-store.js`, `core/practical-store.js` — Firestore-слой (план, ход, история; задания, ответы, подтверждение).
+- `core/score-fx.js` + `ui/components/battle-fx.js` — эффекты начисления очков Battle (без дублей, `prefers-reduced-motion`).
+- `ui/pages/lessons.js` (`#lessons`), `lesson-report.js` (`#lesson-report/<код>`), `lesson-history.js` (`#lesson-history`), `lesson-room.js` (панель и практика внутри комнаты).
+- `ui/components/lesson-bar.js`, `practical.js`, `practical-editor.js`, `lesson-report-view.js`; стили — `ui/css/lessons.css`.
+- Тесты: `score-fx`, `battle-fx`, `practical`, `practical-ui`, `lesson-plan`, `lesson-report`, `lesson-bar`, `lesson-store`, `lesson-ui`.

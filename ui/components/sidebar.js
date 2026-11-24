@@ -23,6 +23,7 @@ const GROUPS = [
       { id: "disciplines", label: lt("nav.disciplines"), icon: icons.disciplines, route: "#disciplines", auth: true },
       // Расписание: даты занятий и сроков (этап 4). Видно всем ролям.
       { id: "calendar", label: lt("nav.calendar"), icon: icons.calendar, route: "#calendar", auth: true },
+      { id: "lessons", label: lt("nav.lessons"), icon: icons.clipboard, route: "#lessons", auth: true, roles: ["teacher", "admin"] },
       { id: "materials", label: lt("nav.materials"), icon: icons.materials, route: "#materials", auth: true, roles: ["teacher", "admin"] },
       { id: "leaderboard", label: lt("nav.leaderboard"), icon: icons.rating, route: "#leaderboard", auth: true, roles: ["teacher", "admin"] },
     ]

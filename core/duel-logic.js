@@ -427,9 +427,15 @@ export function duelGroupsChanged(doc, groups, banks = null) {
   const want = groups.map(g => g.members.map(r => r.uid).sort().join("\n"));
   if (have.size !== want.length || want.some(key => !have.has(key))) return true;
   // Подготовленный банк появился для не начатой группы — документ нужно обновить.
+  // Место берётся из ТЕКУЩИХ групп (как в buildDuelsDoc), а не из сохранённого
+  // документа: иначе при сдвиге места пара вечно «меняется», а buildDuelsDoc
+  // ничего не меняет — manageDuels писал бы в Firestore снова и снова.
   if (banks) {
+    const placeByKey = new Map(groups.map(g => [
+      g.members.map(r => r.uid).sort().join("\n"), Number(g.members[0]?.place)
+    ]));
     return (doc?.groups || []).some(g => {
-      const place = Number(g?.place);
+      const place = placeByKey.get([...(g?.uids || [])].sort().join("\n"));
       return bankNotStarted(g) && !(g?.bank?.length) && banks[place]?.length > 0;
     });
   }

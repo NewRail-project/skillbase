@@ -1,6 +1,6 @@
 // core/battle.js — Firestore-слой Skillbase Battle («Командная битва»).
 // Модель хранения (см. docs/BATTLE-STORAGE.md):
-//   rooms/{code}/battle              — один документ: настройки, команды,
+//   rooms/{code}/battle/state        — один документ: настройки, команды,
 //                                      раунды, очки, итоговая статистика
 //   rooms/{code}/votes/{round}_{uid} — голос участника на раунд
 //   rooms/{code}/captainDecisions/{round}_{uid} — решение капитана
@@ -72,7 +72,7 @@ function validateCode(code) {
   return roomCode;
 }
 
-// ---------- Документ битвы: rooms/{code}/battle ----------
+// ---------- Документ битвы: rooms/{code}/battle/state ----------
 
 // Подписка на состояние битвы: null — документа ещё нет.
 export function subscribeBattle(code, onData, onError) {

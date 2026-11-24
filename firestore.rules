@@ -1421,6 +1421,78 @@ function isGuest() {
         allow read, write: if isRoomHost() && isBattleRoom();
       }
 
+      // ---------- Практическая диагностика (этап занятия после Battle) ----------
+      // Две команды получают разные таблицы-задания. Ключи ответов здесь НЕ
+      // хранятся: они лежат в battleKeys/practical_{a|b} (только ведущий, см.
+      // правило выше). В practicalTasks — публичная часть задания и, после
+      // подтверждения, итог (баллы и верно/неверно по ячейкам).
+      //   practicalTasks       — читает ведущий, наблюдатель и ТОЛЬКО своя команда;
+      //                          пишет только ведущий;
+      //   practicalSubmissions — читает ведущий, наблюдатель и своя команда;
+      //                          пишет капитан своей команды, пока задание открыто
+      //                          и таблица не отправлена; после отправки заморожена.
+      //                          Ведущий может лишь вернуть её на доработку (draft).
+      // Старые комнаты и комнаты без Battle не затрагиваются.
+      function practicalTaskDoc(teamId) {
+        return get(/databases/$(database)/documents/rooms/$(roomId)/practicalTasks/$(teamId)).data;
+      }
+
+      function practicalReadable(teamId) {
+        return isRoomHost()
+          || (inRoomAnyRole()
+            && (isBattleObserver(request.auth.uid) || battleTeamOf(request.auth.uid) == teamId));
+      }
+
+      function practicalCaptainWrite(teamId) {
+        return (hasProfile() || isGuest())
+          && inRoomAnyRole()
+          && isBattleRoom()
+          && !isBattleObserver(request.auth.uid)
+          && !isBattleReserve(request.auth.uid)
+          && battleTeamOf(request.auth.uid) == teamId
+          && isCaptainOf(request.auth.uid)
+          && practicalTaskDoc(teamId).get("status", "") == "open"
+          && request.resource.data.team == teamId
+          && request.resource.data.by == request.auth.uid
+          && request.resource.data.cells is map
+          && request.resource.data.status in ["draft", "submitted"]
+          && request.resource.data.keys().hasOnly(
+            ["team", "cells", "status", "by", "updatedAt", "submittedAt"]);
+      }
+
+      match /practicalTasks/{teamId} {
+        allow read: if teamId in ["a", "b"] && practicalReadable(teamId);
+
+        allow create, update: if isRoomHost()
+          && isBattleRoom()
+          && teamId in ["a", "b"]
+          && request.resource.data.team == teamId
+          && request.resource.data.keys().hasOnly(
+            ["team", "title", "description", "columns", "rows", "status", "result", "updatedAt"]);
+
+        allow delete: if false;
+      }
+
+      match /practicalSubmissions/{teamId} {
+        allow read: if teamId in ["a", "b"] && practicalReadable(teamId);
+
+        allow create: if teamId in ["a", "b"] && practicalCaptainWrite(teamId);
+
+        // Капитан правит только черновик; ведущий может вернуть таблицу в
+        // черновик (ничего, кроме status/updatedAt, при этом не меняется).
+        allow update: if teamId in ["a", "b"]
+          && (
+            (resource.data.status == "draft" && practicalCaptainWrite(teamId))
+            || (isRoomHost()
+              && isBattleRoom()
+              && request.resource.data.status == "draft"
+              && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(["status", "updatedAt"]))
+          );
+
+        allow delete: if false;
+      }
+
       match /votes/{voteId} {
         // Чтение: голосующий (свой голос), капитан его команды, ведущий.
         allow read: if isRoomHost()
@@ -1600,6 +1672,27 @@ function isGuest() {
         && request.resource.data.battle is map;
 
       allow delete: if false;
+    }
+
+    // ---------- lessonHistory ----------
+    // Неизменяемый снимок отчёта занятия (документ = код входной комнаты).
+    // Читают админ организации и ведущий-автор; студенту и гостю недоступно.
+    // Обновление и удаление запрещены: исторические результаты не меняются.
+    match /lessonHistory/{docId} {
+      allow read: if isStaffOf(resource.data.orgId)
+        && (isAdminOf(resource.data.orgId)
+          || resource.data.hostId == request.auth.uid);
+
+      allow create: if isStaff()
+        && request.resource.data.orgId == myOrg()
+        && request.resource.data.hostId == request.auth.uid
+        && request.resource.data.code == docId
+        && request.resource.data.report is map
+        && request.resource.data.keys().hasOnly(
+          ["key", "code", "version", "orgId", "hostId", "hostName", "topic",
+           "subjectName", "createdAtMs", "finishedAtMs", "finalCode", "report", "savedAt"]);
+
+      allow update, delete: if false;
     }
 
     // ---------- journalEntries ----------

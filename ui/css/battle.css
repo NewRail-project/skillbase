@@ -705,3 +705,57 @@ html[data-ui="workforce"][data-theme="dark"] { --team-a: #7DB8EC; --team-b: #F2A
 /* Оверлей ведущего заполняет окно сам. */
 .bs-overlay .bs { height: 100dvh; min-height: 0; }
 @media (max-width: 900px) { .bs-overlay .bs { height: auto; min-height: 100dvh; } }
+
+/* =====================================================================
+   Эффекты начисления очков и объявление победителя (экран Battle)
+   «+N» вылетает из панели команды к её счётчику; команда коротко
+   подсвечивается; решающее начисление ярче. Механика очков не меняется.
+   ===================================================================== */
+.bs { position: relative; }
+.bs-fx-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+.bs-fx {
+  position: absolute;
+  font-weight: 900;
+  font-size: clamp(1.6rem, 3.4vw, 3.4rem);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 10px rgb(0 0 0 / .55);
+  white-space: nowrap;
+  will-change: transform, opacity;
+}
+.bs-fx[data-team="a"] { color: var(--bs-a); }
+.bs-fx[data-team="b"] { color: var(--bs-b); }
+.bs-fx[data-level="2"] { font-size: clamp(2.4rem, 5.2vw, 5.2rem); }
+/* Без движения: «+N» просто лежит у счётчика, как подпись. */
+.bs-fx[data-static="1"] { position: static; display: inline-block; margin: .25rem; font-size: 1.4rem; }
+
+/* Подсветка команды при получении очков: рамка и мягкое свечение. */
+.bs-scorebox[data-hit], .bs-team[data-hit] { transition: box-shadow .25s ease, border-color .25s ease; }
+.bs-scorebox[data-team="a"][data-hit], .bs-team[data-team="a"][data-hit] { box-shadow: 0 0 0 3px var(--bs-a), 0 0 28px color-mix(in srgb, var(--bs-a) 55%, transparent); }
+.bs-scorebox[data-team="b"][data-hit], .bs-team[data-team="b"][data-hit] { box-shadow: 0 0 0 3px var(--bs-b), 0 0 28px color-mix(in srgb, var(--bs-b) 55%, transparent); }
+.bs-scorebox[data-hit="2"], .bs-team[data-hit="2"] { animation: bs-decisive 1.4s ease-out; }
+@keyframes bs-decisive {
+  0% { transform: scale(1); }
+  25% { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+
+/* Победитель: баннер в цвете команды, панель победителя выделена. */
+.bs-result { display: grid; gap: .35rem; justify-items: center; text-align: center; padding: 1rem; border-radius: .9rem; border: 3px solid var(--bs-line); background: var(--bs-panel); }
+.bs-result[data-winner="a"] { border-color: var(--bs-a); background: color-mix(in srgb, var(--bs-a) 14%, var(--bs-panel)); animation: bs-win-in .7s ease-out; }
+.bs-result[data-winner="b"] { border-color: var(--bs-b); background: color-mix(in srgb, var(--bs-b) 14%, var(--bs-panel)); animation: bs-win-in .7s ease-out; }
+.bs-result[data-winner="tie"] { border-style: dashed; }
+.bs-result-kicker { margin: 0; text-transform: uppercase; letter-spacing: .08em; font-size: .85em; color: var(--bs-muted); }
+.bs .bs-result-title { margin: 0; font-size: clamp(1.8rem, 4.4vw, 4.2rem); font-weight: 900; overflow-wrap: anywhere; }
+.bs-result[data-winner="a"] .bs-result-title { color: var(--bs-a); }
+.bs-result[data-winner="b"] .bs-result-title { color: var(--bs-b); }
+.bs-result-score { font-size: clamp(1.2rem, 2.4vw, 2.4rem); font-variant-numeric: tabular-nums; color: var(--bs-text); }
+.bs-team[data-winner] { outline: 4px solid currentColor; outline-offset: -4px; }
+@keyframes bs-win-in { from { opacity: 0; transform: translateY(10px) scale(.97); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .bs-fx { transition: none; }
+  .bs-scorebox[data-hit], .bs-team[data-hit] { transition: none; animation: none; }
+  .bs-scorebox[data-hit="2"], .bs-team[data-hit="2"] { animation: none; }
+  .bs-result[data-winner] { animation: none; }
+}

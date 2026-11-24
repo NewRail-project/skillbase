@@ -16,6 +16,7 @@ import {
 } from "../../core/scenario-player.js";
 
 const TICK_MS = 100;
+const MAX_STEP_MS = 1000;
 const OPENER_KEY = "sb:scenario-opener";
 
 let active = null; // текущий экран — для cleanup()
@@ -227,7 +228,8 @@ export function buildScenarioView({
     lastNow = now();
     timerId = schedule(() => {
       const t = now();
-      const dt = t - lastNow;
+      // Вкладка в фоне замораживает таймер: не «догоняем» часы разом.
+      const dt = Math.min(Math.max(0, t - lastNow), MAX_STEP_MS);
       lastNow = t;
       tick(dt);
     }, TICK_MS);

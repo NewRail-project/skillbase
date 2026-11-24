@@ -13,7 +13,8 @@ function writer(name) {
 }
 export const saveAnswer = writer("saveAnswer");
 export const joinRoom = writer("joinRoom");
-export const createRoom = writer("createRoom");
+// createRoom: тест может подставить реализацию через globalThis.__SB.createRoomImpl.
+export const createRoom = (...args) => (globalThis.__SB?.createRoomImpl ? globalThis.__SB.createRoomImpl(...args) : writer("createRoom")());
 export const closeRoom = writer("closeRoom");
 export const ensureDuelsDoc = writer("ensureDuelsDoc");
 export const updateDuelsDoc = writer("updateDuelsDoc");

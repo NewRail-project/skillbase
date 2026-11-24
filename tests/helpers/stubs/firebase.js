@@ -5,8 +5,12 @@
 // Вызовы записи считаются в globalThis.__FS_WRITES: тест может убедиться, что
 // страница ничего не пишет в Firestore (ожидается пустой список).
 const WRITE_NAMES = new Set(["setDoc", "updateDoc", "addDoc", "deleteDoc", "runTransaction", "writeBatch"]);
+// Тест может подставить рабочую реализацию функции через globalThis.__FB[name]
+// (например, Firestore в памяти): тогда вызов идёт в неё, а не падает.
 function unavailable(name) {
-  return () => {
+  return (...args) => {
+    const hook = globalThis.__FB?.[name];
+    if (hook) return hook(...args);
     if (WRITE_NAMES.has(name)) (globalThis.__FS_WRITES ||= []).push(name);
     throw new Error(`shared/firebase.js: ${name} недоступен в тесте`);
   };
@@ -24,12 +28,12 @@ export const runTransaction = unavailable("runTransaction");
 export const writeBatch = unavailable("writeBatch");
 export const getCountFromServer = unavailable("getCountFromServer");
 export const query = (...args) => args;
-export const collection = (...args) => args;
+export const collection = (...args) => (globalThis.__FB?.collection ? globalThis.__FB.collection(...args) : args);
 export const where = (...args) => ({ __where: args });
 export const orderBy = (...args) => ({ __orderBy: args });
 export const limit = (...args) => ({ __limit: args });
-export const doc = (...args) => args;
-export const serverTimestamp = () => null;
+export const doc = (...args) => (globalThis.__FB?.doc ? globalThis.__FB.doc(...args) : args);
+export const serverTimestamp = () => (globalThis.__FB?.serverTimestamp ? globalThis.__FB.serverTimestamp() : null);
 export const Timestamp = { now: () => 0 };
 export const increment = v => v;
 export const arrayUnion = (...v) => v;

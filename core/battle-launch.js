@@ -3,7 +3,7 @@
 // План описывает ровно те записи, которые battle.js launchBattle() делает
 // одним батчем:
 //   rooms/{code}                 { mode: "battle" }
-//   rooms/{code}/battle          публичный документ: состав, вопросы БЕЗ ключей
+//   rooms/{code}/battle/state    публичный документ: состав, вопросы БЕЗ ключей
 //   rooms/{code}/battleKeys/{q}  правильные варианты — только ведущему
 //   rooms/{code}/players/{uid}   teamId, isCaptain, isReserve (капитаны и команды)
 //

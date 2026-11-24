@@ -1,0 +1,126 @@
+/* ui/css/lessons.css — сценарии занятий и редактор практики. Только токены темы. */
+.lessons-page { display: grid; gap: var(--space-4); min-width: 0; }
+.lessons-page > * { min-width: 0; }
+.lessons-grid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr)); }
+.lesson-card h2 { margin: 0 0 var(--space-2); overflow-wrap: anywhere; }
+.lesson-stage-list { margin: var(--space-2) 0 var(--space-3); padding-left: var(--space-5); color: var(--text-2); }
+.ls-field { display: grid; gap: var(--space-1); margin-bottom: var(--space-3); }
+.ls-field label, .pe-field > b { font-weight: 600; color: var(--text); }
+.ls-field input, .ls-field select, .pe input, .pe select, .pe textarea { width: 100%; min-width: 0; }
+.ls-grid { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); }
+.ls-stages { display: grid; gap: var(--space-2); }
+.ls-stage { display: flex; gap: var(--space-3); align-items: flex-start; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-m); background: var(--surface); }
+.ls-stage span { display: grid; gap: 2px; }
+.ls-stage small { color: var(--text-2); }
+
+/* Редактор таблицы-задания */
+.pe { display: grid; gap: var(--space-3); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-m); background: var(--surface); margin-top: var(--space-3); }
+.pe h3 { margin: 0; }
+.pe-field { display: grid; gap: var(--space-1); }
+.pe-cols { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.pe-col { display: flex; gap: var(--space-1); flex: 1 1 10rem; min-width: 0; }
+.pe-rows { display: grid; gap: var(--space-3); }
+.pe-row { display: grid; gap: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-m); padding: var(--space-3); min-width: 0; }
+.pe-row legend { padding: 0 var(--space-2); font-weight: 700; color: var(--text); }
+.pe-cell { display: grid; gap: var(--space-2); padding: var(--space-2); border-radius: var(--radius-s, .5rem); background: var(--elevated); min-width: 0; }
+.pe-cell-head { display: flex; justify-content: space-between; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.pe-cell-col { font-weight: 600; color: var(--text-2); overflow-wrap: anywhere; }
+.pe-mini { display: grid; gap: 2px; font-size: .875rem; color: var(--text-2); }
+.pe-pair { display: grid; gap: var(--space-2); grid-template-columns: 1fr 1fr; }
+
+/* =====================================================================
+   Панель занятия (над видом комнаты)
+   ===================================================================== */
+.lesson-wrap { display: grid; gap: var(--space-4); min-width: 0; }
+.lesson-wrap > * { min-width: 0; }
+.lesson-bar { border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: var(--radius-m); background: var(--surface); padding: var(--space-3) var(--space-4); display: grid; gap: var(--space-3); }
+.lb-head { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); justify-content: space-between; align-items: flex-end; }
+.lb-kicker, .pr-kicker, .lr-kicker { margin: 0; font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--text-2); }
+.lb-title { margin: 0; font-size: 1.25rem; overflow-wrap: anywhere; }
+.lb-progress { margin: 0; color: var(--text-2); font-size: .875rem; }
+.lb-stages { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.lb-stage { display: grid; gap: 2px; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-m); background: var(--elevated); min-width: 0; flex: 1 1 9rem; }
+.lb-stage-name { font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.lb-stage-state { font-size: .8125rem; color: var(--text-2); }
+.lb-stage[data-status="current"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.lb-stage[data-status="done"] .lb-stage-state { color: var(--ok); font-weight: 600; }
+.lb-stage[data-status="skipped"] .lb-stage-state { color: var(--warn); font-weight: 600; }
+.lb-reason, .lb-readers, .lb-hint, .lb-skip-note, .pr-note { margin: 0; color: var(--text-2); }
+.lb-read[data-read="1"] { color: var(--ok); font-weight: 600; }
+
+/* =====================================================================
+   Практическая диагностика
+   ===================================================================== */
+.practical { display: grid; gap: var(--space-4); min-width: 0; padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-m); background: var(--surface); }
+.practical h2, .practical h3 { margin: 0; overflow-wrap: anywhere; }
+.pr-head { display: grid; gap: var(--space-1); }
+.pr-desc { margin: 0; color: var(--text-2); }
+.pr-table-wrap { overflow-x: auto; max-width: 100%; border: 1px solid var(--border); border-radius: var(--radius-m); }
+.pr-table { width: 100%; border-collapse: collapse; min-width: 18rem; }
+.pr-table th, .pr-table td { padding: var(--space-2) var(--space-3); text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); color: var(--text); overflow-wrap: anywhere; }
+.pr-table thead th { background: var(--elevated); color: var(--text-2); font-size: .8125rem; }
+.pr-table tbody th { font-weight: 600; background: var(--elevated); }
+.pr-input { width: 100%; min-width: 8rem; }
+.pr-answer { overflow-wrap: anywhere; }
+.pr-expected { display: block; margin-top: 2px; color: var(--text-2); }
+.pr-mark { font-weight: 700; }
+.pr-ok { color: var(--ok); }
+.pr-bad { color: var(--danger); }
+.pr-status { margin: 0; color: var(--text-2); min-height: 1.25rem; }
+.pr-team-cards, .pr-teams { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
+.pr-team-card, .pr-team { border: 1px solid var(--border); border-radius: var(--radius-m); padding: var(--space-3); background: var(--elevated); display: grid; gap: var(--space-2); min-width: 0; }
+.pr-team-card[data-team="a"], .pr-team[data-team="a"], .pr-review-team[data-team="a"] { border-left: 4px solid var(--accent); }
+.pr-team-card[data-team="b"], .pr-team[data-team="b"], .pr-review-team[data-team="b"] { border-left: 4px solid var(--accent-2); }
+.pr-team-task { margin: 0; color: var(--text-2); overflow-wrap: anywhere; }
+.pr-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.pr-chip { padding: 2px var(--space-2); border-radius: var(--radius-pill); border: 1px solid var(--border); font-size: .8125rem; color: var(--text-2); }
+.pr-chip-on, .pr-chip-ok { color: var(--ok); border-color: var(--ok); font-weight: 600; }
+.pr-review { display: grid; gap: var(--space-4); }
+.pr-review-team { padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-m); display: grid; gap: var(--space-2); min-width: 0; }
+.pr-decisions { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-1); }
+.pr-decide { padding: 2px var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface); color: var(--text); cursor: pointer; font-size: .8125rem; }
+.pr-decide[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.pr-announce, .pr-final { display: grid; gap: var(--space-1); padding: var(--space-3) var(--space-4); border: 2px solid var(--accent); border-radius: var(--radius-m); background: var(--elevated); text-align: center; }
+.pr-announce[data-winner="b"] { border-color: var(--accent-2); }
+.pr-announce[data-winner="tie"], .pr-final[data-outcome="tie"] { border-style: dashed; }
+.pr-announce h2 { font-size: clamp(1.5rem, 4vw, 2.5rem); }
+.pr-final[data-outcome="win"] { border-color: var(--ok); }
+
+/* Проектор: крупно, без лишнего */
+.practical-screen { padding: var(--space-5); }
+.practical-screen .pr-team h2 { font-size: clamp(1.5rem, 3vw, 3rem); }
+.practical-screen .pr-team-state, .practical-screen .pr-team-score { margin: 0; font-size: clamp(1.25rem, 2.4vw, 2.4rem); font-weight: 700; color: var(--text); }
+.practical-screen .pr-announce h2 { font-size: clamp(2rem, 5vw, 5rem); }
+
+/* =====================================================================
+   Отчёт занятия
+   ===================================================================== */
+.lesson-report { display: grid; gap: var(--space-4); min-width: 0; }
+.lr-head h1 { margin: 0; overflow-wrap: anywhere; }
+.lr-meta { margin: var(--space-1) 0 0; color: var(--text-2); }
+.lr-stages { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.lr-stages li { padding: 2px var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-pill); font-size: .875rem; color: var(--text-2); }
+.lr-stages li[data-status="done"] { color: var(--ok); border-color: var(--ok); }
+.lr-stages li[data-status="skipped"] { color: var(--warn); border-color: var(--warn); }
+.lr-cards { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); }
+.lr-card { padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-m); background: var(--surface); }
+.lr-card p { margin: 0; }
+.lr-card-title { color: var(--text-2); font-size: .8125rem; }
+.lr-card-value { font-size: 1.5rem; font-weight: 800; color: var(--text); overflow-wrap: anywhere; }
+.lr-card-sub { color: var(--text-2); font-size: .8125rem; }
+.lr-section { display: grid; gap: var(--space-3); min-width: 0; }
+.lr-section h2 { margin: 0; }
+.lr-practical { display: grid; gap: var(--space-2); min-width: 0; }
+.lr-table-wrap { overflow-x: auto; max-width: 100%; border: 1px solid var(--border); border-radius: var(--radius-m); background: var(--surface); }
+.lr-table { width: 100%; border-collapse: collapse; min-width: 56rem; }
+.lr-table th, .lr-table td { padding: var(--space-2) var(--space-3); text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); color: var(--text); overflow-wrap: anywhere; }
+.lr-table thead th { position: sticky; top: 0; background: var(--elevated); color: var(--text-2); font-size: .8125rem; }
+.lr-name span { display: block; font-weight: 700; }
+.lr-name small { display: block; color: var(--text-2); font-weight: 400; margin-top: 2px; }
+.lr-comps ul { margin: var(--space-1) 0 0; padding-left: var(--space-4); color: var(--text-2); }
+.lr-comps summary { cursor: pointer; font-weight: 600; }
+.lr-note { margin: var(--space-1) 0 0; color: var(--warn); }
+.lr-notes ul { margin: 0; padding-left: var(--space-5); color: var(--text-2); display: grid; gap: var(--space-1); }
+.lesson-facts { list-style: none; margin: var(--space-2) 0 var(--space-3); padding: 0; display: grid; gap: 2px; color: var(--text-2); }
+
+@media (prefers-reduced-motion: reduce) { .lesson-bar, .practical, .pr-announce { transition: none; animation: none; } }

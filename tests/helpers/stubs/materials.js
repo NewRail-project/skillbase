@@ -14,3 +14,21 @@ export async function saveMaterial(testId, data) {
   sb.calls.push(["saveMaterial", testId, JSON.parse(JSON.stringify(data || {}))]);
   if (sb.saveMaterialError) throw sb.saveMaterialError;
 }
+
+// Чтение прогресса и проверка наличия книги: нужны страницам занятия.
+// Значения задаются в globalThis.__SB (materialProgress: { "uid_testId": true }).
+export async function hasMaterial(testId) {
+  const sb = globalThis.__SB;
+  return (sb.materials || []).some(m => m.id === testId);
+}
+export async function loadMaterialProgress(uid, testId) {
+  const sb = globalThis.__SB;
+  const done = Boolean(sb.materialProgress?.[`${uid}_${testId}`]);
+  return { lastPage: 0, completed: done, exists: done };
+}
+export async function saveMaterialProgress() {}
+export async function materialCompleted(uid, testId) { return (await loadMaterialProgress(uid, testId)).completed; }
+export async function loadMaterialMeta(testId) {
+  const book = (globalThis.__SB.materials || []).find(m => m.id === testId);
+  return book ? { id: testId, ...book } : null;
+}

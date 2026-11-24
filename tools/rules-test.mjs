@@ -5498,6 +5498,8 @@ function testCases() {
         ...liveAutoCases(),
         ...duelCases(),
         ...roomHistoryCases(),
+        ...practicalCases(),
+        ...lessonHistoryCases(),
         ...battleCases()
     ];
 }
@@ -5526,6 +5528,252 @@ function historyDocData(overrides = {}) {
         savedAt: ISO,
         ...overrides
     };
+}
+
+
+// ---------- Практическая диагностика и история занятий ----------
+// Мок задания команды: статус открытия читает правило practicalCaptainWrite.
+function practicalTaskMock(team = "a", status = "open") {
+    return [{
+        function: "get",
+        args: [{ exactValue: `${DB}/rooms/r1/practicalTasks/${team}` }],
+        result: { value: { data: { team, status } } }
+    }];
+}
+
+function practicalSubData(team = "a", uid = "captain1", overrides = {}) {
+    return { team, cells: { r0c1: "ответ" }, status: "draft", by: uid, updatedAt: ISO, ...overrides };
+}
+
+const captainA = (uid = "captain1") => battlePlayerMocks(uid, { teamId: "a", isCaptain: true });
+
+function practicalCases() {
+    const hostMocks = [...profileMocks("teacher1", "teacher"), ...battleRoomMocks()];
+    return [
+        {
+            name: "Практика: ведущий читает задание команды",
+            expectation: "ALLOW",
+            request: { auth: { uid: "teacher1" }, path: `${DB}/rooms/r1/practicalTasks/a`, method: "get" },
+            resource: { data: { team: "a", status: "open" } },
+            functionMocks: hostMocks
+        },
+        {
+            name: "Практика: участник читает задание СВОЕЙ команды",
+            expectation: "ALLOW",
+            request: { auth: { uid: "student1" }, path: `${DB}/rooms/r1/practicalTasks/a`, method: "get" },
+            resource: { data: { team: "a", status: "open" } },
+            functionMocks: [...profileMocks("student1", "student"), ...battleRoomMocks(), ...battlePlayerMocks("student1", { teamId: "a" })]
+        },
+        {
+            name: "Практика: участник НЕ читает задание чужой команды",
+            expectation: "DENY",
+            request: { auth: { uid: "student1" }, path: `${DB}/rooms/r1/practicalTasks/b`, method: "get" },
+            resource: { data: { team: "b", status: "open" } },
+            functionMocks: [...profileMocks("student1", "student"), ...battleRoomMocks(), ...battlePlayerMocks("student1", { teamId: "a" })]
+        },
+        {
+            name: "Практика: ведущий создаёт задание команды",
+            expectation: "ALLOW",
+            request: {
+                auth: { uid: "teacher1" }, path: `${DB}/rooms/r1/practicalTasks/a`, method: "create",
+                resource: { data: { team: "a", title: "Т", description: "", columns: ["П", "З"], rows: [], status: "draft", updatedAt: ISO } }
+            },
+            functionMocks: hostMocks
+        },
+        {
+            name: "Практика: участник не создаёт и не правит задание",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "captain1" }, path: `${DB}/rooms/r1/practicalTasks/a`, method: "create",
+                resource: { data: { team: "a", title: "Т", columns: [], rows: [], status: "open", updatedAt: ISO } }
+            },
+            functionMocks: [...profileMocks("captain1", "student"), ...battleRoomMocks(), ...captainA()]
+        },
+        {
+            name: "Практика: в задании нельзя хранить посторонние поля (ключи)",
+            expectation: "DENY",
+            request: {
+                auth: { uid: "teacher1" }, path: `${DB}/rooms/r1/practicalTasks/a`, method: "create",
+                resource: { data: { team: "a", title: "Т", columns: [], rows: [], status: "draft", updatedAt: ISO, keys: { r0c1: "ответ" } } }
+            },
+            functionMocks: hostMocks
+        },
+        {
+            name: "Практика: ключи (battleKeys/practical_a) читает ведущий",
+            expectation: "ALLOW",
+            request: { auth: { uid: "teacher1" }, path: `${DB}/rooms/r1/battleKeys/practical_a`, method: "get" },
+            resource: { data: { kind: "practical", team: "a", cells: { r0c1: { mode: "text", accept: ["x"] } } } },
+            functionMocks: hostMocks
+        },
+        {
+            name: "Практика: ключи не читает даже капитан",
+            expectation: "DENY",
+            request: { auth: { uid: "captain1" }, path: `${DB}/rooms/r1/battleKeys/practical_a`, method: "get" },
+            resource: { data: { kind: "practical", team: "a", cells: {} } },
+            functionMocks: [...profileMocks("captain1", "student"), ...battleRoomMocks(), ...captainA()]
+        },
+        {
+            name: "Практика: капитан создаёт черновик таблицы, пока задание открыто",
+            expectation: "ALLOW",
+            request: { auth: { uid: "captain1" }, path: `${DB}/rooms/r1/practicalSubmissions/a`, method: "create", resource: { data: practicalSubData() } },
+            functionMocks: [...profileMocks("captain1", "student"), ...battleRoomMocks(), ...captainA(), ...practicalTaskMock("a", "open")]
+        },
+        {
+            name: "Практика: капитан отправляет таблицу (status submitted)",
+            expectation: "ALLOW",
+            request: { auth: { uid: "captain1" }, path: `${DB}/rooms/r1/practicalSubmissions/a`, method: "create", resource: { data: practicalSubData("a", "captain1", { status: "submitted", submittedAt: ISO }) } },
+            functionMocks: [...profileMocks("captain1", "student"), ...battleRoomMocks(), ...captainA(), ...practicalTaskMock("a", "open")]
+        },
+        {
+            name: "Практика: не капитан не заполняет таблицу",
+            expectation: "DENY",
+            request: { auth: { uid: "student1" }, path: `${DB}/rooms/r1/practicalSubmissions/a`, method: "create", resource: { data: practicalSubData("a", "student1") } },
+            functionMocks: [...profileMocks("student1", "student"), ...battleRoomMocks(), ...battlePlayerMocks("student1", { teamId: "a", isCaptain: false }), ...practicalTaskMock("a", "open")]
+        },
+        {
+            name: "Практика: капитан не пишет таблицу чужой команды",
+            expectation: "DENY",
+            request: { auth: { uid: "captain1" }, path: `${DB}/rooms/r1/practicalSubmissions/b`, method: "create", resource: { data: practicalSubData("b") } },
+            functionMocks: [...profileMocks("captain1", "student"), ...battleRoomMocks(), ...captainA(), ...practicalTaskMock("b", "open")]
+        },
+        {
+            name: "Практика: капитан не пишет, когда задание закрыто",
+            expectation: "DENY",
+            request: { auth: { uid: "captain1" }, path: `${DB}/rooms/r1/practicalSubmissions/a`, method: "create", resource: { data: practicalSubData() } },
+            functionMocks: [...profileMocks("captain1", "student"), ...battleRoomMocks(), ...captainA(), ...practicalTaskMock("a", "closed")]
+        },
+        {
+            name: "Практика: запасной не заполняет таблицу",
+            expectation: "DENY",
+            request: { auth: { uid: "captain1" }, path: `${DB}/rooms/r1/practicalSubmissions/a`, method: "create", resource: { data: practicalSubData() } },
+            functionMocks: [...profileMocks("captain1", "student"), ...battleRoomMocks(), ...battlePlayerMocks("captain1", { teamId: "a", isCaptain: true, isReserve: true }), ...practicalTaskMock("a", "open")]
+        },
+        {
+            name: "Практика: в таблице нельзя передать посторонние поля",
+            expectation: "DENY",
+            request: { auth: { uid: "captain1" }, path: `${DB}/rooms/r1/practicalSubmissions/a`, method: "create", resource: { data: practicalSubData("a", "captain1", { accept: ["x"] }) } },
+            functionMocks: [...profileMocks("captain1", "student"), ...battleRoomMocks(), ...captainA(), ...practicalTaskMock("a", "open")]
+        },
+        {
+            name: "Практика: капитан правит черновик",
+            expectation: "ALLOW",
+            request: { auth: { uid: "captain1" }, path: `${DB}/rooms/r1/practicalSubmissions/a`, method: "update", requestResource: true },
+            resource: { data: practicalSubData() },
+            newDoc: practicalSubData("a", "captain1", { cells: { r0c1: "другой" } }),
+            functionMocks: [...profileMocks("captain1", "student"), ...battleRoomMocks(), ...captainA(), ...practicalTaskMock("a", "open")]
+        },
+        {
+            name: "Практика: отправленная таблица заморожена — капитан её не правит",
+            expectation: "DENY",
+            request: { auth: { uid: "captain1" }, path: `${DB}/rooms/r1/practicalSubmissions/a`, method: "update", requestResource: true },
+            resource: { data: practicalSubData("a", "captain1", { status: "submitted", submittedAt: ISO }) },
+            newDoc: practicalSubData("a", "captain1", { cells: { r0c1: "правка после отправки" }, status: "submitted" }),
+            functionMocks: [...profileMocks("captain1", "student"), ...battleRoomMocks(), ...captainA(), ...practicalTaskMock("a", "open")]
+        },
+        {
+            name: "Практика: ведущий возвращает таблицу на доработку",
+            expectation: "ALLOW",
+            request: { auth: { uid: "teacher1" }, path: `${DB}/rooms/r1/practicalSubmissions/a`, method: "update", requestResource: true },
+            resource: { data: practicalSubData("a", "captain1", { status: "submitted", submittedAt: ISO }) },
+            newDoc: practicalSubData("a", "captain1", { status: "draft", submittedAt: ISO }),
+            functionMocks: hostMocks
+        },
+        {
+            name: "Практика: ведущий не переписывает ответы команды",
+            expectation: "DENY",
+            request: { auth: { uid: "teacher1" }, path: `${DB}/rooms/r1/practicalSubmissions/a`, method: "update", requestResource: true },
+            resource: { data: practicalSubData("a", "captain1", { status: "submitted", submittedAt: ISO }) },
+            newDoc: practicalSubData("a", "captain1", { status: "draft", cells: { r0c1: "подмена" }, submittedAt: ISO }),
+            functionMocks: hostMocks
+        },
+        {
+            name: "Практика: участник не читает таблицу чужой команды",
+            expectation: "DENY",
+            request: { auth: { uid: "student1" }, path: `${DB}/rooms/r1/practicalSubmissions/b`, method: "get" },
+            resource: { data: practicalSubData("b", "captain2") },
+            functionMocks: [...profileMocks("student1", "student"), ...battleRoomMocks(), ...battlePlayerMocks("student1", { teamId: "a" })]
+        },
+        {
+            name: "Практика: удалить таблицу нельзя никому",
+            expectation: "DENY",
+            request: { auth: { uid: "teacher1" }, path: `${DB}/rooms/r1/practicalSubmissions/a`, method: "delete" },
+            resource: { data: practicalSubData() },
+            functionMocks: hostMocks
+        }
+    ];
+}
+
+function lessonHistoryDoc(overrides = {}) {
+    return {
+        key: "ABC123", code: "ABC123", version: 1, orgId: ORG, hostId: "teacher1", hostName: "П",
+        topic: "Тема", subjectName: "", createdAtMs: 1, finishedAtMs: 2, finalCode: "",
+        report: { lesson: { topic: "Тема" }, people: [] }, savedAt: ISO, ...overrides
+    };
+}
+
+function lessonHistoryCases() {
+    return [
+        {
+            name: "История занятий: ведущий сохраняет снимок своего занятия",
+            expectation: "ALLOW",
+            request: { auth: { uid: "teacher1" }, path: `${DB}/lessonHistory/ABC123`, method: "create", resource: { data: lessonHistoryDoc() } },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "История занятий: нельзя сохранить от имени другого ведущего",
+            expectation: "DENY",
+            request: { auth: { uid: "teacher2" }, path: `${DB}/lessonHistory/ABC123`, method: "create", resource: { data: lessonHistoryDoc() } },
+            functionMocks: profileMocks("teacher2", "teacher")
+        },
+        {
+            name: "История занятий: id документа должен совпадать с кодом",
+            expectation: "DENY",
+            request: { auth: { uid: "teacher1" }, path: `${DB}/lessonHistory/OTHER1`, method: "create", resource: { data: lessonHistoryDoc() } },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "История занятий: студент не сохраняет снимок",
+            expectation: "DENY",
+            request: { auth: { uid: "student1" }, path: `${DB}/lessonHistory/ABC123`, method: "create", resource: { data: lessonHistoryDoc({ hostId: "student1" }) } },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "История занятий: ведущий читает свой снимок",
+            expectation: "ALLOW",
+            request: { auth: { uid: "teacher1" }, path: `${DB}/lessonHistory/ABC123`, method: "get" },
+            resource: { data: lessonHistoryDoc() },
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "История занятий: администратор организации читает снимок",
+            expectation: "ALLOW",
+            request: { auth: { uid: "admin1" }, path: `${DB}/lessonHistory/ABC123`, method: "get" },
+            resource: { data: lessonHistoryDoc() },
+            functionMocks: profileMocks("admin1", "admin")
+        },
+        {
+            name: "История занятий: студент не читает снимок",
+            expectation: "DENY",
+            request: { auth: { uid: "student1" }, path: `${DB}/lessonHistory/ABC123`, method: "get" },
+            resource: { data: lessonHistoryDoc() },
+            functionMocks: profileMocks("student1", "student")
+        },
+        {
+            name: "История занятий: снимок неизменяем (update запрещён)",
+            expectation: "DENY",
+            request: { auth: { uid: "teacher1" }, path: `${DB}/lessonHistory/ABC123`, method: "update", requestResource: true },
+            resource: { data: lessonHistoryDoc() },
+            newDoc: lessonHistoryDoc({ topic: "Подмена" }),
+            functionMocks: profileMocks("teacher1", "teacher")
+        },
+        {
+            name: "История занятий: удаление запрещено",
+            expectation: "DENY",
+            request: { auth: { uid: "teacher1" }, path: `${DB}/lessonHistory/ABC123`, method: "delete" },
+            resource: { data: lessonHistoryDoc() },
+            functionMocks: profileMocks("teacher1", "teacher")
+        }
+    ];
 }
 
 function roomHistoryCases() {

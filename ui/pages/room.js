@@ -73,6 +73,7 @@ import { buildBattlePrep } from "../../ui/components/battle-prep.js";
 import { launchBattle } from "../../core/battle.js";
 import { listMyTests } from "../../core/editor.js";
 import { mountBattle, disposeBattle } from "./battle-room.js";
+import { lessonOverride, lessonShell, disposeLesson, setLessonPlayersGetter } from "./lesson-room.js";
 import { createTopBoard } from "../components/top-board.js";
 import { loadBattleSet } from "../../core/battle-set-store.js";
 import {
@@ -146,6 +147,7 @@ let qrThemeOff = null;
 let qrSkinOff = null;
 function reset() {
   disposeBattle();
+  disposeLesson();
   unsubs.forEach(fn => { try { fn(); } catch (e) { /* уже отписаны */ } });
   unsubs = [];
   stopInterval(autoTimer); autoTimer = null;
@@ -1046,6 +1048,7 @@ function stepKey() {
     local.room ? local.room.status : "no-room",
     connState(), role() || "-", local.removed ? 1 : 0,
     li.lifecycle, li.position, li.phase, li.qid, revealed,
+    local.room?.lesson?.stage || "",
     local.room?.registrationOpen === false ? 0 : 1,
     duelViewSig()
   ].join("|");
@@ -3885,7 +3888,36 @@ function battleView(kind) {
   });
 }
 
+// Занятие (core/lesson-plan.js): этап «Практика» заменяет вид комнаты, на
+// остальных этапах обычный вид получает панель занятия сверху.
+function lessonMe() {
+  const uid = State.user?.uid;
+  const own = local.ownPlayer || (local.players || []).find(p => p.uid === uid) || {};
+  return { team: own.teamId === "a" || own.teamId === "b" ? own.teamId : null, isCaptain: own.isCaptain === true };
+}
+
+function lessonContext() {
+  return {
+    code: local.room?.code || local.code,
+    room: local.room, current: role(), screen: isScreenRoute(),
+    getRoom: () => local.room, getMe: lessonMe
+  };
+}
+
 function buildView() {
+  setLessonPlayersGetter(() => local.players || []);
+  if (local.room?.lesson && !local.removed && connState() !== CONN.ERROR && role()) {
+    const practical = lessonOverride(lessonContext());
+    if (practical) return practical;
+  }
+  const view = buildBaseView();
+  if (local.room?.lesson && !local.removed && ![CONN.CONNECTING, CONN.ERROR].includes(connState()) && role()) {
+    return lessonShell(view, lessonContext());
+  }
+  return view;
+}
+
+function buildBaseView() {
   // Проектор рисуется всё тем же buildView: разбор через локальную метку.
   const rawRoute = decodeURIComponent((State.routeParam || ""));
   if (rawRoute.split("/")[1] === "screen") return local.room?.mode === "battle" ? battleView("screen") : screenView();

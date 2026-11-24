@@ -49,7 +49,7 @@ function roomRef(code) {
 // mode: "auto" (по умолчанию) или "manual"; options — настройки
 // автономного режима (questionSec, gapSec, shuffleQuestions, speedBonus,
 // showLeaderboard); всё необязательное, пустое берётся из настроек теста.
-export async function createRoom({ test, profile, allowObservers = false, mode = LIVE_MODE_AUTO, options = {}, battleEnabled = false, battleSettings = null }) {
+export async function createRoom({ test, profile, allowObservers = false, mode = LIVE_MODE_AUTO, options = {}, battleEnabled = false, battleSettings = null, lesson = null }) {
   requireOnline("Нет подключения к интернету. Комната не создана.");
   if (!test?.id) throw new Error("Тест не выбран.");
   if (!profile?.orgId) throw new Error("Профиль организации не загружен.");
@@ -84,6 +84,9 @@ export async function createRoom({ test, profile, allowObservers = false, mode =
         // Набор вопросов битвы, число вопросов и время, заданные при запуске:
         // панель подготовки возьмёт их как стартовые значения.
         ...(battleEnabled === true && battleSettings ? { battleSettings: sanitizeBattlePreset(battleSettings) } : {}),
+        // Занятие (core/lesson-plan.js): ход занятия живёт в поле комнаты.
+        // id занятия = код входной комнаты, если не задан (устойчивый ключ истории).
+        ...(lesson && typeof lesson === "object" ? { lesson: { ...lesson, id: lesson.id || code } } : {}),
         // Регистрация открыта, пока ведущий её не закроет; закрытая
         // регистрация запрещает новые players/{uid} (правила).
         registrationOpen: true,

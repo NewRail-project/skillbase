@@ -104,6 +104,11 @@ const routes = {
   // История завершённых Live-комнат: #room-history — список,
   // #room-history/<код> — повторный просмотр сохранённого отчёта.
   "room-history": { file: "ui/pages/room-history.js",       title: "История Live",         tkey: "title.roomHistory", auth: true, roles: STAFF },
+  // Открытое занятие: сценарии (#lessons, #lessons/new, #lessons/<id>), история
+  // проведённых занятий и итоговый отчёт (#lesson-report/<код входной комнаты>).
+  "lessons":        { file: "ui/pages/lessons.js",        title: "Сценарии занятий",   auth: true, roles: STAFF },
+  "lesson-history": { file: "ui/pages/lesson-history.js", title: "История занятий",    auth: true, roles: STAFF },
+  "lesson-report":  { file: "ui/pages/lesson-report.js",  title: "Отчёт занятия",      auth: true, roles: STAFF },
   // Редактор самостоятельного материала: без id — новый материал.
   "material-editor": { file: "ui/pages/material-editor.js", title: "Редактор материала", tkey: "title.materialEditor", auth: true, roles: STAFF }
 };
