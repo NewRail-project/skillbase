@@ -19,6 +19,7 @@ import {
 import {
   emptyPlan, normalizePlan, validatePlan, OPTIONAL_STAGES, STAGE_LABEL
 } from "../../core/lesson-plan.js";
+import { BATTLE_PRESET_LIMITS } from "../../core/battle-logic.js";
 import { buildPracticalEditor } from "../components/practical-editor.js";
 import { toast } from "../components/toast.js";
 
@@ -138,6 +139,12 @@ async function editorPage(id) {
     cb.addEventListener("change", sync);
     return h("label", { class: "ls-stage", for: `ls-stage-${s}` }, cb, h("span", {}, h("b", {}, STAGE_LABEL[s]), h("small", {}, STAGE_HINT[s])));
   });
+  // Параметры Battle — те же, что на экране запуска Live.
+  const battleBank = select("ls-battle-bank", published.filter(t => t.id !== plan.entryTestId), plan.battle.battleTestId, "Вопросы входного теста");
+  const battleCount = num("ls-battle-count", plan.battle.questionCount);
+  battleCount.min = String(BATTLE_PRESET_LIMITS.countMin); battleCount.max = String(BATTLE_PRESET_LIMITS.countMax);
+  const battleSec = num("ls-battle-sec", plan.battle.questionSeconds);
+  battleSec.min = String(BATTLE_PRESET_LIMITS.secMin); battleSec.max = String(BATTLE_PRESET_LIMITS.secMax);
   const w = { entry: num("ls-w-entry", plan.grading.weights.entry), battle: num("ls-w-battle", plan.grading.weights.battle), practical: num("ls-w-practical", plan.grading.weights.practical), final: num("ls-w-final", plan.grading.weights.final) };
   const th = { five: num("ls-t-five", plan.grading.thresholds.five), four: num("ls-t-four", plan.grading.thresholds.four), three: num("ls-t-three", plan.grading.thresholds.three) };
   const editors = { a: buildPracticalEditor({ team: "a", task: plan.tasks.a }), b: buildPracticalEditor({ team: "b", task: plan.tasks.b }) };
@@ -145,10 +152,17 @@ async function editorPage(id) {
     h("h2", {}, "Практическая диагностика"),
     h("p", { class: "muted" }, "Две разных таблицы. Ожидаемые ответы видны только вам: участникам уходит таблица без них."),
     editors.a.el, editors.b.el);
+  const battleBox = h("section", { class: "panel", "aria-label": "Параметры Battle" },
+    h("h2", {}, "Battle"),
+    h("p", { class: "muted" }, "Как в обычной Live-комнате: если набор не выбран, берутся вопросы входного теста (или его заготовленный набор Battle). Банки для ничьих берутся из входного теста."),
+    h("div", { class: "ls-field" }, h("label", { for: "ls-battle-bank" }, "Набор вопросов для Battle"), battleBank),
+    h("div", { class: "ls-grid" },
+      h("div", { class: "ls-field" }, h("label", { for: "ls-battle-count" }, "Количество вопросов"), battleCount),
+      h("div", { class: "ls-field" }, h("label", { for: "ls-battle-sec" }, "Время на вопрос, сек"), battleSec)));
   const errors = h("div", { class: "form-error", role: "alert" });
   const status = h("p", { class: "form-hint", role: "status" }, "");
 
-  function sync() { practicalBox.hidden = !stageBoxes.practical.checked; }
+  function sync() { practicalBox.hidden = !stageBoxes.practical.checked; battleBox.hidden = !stageBoxes.battle.checked; }
   sync();
 
   const collect = () => normalizePlan({
@@ -157,6 +171,7 @@ async function editorPage(id) {
     entryTestId: entry.value, entryTestTitle: titleOf(tests, entry.value),
     finalTestId: fin.value, finalTestTitle: titleOf(tests, fin.value),
     stages: Object.fromEntries(OPTIONAL_STAGES.map(s => [s, stageBoxes[s].checked])),
+    battle: { battleTestId: battleBank.value, questionCount: battleCount.value, questionSeconds: battleSec.value },
     tasks: { a: editors.a.getTask(), b: editors.b.getTask() },
     grading: { weights: Object.fromEntries(Object.entries(w).map(([k, el]) => [k, el.value])), thresholds: Object.fromEntries(Object.entries(th).map(([k, el]) => [k, el.value])) }
   });
@@ -197,7 +212,7 @@ async function editorPage(id) {
       field("ls-material", "Теоретический материал", material, "Материал открывается в обычной читалке, включая книжный режим."),
       field("ls-entry", "Входной тест", entry),
       field("ls-final", "Итоговый тест", fin, "Короткий тест после практики. Можно выбрать тот же тест, что и входной.")),
-    practicalBox,
+    battleBox, practicalBox,
     h("section", { class: "panel" },
       h("h2", {}, "Рекомендуемая оценка"),
       h("p", { class: "muted" }, "Веса компонентов. Если какого-то результата нет (этап отключён, пропущен, участник отсутствовал), его вес перераспределяется между остальными, а не превращается в ноль."),

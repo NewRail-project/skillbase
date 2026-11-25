@@ -6,6 +6,7 @@
 // План (с ключами практики) хранится в закрытом документе для сотрудников
 // (core/lesson-store.js); ход занятия — поле `lesson` документа входной комнаты.
 import { normalizeTask, validateTask, emptyTask, TEAMS } from "./practical.js";
+import { sanitizeBattlePreset, DEFAULT_BATTLE_SETTINGS } from "./battle-logic.js";
 
 export const PLAN_VERSION = 1;
 export const STAGES = Object.freeze(["material", "entry_test", "battle", "practical", "final_test", "report"]);
@@ -37,6 +38,9 @@ export function emptyPlan() {
     entryTestId: "", entryTestTitle: "",
     finalTestId: "", finalTestTitle: "",
     stages: { material: true, entry_test: true, battle: true, practical: true, final_test: true },
+    // Параметры Battle (как на экране запуска Live): набор вопросов (пусто — вопросы
+    // входного теста), число вопросов и время на вопрос.
+    battle: { battleTestId: "", questionCount: DEFAULT_BATTLE_SETTINGS.questionCount, questionSeconds: DEFAULT_BATTLE_SETTINGS.questionSeconds },
     tasks: { a: emptyTask(), b: emptyTask() },
     grading: { weights: { ...DEFAULT_GRADING.weights }, thresholds: { ...DEFAULT_GRADING.thresholds } }
   };
@@ -58,6 +62,7 @@ export function normalizePlan(raw) {
     entryTestId: clip(raw.entryTestId, 120), entryTestTitle: clip(raw.entryTestTitle, 160),
     finalTestId: clip(raw.finalTestId, 120), finalTestTitle: clip(raw.finalTestTitle, 160),
     stages,
+    battle: { battleTestId: "", ...sanitizeBattlePreset(raw.battle || {}) },
     tasks: { a: normalizeTask(raw.tasks?.a), b: normalizeTask(raw.tasks?.b) },
     grading: {
       weights: { entry: weight("entry"), battle: weight("battle"), practical: weight("practical"), final: weight("final") },

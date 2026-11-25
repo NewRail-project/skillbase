@@ -130,3 +130,14 @@ test("ход занятия хранит снимок оценки и назва
   assert.equal(rp.entryTestTitle, "Вход");
   assert.deepEqual(rp.stages, run.stages);
 });
+
+test("параметры Battle: по умолчанию как в Live, значения зажимаются в пределы", () => {
+  const d = emptyPlan().battle;
+  assert.deepEqual(d, { battleTestId: "", questionCount: 10, questionSeconds: 30 });
+  const p = normalizePlan({ battle: { battleTestId: "T2", questionCount: 9999, questionSeconds: 1 } });
+  assert.equal(p.battle.battleTestId, "T2");
+  assert.ok(p.battle.questionCount <= 60 && p.battle.questionCount >= 1);
+  assert.ok(p.battle.questionSeconds >= 5);
+  assert.equal(normalizePlan({ battle: { battleTestId: "a/b" } }).battle.battleTestId, "", "небезопасный id отброшен");
+  assert.equal(normalizePlan(null).battle.questionCount, 10);
+});

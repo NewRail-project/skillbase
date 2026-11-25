@@ -88,6 +88,11 @@ export async function startLesson({ planId, plan, test, profile }) {
     test, profile,
     allowObservers: true,
     battleEnabled: p.stages.battle === true,
+    // Те же параметры Battle, что на экране запуска Live: набор вопросов, число
+    // вопросов и время. createRoom очищает значения; панель подготовки Battle в
+    // комнате по-прежнему позволяет их изменить. Банки ничьих берутся из теста
+    // комнаты (room.js: loadBattleSet) — они работают так же, как в обычной Live.
+    battleSettings: p.stages.battle === true ? p.battle : null,
     lesson: run
   });
   return code;

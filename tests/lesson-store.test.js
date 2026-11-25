@@ -220,3 +220,19 @@ test("сохранение плана: невалидный план не пиш
   assert.match(lesson.lessonErrorText({ code: "permission-denied" }), /Нет прав/);
   assert.ok(!/permission-denied/.test(lesson.lessonErrorText({ code: "permission-denied" })));
 });
+
+test("запуск занятия: параметры Battle из сценария уходят в createRoom; без Battle — нет", async () => {
+  const seen = [];
+  globalThis.__SB.createRoomImpl = async (args) => { seen.push(args); return "KLMN22"; };
+  const test1 = { id: "e", status: "published", questions: [{ id: "q" }] };
+  const withBattle = normalizePlan({ ...plan, battle: { battleTestId: "BANK2", questionCount: 12, questionSeconds: 45 } });
+  await lesson.startLesson({ planId: "P1", plan: withBattle, test: test1, profile: globalThis.__SB.profile });
+  assert.equal(seen[0].battleEnabled, true);
+  assert.deepEqual(seen[0].battleSettings, { battleTestId: "BANK2", questionCount: 12, questionSeconds: 45 });
+  assert.equal(seen[0].lesson.planId, "P1");
+  const noBattle = normalizePlan({ ...plan, stages: { material: true, entry_test: true, battle: false, practical: false, final_test: true } });
+  await lesson.startLesson({ planId: "P2", plan: noBattle, test: test1, profile: globalThis.__SB.profile });
+  assert.equal(seen[1].battleEnabled, false);
+  assert.equal(seen[1].battleSettings, null);
+  delete globalThis.__SB.createRoomImpl;
+});
