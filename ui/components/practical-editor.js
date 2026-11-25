@@ -27,7 +27,8 @@ export function buildPracticalEditor({ team = "a", task = null, onChange = () =>
   desc.value = state.description;
   const colsBox = h("div", { class: "pe-cols", role: "group", "aria-label": `Заголовки столбцов, команда ${teamName}` });
   const rowsBox = h("div", { class: "pe-rows" });
-  const emit = () => onChange(normalizeTask(state));
+  let refreshModeBtn = () => {};
+  const emit = () => { refreshModeBtn(); onChange(normalizeTask(state)); };
 
   title.addEventListener("input", () => { state.title = title.value; emit(); });
   desc.addEventListener("input", () => { state.description = desc.value; emit(); });
@@ -114,19 +115,107 @@ export function buildPracticalEditor({ team = "a", task = null, onChange = () =>
   function repaint() { paintCols(); repaintRows(); }
   repaint();
 
+  // ---------- Простой режим: «как обычный вопрос» ----------
+  // Столбец с названием и столбец с ответом (число, слово или фраза). Без
+  // выбора типа ячеек и числа столбцов — именно так таблицу и нужно
+  // заполнять в большинстве занятий. Модель данных та же.
+  const isSimple = (t) => t.columns.length === 2
+    && t.rows.every(r => r.length === 2 && r[0].t === "label" && r[1].t === "answer");
+  let mode = isSimple(state) ? "simple" : "advanced";
+
+  const SIMPLE_TYPES = { text: "Слово или фраза", number: "Число", manual: "Проверю сам" };
+  const headLabel = input(state.columns[0], { id: `${idp}-h0`, maxlength: String(LIMITS.maxCell) });
+  const headAnswer = input(state.columns[1] || "", { id: `${idp}-h1`, maxlength: String(LIMITS.maxCell) });
+  headLabel.addEventListener("input", () => { state.columns[0] = headLabel.value; emit(); });
+  headAnswer.addEventListener("input", () => { state.columns[1] = headAnswer.value; emit(); });
+  const simpleRows = h("div", { class: "pe-simple-rows" });
+
+  function paintSimple() {
+    headLabel.value = state.columns[0] ?? "";
+    headAnswer.value = state.columns[1] ?? "";
+    simpleRows.replaceChildren(
+      ...state.rows.map((row, r) => {
+        const label = row[0];
+        const ans = row[1];
+        const name = input(label.text, { "aria-label": `Строка ${r + 1}: название`, placeholder: "Название (например, «Номер датчика»)", maxlength: String(LIMITS.maxCell) });
+        name.addEventListener("input", () => { label.text = name.value; emit(); });
+        const type = h("select", { "aria-label": `Строка ${r + 1}: тип ответа` },
+          ...Object.entries(SIMPLE_TYPES).map(([v, l]) => h("option", { value: v, selected: v === ans.mode }, l)));
+        type.addEventListener("change", () => { ans.mode = type.value; if (ans.mode === "manual") ans.accept = []; paintSimple(); emit(); });
+        const parts = [h("label", { class: "pe-mini" }, "Название", name), h("label", { class: "pe-mini" }, "Тип ответа", type)];
+        if (ans.mode !== "manual") {
+          const expected = input((ans.accept || []).join("; "), {
+            "aria-label": `Строка ${r + 1}: правильный ответ`,
+            placeholder: ans.mode === "number" ? "Число, например 12,5" : "Слово или фраза; другой допустимый вариант"
+          });
+          expected.addEventListener("input", () => { ans.accept = expected.value.split(";").map(x => x.trim()).filter(Boolean); emit(); });
+          parts.push(h("label", { class: "pe-mini" }, ans.mode === "number" ? "Правильный ответ (число)" : "Правильный ответ (варианты через «;»)", expected));
+        } else {
+          parts.push(h("p", { class: "form-hint" }, "Ответ проверите вы сами при подведении итогов."));
+        }
+        if (ans.mode === "number") {
+          const tol = input(ans.tolerance ?? "", { inputmode: "decimal", "aria-label": `Строка ${r + 1}: допуск` });
+          tol.addEventListener("input", () => { const n = Number(String(tol.value).replace(",", ".")); ans.tolerance = Number.isFinite(n) && n > 0 ? n : undefined; emit(); });
+          const unit = input(ans.unit ?? "", { "aria-label": `Строка ${r + 1}: единица измерения`, maxlength: "20", placeholder: "В, А, мм…" });
+          unit.addEventListener("input", () => { ans.unit = unit.value; emit(); });
+          parts.push(h("div", { class: "pe-pair" }, h("label", { class: "pe-mini" }, "Допуск ± (необязательно)", tol), h("label", { class: "pe-mini" }, "Единица (необязательно)", unit)));
+        }
+        const del = h("button", {
+          type: "button", class: "btn secondary btn-sm", disabled: state.rows.length <= 1, "aria-label": `Удалить строку ${r + 1}`,
+          onclick: () => { state.rows.splice(r, 1); paintSimple(); emit(); }
+        }, "Удалить строку");
+        return h("fieldset", { class: "pe-row pe-simple-row" }, h("legend", {}, `Строка ${r + 1}`), ...parts, del);
+      }),
+      h("button", {
+        type: "button", class: "btn secondary", disabled: state.rows.length >= LIMITS.maxRows,
+        onclick: () => { state.rows.push([{ t: "label", text: "" }, { t: "answer", mode: "text", accept: [], points: 1 }]); paintSimple(); emit(); }
+      }, "＋ Строка"));
+  }
+
+  const simpleBox = h("div", { class: "pe-simple" },
+    h("div", { class: "pe-pair" },
+      h("label", { class: "pe-mini", for: `${idp}-h0` }, "Заголовок столбца с названием", headLabel),
+      h("label", { class: "pe-mini", for: `${idp}-h1` }, "Заголовок столбца с ответом", headAnswer)),
+    simpleRows);
+  const advancedBox = h("div", { class: "pe-advanced" },
+    h("div", { class: "pe-field" }, h("b", {}, "Столбцы"), colsBox),
+    h("div", { class: "pe-field" }, h("b", {}, "Строки"), rowsBox));
+  const modeBtn = h("button", { type: "button", class: "btn secondary btn-sm", "data-action": "mode" }, "");
+  const modeHint = h("p", { class: "form-hint", role: "status" }, "");
+
+  // Кнопка режима и подсказка пересчитываются при любой правке: удалили лишний
+  // столбец — вернуться к простому виду сразу можно.
+  refreshModeBtn = () => {
+    const canSimple = isSimple(normalizeTask(state));
+    modeBtn.textContent = mode === "simple" ? "Расширенная таблица (несколько столбцов)" : "Вернуться к простой таблице";
+    modeBtn.disabled = mode === "advanced" && !canSimple;
+    modeHint.textContent = mode === "advanced" && !canSimple
+      ? "В таблице больше двух столбцов или особые ячейки: простой вид недоступен." : "";
+  };
+  function applyMode() {
+    simpleBox.hidden = mode !== "simple";
+    advancedBox.hidden = mode !== "advanced";
+    if (mode === "simple") paintSimple(); else repaint();
+    refreshModeBtn();
+  }
+  modeBtn.addEventListener("click", () => { mode = mode === "simple" ? "advanced" : "simple"; applyMode(); });
+
   const el = h("section", { class: "pe", "aria-label": `Задание команды ${teamName}` },
     h("h3", {}, `Задание команды ${teamName}`),
     h("label", { class: "pe-field", for: `${idp}-title` }, "Название задания", title),
     h("label", { class: "pe-field", for: `${idp}-desc` }, "Описание", desc),
-    h("div", { class: "pe-field" }, h("b", {}, "Столбцы"), colsBox),
-    h("div", { class: "pe-field" }, h("b", {}, "Строки"), rowsBox));
+    simpleBox, advancedBox,
+    h("div", { class: "btn-row" }, modeBtn), modeHint);
+  applyMode();
 
   return {
     el,
     getTask: () => normalizeTask(state),
     setTask(next) {
       state = normalizeTask(next);
-      title.value = state.title; desc.value = state.description; repaint();
+      title.value = state.title; desc.value = state.description;
+      mode = isSimple(state) ? "simple" : "advanced";
+      applyMode();
     }
   };
 }

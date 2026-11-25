@@ -22,7 +22,8 @@ const { splitTask, evaluateSubmission, compareTeams } = await import("../core/pr
 test("редактор: преподаватель строит свою таблицу — столбцы, строки, ответы, режимы", () => {
   const changes = [];
   const ed = buildPracticalEditor({ team: "a", task: null, onChange: t => changes.push(t) });
-  const inputsOf = () => findAll(ed.el, e => e.tag === "input");
+  // По умолчанию — простой вид; сложную таблицу включает кнопка режима.
+  findOne(ed.el, e => e.tag === "button" && e.getAttribute("data-action") === "mode").click();
   // Название и описание.
   const title = findOne(ed.el, e => e.attrs.id === "pe-a-title");
   title.value = "Диагностика датчика"; title.dispatch("input");
@@ -55,6 +56,7 @@ test("редактор: преподаватель строит свою таб�
 
 test("редактор: нельзя удалить последний столбец и последнюю строку; setTask подменяет данные", () => {
   const ed = buildPracticalEditor({ team: "b" });
+  findOne(ed.el, e => e.tag === "button" && e.getAttribute("data-action") === "mode").click();
   const delCol = findAll(ed.el, e => e.tag === "button" && /Удалить столбец/.test(e.attrs["aria-label"] || ""));
   assert.equal(delCol.length, 2);
   delCol[1].click();
@@ -64,6 +66,73 @@ test("редактор: нельзя удалить последний стол�
   ed.setTask({ title: "Другое", columns: ["x", "y"], rows: [[{ t: "label", text: "a" }, { t: "answer", mode: "text", accept: ["1"] }]] });
   assert.equal(ed.getTask().title, "Другое");
   assert.equal(findOne(ed.el, e => e.attrs.id === "pe-b-title").value, "Другое");
+});
+
+test("простая таблица: название — число или слово, как обычный вопрос", () => {
+  const changes = [];
+  const ed = buildPracticalEditor({ team: "a", onChange: t => changes.push(t) });
+  const q = (frag) => findOne(ed.el, e => e.tag === "input" && (e.attrs["aria-label"] || "").includes(frag));
+  const sel = (frag) => findOne(ed.el, e => e.tag === "select" && (e.attrs["aria-label"] || "").includes(frag));
+  assert.ok(findOne(ed.el, e => e.className === "pe-simple"));
+  assert.equal(findOne(ed.el, e => e.className === "pe-simple").hidden, false);
+  assert.equal(findOne(ed.el, e => e.className === "pe-advanced").hidden, true);
+  // Строка 1: слово.
+  q("Строка 1: название").value = "Номер датчика"; q("Строка 1: название").dispatch("input");
+  q("Строка 1: правильный ответ").value = "датчик 4; Д4"; q("Строка 1: правильный ответ").dispatch("input");
+  // Строка 2: число с допуском и единицей.
+  findAll(ed.el, e => e.tag === "button" && /＋ Строка/.test(text(e)))[0].click();
+  q("Строка 2: название").value = "Показание прибора"; q("Строка 2: название").dispatch("input");
+  sel("Строка 2: тип ответа").value = "number"; sel("Строка 2: тип ответа").dispatch("change");
+  q("Строка 2: правильный ответ").value = "12,5"; q("Строка 2: правильный ответ").dispatch("input");
+  q("Строка 2: допуск").value = "0,1"; q("Строка 2: допуск").dispatch("input");
+  q("Строка 2: единица").value = "В"; q("Строка 2: единица").dispatch("input");
+  // Строка 3: проверит сам.
+  findAll(ed.el, e => e.tag === "button" && /＋ Строка/.test(text(e)))[0].click();
+  q("Строка 3: название").value = "Рекомендуемое действие"; q("Строка 3: название").dispatch("input");
+  sel("Строка 3: тип ответа").value = "manual"; sel("Строка 3: тип ответа").dispatch("change");
+  assert.match(text(ed.el), /проверите вы сами/);
+  assert.equal(q("Строка 3: правильный ответ"), null, "для ручной проверки ключа нет");
+  const t = ed.getTask();
+  assert.deepEqual(t.columns, ["Параметр", "Значение"]);
+  assert.deepEqual(t.rows.map(r => r[0].text), ["Номер датчика", "Показание прибора", "Рекомендуемое действие"]);
+  assert.deepEqual(t.rows[0][1], { t: "answer", mode: "text", accept: ["датчик 4", "Д4"], points: 1 });
+  assert.deepEqual([t.rows[1][1].mode, t.rows[1][1].accept, t.rows[1][1].tolerance, t.rows[1][1].unit], ["number", ["12,5"], 0.1, "В"]);
+  assert.equal(t.rows[2][1].mode, "manual");
+  assert.ok(changes.length >= 8);
+});
+
+test("простая таблица: заголовки столбцов, удаление строк, последняя строка не удаляется", () => {
+  const ed = buildPracticalEditor({ team: "b" });
+  const h0 = findOne(ed.el, e => e.attrs.id === "pe-b-h0");
+  h0.value = "Параметр"; h0.dispatch("input");
+  const h1 = findOne(ed.el, e => e.attrs.id === "pe-b-h1");
+  h1.value = "Ответ"; h1.dispatch("input");
+  assert.deepEqual(ed.getTask().columns, ["Параметр", "Ответ"]);
+  const del = () => findAll(ed.el, e => e.tag === "button" && /Удалить строку/.test(e.attrs["aria-label"] || ""));
+  assert.equal(del()[0].disabled, true);
+  findAll(ed.el, e => e.tag === "button" && /＋ Строка/.test(text(e)))[0].click();
+  assert.equal(del().length, 2);
+  del()[1].click();
+  assert.equal(ed.getTask().rows.length, 1);
+});
+
+test("режимы: сложная таблица открывается в расширенном виде, вернуться к простому можно только когда она простая", () => {
+  const complex = { title: "Т", columns: ["a", "b", "c"], rows: [[{ t: "label", text: "x" }, { t: "answer", mode: "text", accept: ["1"] }, { t: "answer", mode: "text", accept: ["2"] }]] };
+  const ed = buildPracticalEditor({ team: "a", task: complex });
+  assert.equal(findOne(ed.el, e => e.className === "pe-advanced").hidden, false);
+  const modeBtn = findOne(ed.el, e => e.tag === "button" && e.getAttribute("data-action") === "mode");
+  assert.equal(modeBtn.disabled, true);
+  assert.match(text(ed.el), /простой вид недоступен/);
+  // Убираем лишний столбец — простой вид снова доступен, данные сохраняются.
+  findAll(ed.el, e => e.tag === "button" && /Удалить столбец 3/.test(e.attrs["aria-label"] || ""))[0].click();
+  const btn2 = findOne(ed.el, e => e.tag === "button" && e.getAttribute("data-action") === "mode");
+  assert.equal(btn2.disabled, false);
+  btn2.click();
+  assert.equal(findOne(ed.el, e => e.className === "pe-simple").hidden, false);
+  assert.equal(findOne(ed.el, e => e.tag === "input" && (e.attrs["aria-label"] || "") === "Строка 1: название").value, "x");
+  // setTask подбирает режим сам.
+  ed.setTask(complex);
+  assert.equal(findOne(ed.el, e => e.className === "pe-advanced").hidden, false);
 });
 
 // ---------- отчёт ----------

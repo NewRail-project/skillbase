@@ -127,3 +127,10 @@
 .pr-progress { margin: 0; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .pr-draft summary { cursor: pointer; font-weight: 600; color: var(--text); }
 .pr-draft .pr-table-wrap { margin-top: var(--space-2); }
+.pe-simple { display: grid; gap: var(--space-3); min-width: 0; }
+.pe-simple-rows { display: grid; gap: var(--space-3); }
+.pe-simple-row { grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 720px) {
+  .pe-simple-row { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 2fr); align-items: end; }
+  .pe-simple-row legend, .pe-simple-row .pe-pair, .pe-simple-row .form-hint, .pe-simple-row > .btn { grid-column: 1 / -1; }
+}
