@@ -181,3 +181,25 @@ test("после перезагрузки ведущего ответ самос
   assert.equal(rec.teams.a.status, "resolved");
   assert.ok(rec.teams.a.points.total > 0, "очки не теряются после перезагрузки");
 });
+
+// Капитан передаёт право ответа команде голосованием (mode: "vote").
+test("капитан открывает голосование: раунд переходит в voting, голоса команды засчитываются", async () => {
+  const { game, choices, votes, rounds, roster } = setup();
+  await game.startNextQuestion();
+  // Команда B отвечает сама, раунд закроется, когда проголосует команда A.
+  choices[0] = { a: { mode: "vote" }, b: { mode: "self", selected: [1] } };
+  await game.syncCaptainChoices();
+  assert.equal(game.phase, "voting", "после решения капитана раунд в голосовании");
+  assert.equal(game.round.modes.a, "vote");
+  // Все участники команды A (включая капитана) голосуют за верный вариант.
+  const team = L.eligibleVoters(roster, "a");
+  // Хранилище голосов индексируется номером раунда.
+  votes[0] = Object.fromEntries(team.map(uid => [uid, { selected: [1] }]));
+  await game.refreshVoteCounts();
+  assert.equal(game.voted.a.voted, team.length, "счётчик «проголосовало» совпадает");
+  await game.autoStep();
+  assert.equal(rounds.length, 1, "раунд закрыт, когда команда проголосовала");
+  assert.equal(rounds[0].teams.a.mode, "vote");
+  assert.equal(rounds[0].teams.a.status, "resolved");
+  assert.ok(rounds[0].teams.a.points.total > 0, "голосование команды даёт очки");
+});
