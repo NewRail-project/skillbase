@@ -23,7 +23,8 @@ import {
   buildRoundRecord, eligibleVoters, eliminatePlayer, finishBattle,
   isGameComplete, needsSuddenDeath, resolveSuddenDeathRound, applySuddenDeathResult,
   pickExtraQuestion, ropePosition, captainTiebreakLeftMs, resolveTeamAnswer, votedCount,
-  isFullyCorrect, connectionState, isActivePlayer
+  isFullyCorrect, connectionState, isActivePlayer,
+  playerBattleFields, battleFieldChanges
 } from "./battle-logic.js";
 
 export const ROUND_STATES = {
@@ -75,6 +76,8 @@ export class BattleGame {
     this.events = [];
     this.voted = { a: { voted: 0, total: 0 }, b: { voted: 0, total: 0 } };
     this.lastExtra = null; // итог последнего решающего вопроса (для экранов)
+    // Поля игроков, уже записанные в players/{uid} (launch пишет их до создания игры).
+    this._fieldBase = playerBattleFields(this.state.roster);
   }
 
   get phase() { return this.state.phase; }
@@ -138,9 +141,23 @@ export class BattleGame {
   }
 
   // Публичная часть — БЕЗ правильных ответов и личных голосов.
+  // Выравнивает isCaptain/teamId/isReserve в players/{uid} с текущим составом.
+  // Идёт ДО публичного документа: когда новый капитан увидит себя в battle,
+  // правила уже разрешат ему писать решения. Ошибка прерывает публикацию —
+  // при следующей публикации изменения пишутся снова (запись идемпотентна).
+  async _syncPlayerFields() {
+    if (!this.store.savePlayerFields) return;
+    const next = playerBattleFields(this.state.roster);
+    for (const { uid, fields } of battleFieldChanges(this._fieldBase, next)) {
+      await this.store.savePlayerFields(uid, fields);
+    }
+    this._fieldBase = next;
+  }
+
   async _publish(extra = {}) {
     const r = this.round;
     const rs = this.state.roster;
+    await this._syncPlayerFields();
     await this.store.saveBattle({
       phase: this.state.phase,
       scores: this.state.scores,
@@ -228,7 +245,18 @@ export class BattleGame {
     let applied = 0;
     for (const id of TEAM_IDS) {
       const c = choices[id];
-      if (!c || r.modes[id]) continue;
+      if (!c) continue;
+      if (r.modes[id]) {
+        // Режим уже записан (например, ведущий перезагрузил страницу), а
+        // сам ответ капитана в памяти потерян: восстанавливаем его из решения.
+        if (r.modes[id] === "self" && !r.selfAnswers[id] && c.mode === "self"
+          && Array.isArray(c.selected) && c.selected.length) {
+          const at = Number.isFinite(c.atMs) ? c.atMs : this.now();
+          r.selfAnswers[id] = { selected: [...c.selected], answeredMs: Math.max(0, at - r.startedAt) };
+          applied++;
+        }
+        continue;
+      }
       try {
         if (await this.captainChoose(id, c, c.atMs)) applied++;
       } catch { /* некорректное решение игнорируется — капитан может не успеть */ }
@@ -299,6 +327,7 @@ export class BattleGame {
     if (done) return done; // повторное событие
     const votes = (await this.store.readVotes(r.index)) || {};
     const decisions = (await this.store.readDecisions?.(r.index)) || {};
+    const choices = (await this.store.readChoices?.(r.index)) || {};
     const tiebreakExpired = Boolean(r.tiebreakStartedAt) && this.tiebreakLeftMs() === 0;
     const teams = {};
     for (const id of TEAM_IDS) {
@@ -310,7 +339,9 @@ export class BattleGame {
       teams[id] = {
         teamId: id, mode, captainUid: this.state.roster.captains[id], eligible,
         votes: own,
-        captainSelected: r.selfAnswers[id]?.selected,
+        // Ответ самостоятельного капитана: из памяти, а после перезагрузки — из решения.
+        captainSelected: r.selfAnswers[id]?.selected
+          ?? (mode === "self" && choices[id]?.mode === "self" ? choices[id].selected : undefined),
         decisions: decisions[id] || {},
         tiebreakExpired,
         answeredMs: r.selfAnswers[id]?.answeredMs ?? Math.max(0, closeAt - r.startedAt),

@@ -402,6 +402,8 @@ export function createBattleStore(code) {
   const roomCode = validateCode(code);
   return {
     saveBattle: (patch) => updateBattle(roomCode, patch),
+    // Поля участника (капитан, команда, резерв) — правила разрешают ведущему в режиме битвы.
+    savePlayerFields: (uid, fields) => setPlayerBattleFields(roomCode, uid, fields),
     saveRound: (record) => saveBattleRound(roomCode, record),
     loadRounds: () => loadBattleRounds(roomCode),
     async readVotes(roundIndex) {

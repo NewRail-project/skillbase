@@ -134,7 +134,16 @@ export function toBattleQuestions({ questions = [], keys = [], count = null, ord
       errors.push(`Вопрос ${n}: нет вариантов ответа.`);
       return;
     }
-    all.push({ id: `q${i}`, src: i, type: key.type, optionCount: q.options.length, correct: Array.isArray(key.correct) ? [...key.correct] : [] });
+    // Текст и варианты кладём в публичный вопрос: иначе команды, наблюдатель и
+    // проектор достают их из своего локального теста и могут увидеть разное.
+    // Варианты — только строки (без признака правильности); ключ остаётся в battleKeys.
+    const options = q.options.map(o => (typeof o === "string" ? o : (o?.text ?? String(o))));
+    all.push({
+      id: `q${i}`, src: i, type: key.type, optionCount: q.options.length,
+      text: typeof q.text === "string" ? q.text : "",
+      options,
+      correct: Array.isArray(key.correct) ? [...key.correct] : []
+    });
   });
   let picked = all;
   if (order === "random") {

@@ -83,9 +83,12 @@ const testKeys = [
 
 test("вопросы теста: одиночные и множественные переходят, короткие — с ошибкой", () => {
   const { questions, errors } = toBattleQuestions({ questions: testQs, keys: testKeys });
+  // Текст и варианты публикуются вместе с вопросом (общий текст для всех клиентов).
   assert.deepEqual(questions, [
-    { id: "q0", src: 0, type: "single", optionCount: 3, correct: [1] },
-    { id: "q1", src: 1, type: "multiple", optionCount: 4, correct: [0, 2] }
+    { id: "q0", src: 0, type: "single", optionCount: 3, text: "",
+      options: testQs[0].options.map(o => (typeof o === "string" ? o : o.text)), correct: [1] },
+    { id: "q1", src: 1, type: "multiple", optionCount: 4, text: "",
+      options: testQs[1].options.map(o => (typeof o === "string" ? o : o.text)), correct: [0, 2] }
   ]);
   assert.equal(errors.length, 1);
   assert.match(errors[0], /Вопрос 3/);

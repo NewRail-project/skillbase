@@ -860,3 +860,44 @@ export function sanitizeBattlePreset(input = {}) {
   if (id && id.length <= 200 && !id.includes("/")) out.battleTestId = id;
   return out;
 }
+
+// ---------- Поля игроков для правил Firestore (teamId / isCaptain / isReserve) ----------
+// Правила разрешают капитану писать решения только если в players/{uid} стоит
+// isCaptain: true. Поэтому при каждой смене капитана или состава эти поля
+// нужно выровнять с публичным составом (battle.captains / teams / reserve).
+
+// Карта uid → поля для всех активных участников битвы (выбывшие не входят).
+export function playerBattleFields(roster) {
+  const map = new Map();
+  const out = new Set(roster?.eliminated || []);
+  for (const id of TEAM_IDS) {
+    for (const uid of roster?.teams?.[id] || []) {
+      if (out.has(uid)) continue;
+      map.set(uid, { teamId: id, isCaptain: roster.captains?.[id] === uid, isReserve: false });
+    }
+  }
+  for (const uid of roster?.reserve || []) {
+    if (out.has(uid)) continue;
+    map.set(uid, { teamId: RESERVE, isCaptain: false, isReserve: true });
+  }
+  return map;
+}
+
+// Что записать в players/{uid}: только изменившихся. Выбывший, у которого
+// прежде стояли isCaptain/isReserve, получает их сброшенными.
+export function battleFieldChanges(prev, next) {
+  const out = [];
+  const uids = new Set([...(prev?.keys() || []), ...next.keys()]);
+  for (const uid of uids) {
+    const p = prev?.get(uid);
+    const n = next.get(uid);
+    if (n) {
+      if (!p || p.teamId !== n.teamId || p.isCaptain !== n.isCaptain || p.isReserve !== n.isReserve) {
+        out.push({ uid, fields: { teamId: n.teamId, isCaptain: n.isCaptain, isReserve: n.isReserve } });
+      }
+    } else if (p && (p.isCaptain || p.isReserve)) {
+      out.push({ uid, fields: { isCaptain: false, isReserve: false } });
+    }
+  }
+  return out;
+}

@@ -62,6 +62,20 @@ export function buildBattleHost({ game, test, players = [], onToast = () => {}, 
     render();
   }
 
+  // Автопереход: после показа результата вопроса следующий запускается сам.
+  // Пауза AUTO_NEXT_MS даёт команде и наблюдателю увидеть итог. Двойной запуск
+  // исключён: шаг цикла не идёт параллельно (busy), а startNextQuestion сам
+  // отказывает, если фаза уже не READY/QUESTION_RESULT.
+  const AUTO_NEXT_MS = 4000;
+  let resultSeenAt = null;
+  async function maybeAutoNext() {
+    if (game.phase !== PHASES.QUESTION_RESULT || isGameComplete(game.state)) { resultSeenAt = null; return; }
+    if (resultSeenAt === null) { resultSeenAt = game.now(); return; }
+    if (game.now() - resultSeenAt < AUTO_NEXT_MS) return;
+    resultSeenAt = null;
+    await game.startNextQuestion();
+  }
+
   async function step() {
     if (busy) return;
     busy = true;
@@ -71,6 +85,7 @@ export function buildBattleHost({ game, test, players = [], onToast = () => {}, 
         for (const uid of gone) onToast(`Игрок ${nameOf(uid)} выбыл: нет связи.`, "info");
       }
       await game.autoStep();
+      await maybeAutoNext();
     } catch (err) { onToast(err?.message || "Ошибка хода игры.", "error"); }
     finally { busy = false; await afterAction(); }
   }
