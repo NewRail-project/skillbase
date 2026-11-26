@@ -10,6 +10,8 @@
 //   · счёт — анимированная смена числа;
 //   · статистика — ширина полос и подписи;
 //   · вопрос — пересборка только при смене раунда/статуса;
+//   · таймер — остаток времени раунда, цвет по порогам и «тик» цифр,
+//     звук окончания ровно один раз на раунд;
 //   · составы — пересборка только при смене состава или имён/аватаров.
 import { h } from "../../shared/dom.js";
 import { withSvg, avatarChip } from "./avatar.js";
@@ -19,6 +21,8 @@ import { battleSummaryView } from "./battle-summary-view.js";
 import { isFullyCorrect } from "../../core/battle-logic.js";
 import { createScoreFxTracker, limitEffects, teamStatus } from "../../core/score-fx.js";
 import { createScoreFxPlayer, animateNumber } from "./battle-fx.js";
+import { createBattleTimer } from "./battle-timer.js";
+import { play } from "../../shared/sound.js";
 
 const TEAMS = ["a", "b"];
 const TEAM_NAME = { a: "Команда А", b: "Команда Б" };
@@ -32,21 +36,19 @@ const EMBLEM = {
 };
 
 const fmtNum = formatScore; // один формат счёта на всех экранах (core/battle-summary.js)
-const fmtClock = (ms) => {
-  const s = Math.max(0, Math.ceil(ms / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-};
-const reducedMotion = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-const setVar = (el, k, v) => { if (el.style?.setProperty) el.style.setProperty(k, v); else if (el.style) el.style[k] = v; };
 
-// buildBattleScreen({ test, nameOf, avatarOf, now, title, controls })
+// buildBattleScreen({ test, nameOf, avatarOf, now, title, controls, playSound })
 //   avatarOf(uid) → "preset:<id>" | null
 //   controls — [{ label, onClick?, href?, kind }] в шапке (закрыть, назад)
-export function buildBattleScreen({ test, nameOf = (u) => u, avatarOf = () => null, now = () => Date.now(), title = "Режим Battle", controls = [], fullscreen = true }) {
+//   playSound — звуковой событийный слой (по умолчанию shared/sound.js: он
+//               уважает mute, гасит повторы и ждёт жеста пользователя)
+export function buildBattleScreen({ test, nameOf = (u) => u, avatarOf = () => null, now = () => Date.now(), title = "Режим Battle", controls = [], fullscreen = true, playSound = play }) {
   let battle = null;
   let questionKey = null;
   let rosterSig = null;
   let timer = null;
+  // Таймер раунда — общая реализация для всех видов (ui/components/battle-timer.js).
+  const roundTimer = createBattleTimer({ now, playSound });
   const numState = { a: {}, b: {} };
   // Эффекты начисления очков: трекер даёт только НОВЫЕ раунды (без повторов).
   const fxTracker = createScoreFxTracker();
@@ -99,11 +101,9 @@ export function buildBattleScreen({ test, nameOf = (u) => u, avatarOf = () => nu
     capEls[id] = { av, nm, key: null, card: h("div", { class: "bs-captain", "data-team": id },
       av, h("span", { class: "bs-cap-text" }, h("span", { class: "bs-cap-label" }, `Капитан ${id === "a" ? "А" : "Б"}`), nm)) };
   }
-  const timerNum = h("div", { class: "bs-timer-num" }, "");
-  const timerEl = h("div", { class: "bs-timer", role: "timer" }, timerNum);
   const scoreRow = h("div", { class: "bs-scoreboard" },
     h("div", { class: "bs-scorebox", "data-team": "a" }, h("span", { class: "bs-scorebox-label" }, TEAM_NAME.a), teamEls.a.score),
-    timerEl,
+    roundTimer.el,
     h("div", { class: "bs-scorebox", "data-team": "b" }, h("span", { class: "bs-scorebox-label" }, TEAM_NAME.b), teamEls.b.score));
   const questionBox = h("div", { class: "bs-question" });
 
@@ -253,17 +253,13 @@ export function buildBattleScreen({ test, nameOf = (u) => u, avatarOf = () => nu
     }
   }
 
+  // ---- таймер раунда: остаток, уровни цвета и звук — общая реализация ----
   function tick() {
-    const r = battle?.currentRound;
-    if (!r || r.status === "closed" || battle.phase === "finished") { timerNum.textContent = ""; setVar(timerEl, "--p", "0"); return; }
-    const total = r.status === "tiebreak" ? (battle.settings?.captainTiebreakSeconds ?? 15) : r.durationSec;
-    const ms = r.status === "tiebreak" && r.tiebreakStartedAt
-      ? r.tiebreakStartedAt + total * 1000 - now()
-      : r.startedAt + r.durationSec * 1000 - now();
-    const text = fmtClock(ms);
-    if (timerNum.textContent !== text) timerNum.textContent = text;
-    setVar(timerEl, "--p", String(Math.max(0, Math.min(100, Math.round((ms / (total * 1000)) * 100)))));
-    timerEl.setAttribute("data-urgent", ms <= 5000 ? "1" : "0");
+    roundTimer.update({
+      round: battle?.currentRound || null,
+      settings: battle?.settings || null,
+      phase: battle?.phase || null
+    });
   }
 
   const PHASE = { finished: "· финал", sudden_death: "· решающий раунд" };

@@ -2095,11 +2095,8 @@ function hostView() {
           Number(currentId) + 1 >= (room.questionCount || questions.length)
             ? h("button", {
                 type: "button", class: "btn secondary",
-                onclick: () => {
-                  closeRoom(local.code).then(() => toast("Комната закрыта", "success"))
-                    .catch(err => toast("Не удалось закрыть комнату", "error"));
-                }
-              }, "Завершить комнату")
+                onclick: () => guardFinishLive()
+              }, "Завершить и сохранить Live")
             : null
         )
       ));

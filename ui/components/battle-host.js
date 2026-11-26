@@ -5,6 +5,7 @@
 import { h } from "../../shared/dom.js";
 import { buildRope } from "./battle-rope.js";
 import { battleQuestionContent } from "./battle-play.js";
+import { createBattleTimer } from "./battle-timer.js";
 import { PHASES, isGameComplete, isActivePlayer } from "../../core/battle-logic.js";
 
 const PHASE_LABEL = {
@@ -26,13 +27,14 @@ export function buildBattleHost({ game, test, players = [], onToast = () => {}, 
   const nameOf = (uid) => players.find((p) => p.uid === uid)?.displayName || uid;
   const rope = buildRope(game.rope());
   const body = h("div", { class: "battle-body" });
-  const timerEl = h("div", { class: "battle-timer" }, "");
+  // Таймер раунда — та же реализация, что у участника и экрана наблюдателя.
+  const roundTimer = createBattleTimer({ now: () => game.now(), className: "bs-timer battle-timer" });
   const scoreA = h("div", { class: "battle-score" }, "0");
   const scoreB = h("div", { class: "battle-score" }, "0");
   const el = h("div", { class: "battle-view battle-host" },
     h("div", { class: "battle-head" },
       h("div", { class: "battle-team", "data-team": "a" }, h("div", {}, "Команда A"), scoreA),
-      timerEl,
+      roundTimer.el,
       h("div", { class: "battle-team", "data-team": "b" }, h("div", {}, "Команда B"), scoreB)),
     rope.el, body);
 
@@ -91,13 +93,17 @@ export function buildBattleHost({ game, test, players = [], onToast = () => {}, 
   }
 
   function tick() {
-    const r = game.round;
-    if (!r || game.phase === PHASES.QUESTION_RESULT || game.phase === PHASES.FINISHED) { timerEl.textContent = ""; return; }
-    const ms = game.phase === PHASES.CAPTAIN_TIEBREAK
-      ? game.tiebreakLeftMs()
-      : r.startedAt + game.state.settings.questionSeconds * 1000 - game.now();
-    const s = Math.max(0, Math.ceil(ms / 1000));
-    timerEl.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    // Статус раунда для общего таймера выводится из фазы — как раньше:
+    // результат вопроса скрывает цифры, спор капитанов идёт по своему отсчёту.
+    const status = game.phase === PHASES.QUESTION_RESULT ? "closed"
+      : game.phase === PHASES.CAPTAIN_TIEBREAK ? "tiebreak"
+        : null;
+    roundTimer.update({
+      round: game.round,
+      settings: game.state.settings,
+      status,
+      phase: game.phase
+    });
   }
 
   function teamLine(id) {

@@ -94,6 +94,122 @@ test("экран Battle: замена и выбывание отражаются
   s.destroy();
 });
 
+// ---------- Таймер в режиме просмотра ----------
+
+const hasClass = (el, name) => String(el.className || "").split(/\s+/).includes(name);
+const timerElOf = (root) => findAll(root, (e) => hasClass(e, "bs-timer"))[0];
+const digitsOf = (root) => findAll(root, (e) => hasClass(e, "bs-timer-num"))[0];
+
+test("экран Battle: таймер показывает остаток раунда и меняет цвет по порогам", () => {
+  let clock = NOW;
+  const s = buildBattleScreen({ test: TEST, now: () => clock });
+  // Раунд: 30 с, прошло 5 с → остаток 0:25, обычный цвет.
+  s.update(battle());
+  assert.equal(digitsOf(s.el).textContent, "0:25");
+  assert.equal(timerElOf(s.el).getAttribute("data-level"), null);
+  // Последняя треть (8 с) — предупреждение.
+  clock = NOW + 17000;
+  s.update(battle());
+  assert.equal(digitsOf(s.el).textContent, "0:08");
+  assert.equal(timerElOf(s.el).getAttribute("data-level"), "warn");
+  // Последние 10 % (1 с) — критический уровень.
+  clock = NOW + 24000;
+  s.update(battle());
+  assert.equal(digitsOf(s.el).textContent, "0:01");
+  assert.equal(timerElOf(s.el).getAttribute("data-level"), "crit");
+  // Ноль: «0:00» и кольцо обнулено только по значению, без лишних записей.
+  clock = NOW + 25000;
+  s.update(battle());
+  assert.equal(digitsOf(s.el).textContent, "0:00");
+  assert.equal(timerElOf(s.el).getAttribute("data-level"), "crit");
+  s.destroy();
+});
+
+test("экран Battle: смена цифр запускает «тик» один раз на изменение", () => {
+  let clock = NOW;
+  const s = buildBattleScreen({ test: TEST, now: () => clock });
+  s.update(battle());
+  const num = digitsOf(s.el);
+  const frames = [];
+  num.animate = (keyframes, opts) => { frames.push({ keyframes, opts }); return {}; };
+  clock = NOW + 1000;
+  s.update(battle());            // 0:25 → 0:24
+  assert.equal(frames.length, 1, "анимация на смену цифр");
+  assert.equal(frames[0].opts.duration, 320);
+  s.update(battle());            // те же цифры — без анимации и мерцания
+  assert.equal(frames.length, 1, "без смены цифр анимации нет");
+  s.destroy();
+});
+
+test("экран Battle: звук окончания — один раз на раунд, повторные обновления молчат", () => {
+  let clock = NOW;
+  const sounds = [];
+  const s = buildBattleScreen({ test: TEST, now: () => clock, playSound: (name) => sounds.push(name) });
+  s.update(battle());
+  assert.deepEqual(sounds, [], "во время отсчёта тишина");
+  clock = NOW + 25000;           // время вышло
+  s.update(battle());
+  s.update(battle());            // повторное получение состояния
+  const again = battle();
+  again.currentRound = { ...again.currentRound, voted: { a: { voted: 3, total: 3 }, b: { voted: 3, total: 3 } } };
+  s.update(again);               // обновление интерфейса
+  assert.deepEqual(sounds, ["roundEnd"], "ровно один звук на раунд");
+
+  // Следующий раунд: таймер сбрасывается, звук снова ждёт ноль.
+  clock = NOW + 30000;
+  const next = battle({ currentRound: { ...battle().currentRound, index: 1, questionId: "q1", startedAt: clock } });
+  s.update(next);
+  assert.equal(digitsOf(s.el).textContent, "0:30", "таймер нового раунда сброшен");
+  assert.equal(timerElOf(s.el).getAttribute("data-level"), null);
+  assert.equal(sounds.length, 1);
+  clock = NOW + 60000;           // время второго раунда вышло
+  s.update(next);
+  assert.deepEqual(sounds, ["roundEnd", "roundEnd"]);
+  s.destroy();
+});
+
+test("экран Battle: раунд, закрытый до конца времени, звука не даёт", () => {
+  let clock = NOW;
+  const sounds = [];
+  const s = buildBattleScreen({ test: TEST, now: () => clock, playSound: (name) => sounds.push(name) });
+  s.update(battle());
+  const closed = () => battle({ phase: "question_result", currentRound: { ...battle().currentRound, status: "closed" } });
+  clock = NOW + 6000;            // все ответили на 19-й секунде
+  s.update(closed());
+  clock = NOW + 30000;           // срок истёк, но раунд был закрыт раньше
+  s.update(closed());
+  assert.deepEqual(sounds, [], "раунд закончился до нуля — тишина");
+  s.destroy();
+});
+
+test("экран Battle: таймаут, замеченный уже после закрытия раунда, — один звук", () => {
+  let clock = NOW;
+  const sounds = [];
+  const s = buildBattleScreen({ test: TEST, now: () => clock, playSound: (name) => sounds.push(name) });
+  s.update(battle());
+  clock = NOW + 26000;           // ведущий успел закрыть раунд по таймауту
+  const closed = battle({ phase: "question_result", currentRound: { ...battle().currentRound, status: "closed" } });
+  s.update(closed);
+  s.update(closed);
+  assert.deepEqual(sounds, ["roundEnd"], "звук окончания сыгран ровно один раз");
+  s.destroy();
+});
+
+test("участник: тот же таймер раунда — остаток, уровни цвета и пусто после закрытия", () => {
+  let clock = NOW;
+  const v = buildBattlePlay({ uid: "a1", test: TEST, now: () => clock, api: {} });
+  v.update(battle());                                  // остаток 0:25
+  assert.equal(digitsOf(v.el).textContent, "0:25");
+  assert.equal(timerElOf(v.el).getAttribute("data-level"), null);
+  clock = NOW + 24000;                                 // последняя секунда
+  v.update(battle());
+  assert.equal(digitsOf(v.el).textContent, "0:01");
+  assert.equal(timerElOf(v.el).getAttribute("data-level"), "crit");
+  v.update(battle({ phase: "question_result", currentRound: { ...battle().currentRound, status: "closed" } }));
+  assert.equal(digitsOf(v.el).textContent, "", "результат раунда скрывает цифры");
+  v.destroy();
+});
+
 // ---------- Участник ----------
 
 test("участник: голос можно изменить до закрытия, правильный ответ и распределение не видны", async () => {

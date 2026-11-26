@@ -10,6 +10,7 @@ import { createScoreFxTracker, limitEffects, teamStatus } from "../../core/score
 import { createScoreFxPlayer, animateNumber } from "./battle-fx.js";
 import { buildBattleSummary, outcomeOf, scoreLine } from "../../core/battle-summary.js";
 import { battleSummaryView } from "./battle-summary-view.js";
+import { createBattleTimer } from "./battle-timer.js";
 
 export function roleInBattle(battle, uid) {
   if (!battle || !uid) return { role: "viewer", teamId: null };
@@ -45,11 +46,6 @@ export function battleQuestionContent(test, qMeta) {
   return { text: q?.text || "Вопрос без текста", options };
 }
 
-const fmt = (ms) => {
-  const s = Math.max(0, Math.ceil(ms / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-};
-
 export function buildBattlePlay({ uid, test, api, onToast = () => {}, now = () => Date.now(), nameOf = (u) => u }) {
   let battle = null;
   let roundKey = null; // индекс раунда + статус: сбрасывает локальный выбор
@@ -59,7 +55,9 @@ export function buildBattlePlay({ uid, test, api, onToast = () => {}, now = () =
   let tbOptions = {};
   let busy = false;
 
-  const timerEl = h("div", { class: "battle-timer", "aria-live": "off" }, "");
+  // Таймер раунда — общая реализация со экраном наблюдателя и ведущим
+  // (ui/components/battle-timer.js): остаток, «тик», цвет, звук окончания.
+  const roundTimer = createBattleTimer({ now, className: "bs-timer battle-timer" });
   const scoreA = h("div", { class: "battle-score" }, "0");
   const scoreB = h("div", { class: "battle-score" }, "0");
   const capA = h("div", { class: "battle-status" }, "");
@@ -74,7 +72,7 @@ export function buildBattlePlay({ uid, test, api, onToast = () => {}, now = () =
   const fxLayer = h("div", { class: "bs-fx-layer", "aria-hidden": "true" });
   const rope = buildRope(0);
   const body = h("div", { class: "battle-body" });
-  const el = h("div", { class: "battle-view battle-play" }, h("div", { class: "battle-head" }, teamA, timerEl, teamB), rope.el, body, fxLayer);
+  const el = h("div", { class: "battle-view battle-play" }, h("div", { class: "battle-head" }, teamA, roundTimer.el, teamB), rope.el, body, fxLayer);
   const fxPlayer = createScoreFxPlayer({ layer: fxLayer, scoreOf: (t) => (t === "a" ? scoreA : scoreB), panelOf: (t) => (t === "a" ? teamA : teamB) });
   const paintScores = (b) => {
     animateNumber(scoreA, Number(b.scores?.a) || 0, numState.a);
@@ -92,18 +90,12 @@ export function buildBattlePlay({ uid, test, api, onToast = () => {}, now = () =
   const info = () => roleInBattle(battle, uid);
   const cr = () => battle?.currentRound || null;
 
-  function leftMs() {
-    const r = cr();
-    if (!r) return 0;
-    if (r.status === "tiebreak" && r.tiebreakStartedAt) {
-      return r.tiebreakStartedAt + (battle.settings?.captainTiebreakSeconds ?? 15) * 1000 - now();
-    }
-    if (r.status === "closed") return 0;
-    return r.startedAt + r.durationSec * 1000 - now();
-  }
   function tick() {
-    const r = cr();
-    timerEl.textContent = r && r.status !== "closed" ? fmt(leftMs()) : "";
+    roundTimer.update({
+      round: cr(),
+      settings: battle?.settings || null,
+      phase: battle?.phase || null
+    });
   }
 
   async function run(fn, okMessage) {

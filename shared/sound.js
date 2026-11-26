@@ -34,7 +34,9 @@ export const SOUND_DEFS = {
   final: {
     kind: "tone", dur: 400, wave: "sine", gain: 0.14,
     chord: [784, 988, 1175]
-  }
+  },
+  // Конец отсчёта раунда Battle: короткий звонок «дзынь» (две ноты, затухание).
+  roundEnd: { kind: "tone", dur: 300, wave: "sine", gain: 0.16, chord: [880, 1319] }
 };
 
 // Паттерны вибрации.
@@ -85,7 +87,10 @@ export function ensureAudio() {
     if (!Ctor) return null;
     ctx = ctx || new Ctor();
     if (ctx.state === "suspended") {
-      try { ctx.resume(); } catch (err) { /* resume может отклониться */ }
+      // resume() без жеста пользователя (autoplay) может вернуть
+      // отклонённый промис — глушим его, чтобы не ломать игру.
+      try { const p = ctx.resume(); if (p && typeof p.catch === "function") p.catch(() => {}); }
+      catch (err) { /* resume может отклониться */ }
     }
   } catch (err) {
     ctx = null;

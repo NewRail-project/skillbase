@@ -219,6 +219,27 @@ test("ведущий: старт вопроса → автошаг закрыв�
   host.stop();
 });
 
+test("ведущий: тот же таймер раунда — остаток, уровни цвета и пустые цифры на результате", async () => {
+  const { game, tick } = hostSetup();
+  const host = buildBattleHost({ game, test: TEST, players: [], confirmFn: () => true });
+  const hasClass = (el, name) => String(el.className || "").split(/\s+/).includes(name);
+  const timer = () => findAll(host.el, (e) => hasClass(e, "bs-timer"))[0];
+  const digits = () => findAll(host.el, (e) => hasClass(e, "bs-timer-num"))[0];
+  await game.startNextQuestion();
+  host.render();
+  assert.equal(digits().textContent, "0:30", "остаток берётся из настроек игры");
+  assert.equal(timer().getAttribute("data-level"), null);
+  tick(28000);                  // осталось 2 с — критический уровень
+  host.render();
+  assert.equal(digits().textContent, "0:02");
+  assert.equal(timer().getAttribute("data-level"), "crit");
+  await game.closeRound();
+  host.render();
+  assert.equal(digits().textContent, "", "результат вопроса скрывает цифры");
+  assert.equal(timer().getAttribute("data-level"), null);
+  host.stop();
+});
+
 test("ведущий: ручное выбытие игрока работает и повтор безопасен", async () => {
   const { game, roster } = hostSetup();
   const host = buildBattleHost({ game, test: TEST, players: [], confirmFn: () => true });

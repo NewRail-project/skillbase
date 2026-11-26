@@ -28,7 +28,8 @@ html[data-ui="workforce"][data-theme="dark"] { --team-a: #7DB8EC; --team-b: #F2A
 .battle-team[data-team="b"] { border-color: var(--team-b); background: var(--team-b-soft); text-align: right; }
 .battle-team .battle-score { font-size: 1.6rem; font-weight: 700; line-height: 1.1; }
 .battle-team[data-mine="true"] { box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 25%, transparent); }
-.battle-timer { font-variant-numeric: tabular-nums; font-size: 1.4rem; font-weight: 700; min-width: 3.5ch; text-align: center; }
+/* :not(.bs-timer) — круглый таймер общий для всех видов, ему своя типографика. */
+.battle-timer:not(.bs-timer) { font-variant-numeric: tabular-nums; font-size: 1.4rem; font-weight: 700; min-width: 3.5ch; text-align: center; }
 
 .battle-rope { position: relative; height: 2.2rem; border-radius: 999px; overflow: hidden; border: 1px solid var(--border);
   background: linear-gradient(90deg, var(--team-a-soft) 50%, var(--team-b-soft) 50%); }
@@ -612,14 +613,30 @@ html[data-ui="workforce"][data-theme="dark"] { --team-a: #7DB8EC; --team-b: #F2A
 .bs-score { font-size: clamp(2.2rem, 5.2vw, 6rem); font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; transition: color .3s ease; }
 .bs-score[data-bump] { animation: bs-bump .7s ease; }
 @keyframes bs-bump { 0% { transform: scale(1); } 35% { transform: scale(1.08); } 100% { transform: scale(1); } }
+/* Таймер раунда: на экране наблюдателя/проектора (.bs) — палитра экрана,
+   в обычной комнате и у ведущего — токены активной темы. */
 .bs-timer {
-  --p: 0; display: grid; place-items: center; width: clamp(4rem, 8vw, 8rem); aspect-ratio: 1; border-radius: 50%;
-  background: conic-gradient(var(--bs-a) calc(var(--p) * 1%), var(--bs-line) 0);
+  --p: 0;
+  --bs-timer-ring: var(--bs-a, var(--accent));
+  --bs-timer-line: var(--bs-line, var(--border));
+  --bs-timer-bg: var(--bs-bg, var(--bg));
+  --bs-timer-ink: var(--bs-text, var(--text));
+  --bs-timer-warn: var(--warn);
+  --bs-timer-crit: var(--danger);
+  display: grid; place-items: center; justify-self: center;
+  width: clamp(4rem, 8vw, 8rem); aspect-ratio: 1; border-radius: 50%;
+  background: conic-gradient(var(--bs-timer-ring) calc(var(--p) * 1%), var(--bs-timer-line) 0);
   position: relative;
 }
-.bs-timer::before { content: ""; position: absolute; inset: 7%; border-radius: 50%; background: var(--bs-bg); }
-.bs-timer-num { position: relative; font-weight: 800; font-size: 1.3em; font-variant-numeric: tabular-nums; }
-.bs-timer[data-urgent="1"] .bs-timer-num { color: #FF8A7A; }
+.bs .bs-timer { --bs-timer-warn: #F5A25B; --bs-timer-crit: #FF8A7A; }
+.bs-timer::before { content: ""; position: absolute; inset: 7%; border-radius: 50%; background: var(--bs-timer-bg); }
+.bs-timer-num { position: relative; font-weight: 800; font-size: 1.3em; font-variant-numeric: tabular-nums;
+  color: var(--bs-timer-ink); transition: color .5s ease; }
+/* Остаток времени: обычный → предупреждение (последняя треть) → критический. */
+.bs-timer[data-level="warn"] .bs-timer-num { color: var(--bs-timer-warn); }
+.bs-timer[data-level="crit"] .bs-timer-num { color: var(--bs-timer-crit); }
+/* Тот же таймер у участника и ведущего, но компактнее экрана проектора. */
+.battle-play .bs-timer, .battle-host .bs-timer { width: clamp(4rem, 5vw, 4.75rem); }
 
 /* Вопрос */
 .bs-question { padding: .8rem 1rem; border-radius: .7rem; background: var(--bs-panel); border: 1px solid var(--bs-line); min-height: 6rem; }
@@ -657,7 +674,7 @@ html[data-ui="workforce"][data-theme="dark"] { --team-a: #7DB8EC; --team-b: #F2A
 .bs-reserve-empty { margin: 0; text-align: center; color: var(--bs-muted); }
 .bs-reserve-empty[hidden], .bs-reserve-list[hidden] { display: none; }
 
-@media (prefers-reduced-motion: reduce) { .bs-score[data-bump] { animation: none; } .bs-bar-fill { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .bs-score[data-bump] { animation: none; } .bs-bar-fill { transition: none; } .bs-timer-num { transition: none; } }
 
 /* Планшет и телефон: счёт и вопрос — сверху, составы — под ними. */
 @media (max-width: 900px) {
