@@ -61,7 +61,7 @@ export function buildReportView(report, { editable = false, decisions = {}, onDe
   }
 
   // Индивидуальные результаты.
-  const head2 = ["Участник", "Входной", "Итоговый", "Динамика", "Battle", "Практика (команда)", "Рекомендация", "Готовность", "Итоговая оценка"];
+  const head2 = ["Участник", "Входной", "Итоговый", "Динамика", "Battle", "Практика (команда)", "Участие", "Вклад", "Командная работа", "Рекомендуемая оценка за занятие", "Готовность", "Итоговая оценка"];
   const rows = (report.people || []).map(p => {
     const rec = p.recommended || {};
     const decided = decisions[p.uid] || p.decision || null;
@@ -92,6 +92,9 @@ export function buildReportView(report, { editable = false, decisions = {}, onDe
       h("td", {}, p.dynamics?.available ? `${p.dynamics.delta > 0 ? "+" : ""}${fmt(p.dynamics.delta)} п.п. — ${p.dynamics.label}` : p.dynamics?.label || "—"),
       h("td", {}, p.battle?.available ? `${TEAM[p.battle.teamId] || "—"} · оценка ${fmt(p.battle.grade)}${p.battle.isCaptain ? " · капитан" : ""}` : (p.battle?.reason || "—")),
       h("td", {}, p.practical?.available ? `${fmt(p.practical.teamPercent, "%")}${p.practical.filledTable ? " · заполнил таблицу" : ""}. Личный вклад: не оценён` : "не оценивалась"),
+      h("td", {}, fmt(p.metrics?.participation, "%")),
+      h("td", {}, fmt(p.metrics?.contribution, "%")),
+      h("td", {}, fmt(p.metrics?.teamwork, "%")),
       h("td", {}, comps),
       h("td", {}, p.readiness?.available ? h("span", {}, `${p.readiness.label} (${fmt(p.readiness.percent, "%")}, ${p.readiness.basis})`) : "нет данных"),
       decisionCell);

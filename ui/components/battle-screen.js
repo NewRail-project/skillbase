@@ -14,6 +14,8 @@
 import { h } from "../../shared/dom.js";
 import { withSvg, avatarChip } from "./avatar.js";
 import { battleQuestionContent, findBattleQuestion } from "./battle-play.js";
+import { buildBattleSummary, formatScore } from "../../core/battle-summary.js";
+import { battleSummaryView } from "./battle-summary-view.js";
 import { isFullyCorrect } from "../../core/battle-logic.js";
 import { createScoreFxTracker, limitEffects, teamStatus } from "../../core/score-fx.js";
 import { createScoreFxPlayer, animateNumber } from "./battle-fx.js";
@@ -29,7 +31,7 @@ const EMBLEM = {
   b: '<svg viewBox="0 0 64 72" aria-hidden="true"><path d="M32 3 58 18v36L32 69 6 54V18z" fill="currentColor" opacity=".18" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><path d="M32 16 47 25v22l-15 9-15-9V25z" fill="none" stroke="currentColor" stroke-width="2.5"/><text x="32" y="43" text-anchor="middle" font-size="22" font-weight="800" fill="currentColor" font-family="Inter,system-ui,sans-serif">Б</text></svg>'
 };
 
-const fmtNum = (n) => String(Math.round((Number(n) || 0) * 100) / 100);
+const fmtNum = formatScore; // один формат счёта на всех экранах (core/battle-summary.js)
 const fmtClock = (ms) => {
   const s = Math.max(0, Math.ceil(ms / 1000));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -190,6 +192,7 @@ export function buildBattleScreen({ test, nameOf = (u) => u, avatarOf = () => nu
         h("p", { class: "bs-result-kicker" }, win ? "Победитель битвы" : "Результат битвы"),
         h("h2", { class: "bs-result-title" }, win ? `Победила ${TEAM_NAME[win]}` : "Ничья"),
         h("p", { class: "bs-result-score" }, `Итоговый счёт: ${fmtNum(b.scores?.a)} : ${fmtNum(b.scores?.b)}`),
+        h("div", { class: "bs-summary" }, battleSummaryView(buildBattleSummary({ battle: b, nameOf }), { open: true })),
         win ? null : h("p", { class: "bs-note" }, "Счёт равный: места делятся.")));
       return;
     }
@@ -288,7 +291,7 @@ export function buildBattleScreen({ test, nameOf = (u) => u, avatarOf = () => nu
     fxPlayer.play(limitEffects(fxTracker.consume(battle), 4));
     renderRosters();
     const r = battle.currentRound;
-    const key = `${battle.phase}|${r ? `${r.index}:${r.kind || "main"}:${r.status}:${r.questionId}` : "none"}|${(battle.roundSummaries || []).length}`;
+    const key = `${battle.phase}|${r ? `${r.index}:${r.kind || "main"}:${r.status}:${r.questionId}` : "none"}|${(battle.roundSummaries || []).length}${battle.phase === "finished" ? `|${rosterSig}` : ""}`;
     if (key !== questionKey) { questionKey = key; renderQuestion(); }
     renderStats();
     tick();
@@ -303,7 +306,8 @@ export function buildBattleScreen({ test, nameOf = (u) => u, avatarOf = () => nu
       if (!timer && typeof setInterval === "function") timer = setInterval(tick, 500);
     },
     // Имена и аватары могли догрузиться позже битвы: перерисовать составы.
-    refresh() { if (battle) { rosterSig = null; renderRosters(); } },
+    // Если битва завершена, итоговая таблица перестраивается при появлении имён.
+    refresh() { if (battle) { rosterSig = null; renderRosters(); if (battle.phase === "finished") render(); } },
     destroy() {
       if (timer) clearInterval(timer);
       timer = null;

@@ -488,7 +488,18 @@ export async function attachBattleToHistory(code, snapshot) {
   const existing = await getDoc(ref);
   if (!existing.exists()) return { saved: false, reason: "no-history" };
   if (existing.data().battle) return { saved: false, reason: "exists" };
-  await updateDoc(ref, { battle: snapshot });
+  try {
+    await updateDoc(ref, { battle: snapshot });
+  } catch (err) {
+    // Два клиента завершили битву одновременно: правило roomHistory пускает
+    // только первую запись поля battle. Проигравшему «гонку» отказ не ошибка —
+    // проверяем, что снимок действительно уже сохранён.
+    if (err?.code === "permission-denied") {
+      const again = await getDoc(ref).catch(() => null);
+      if (again?.exists() && again.data().battle) return { saved: false, reason: "exists" };
+    }
+    throw err;
+  }
   return { saved: true };
 }
 

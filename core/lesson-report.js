@@ -191,6 +191,24 @@ export function buildLessonReport({
       final: f.available ? f.percent : null
     }, plan?.grading);
 
+    // Три показателя для таблицы отчёта. Нет данных — null («—»), не ноль.
+    //   участие  — доля вопросов Battle, в голосовании по которым игрок участвовал;
+    //   вклад    — личная точность его ответов в голосованиях Battle;
+    //   командная работа — средний результат его команды в Battle (очки к лучшей
+    //   команде) и в практике (процент); учитываются только имеющиеся части.
+    const mineBattle = Number(battle?.scores?.[teamId]);
+    const bestBattle = Math.max(Number(battle?.scores?.a) || 0, Number(battle?.scores?.b) || 0);
+    const teamBattlePercent = battlePart.available && Number.isFinite(mineBattle) && bestBattle > 0
+      ? Math.round((mineBattle / bestBattle) * 1000) / 10 : null;
+    const teamParts = [teamBattlePercent, practicalPart.available ? practicalPart.teamPercent : null]
+      .filter(v => Number.isFinite(v));
+    const metrics = {
+      participation: battlePart.available ? (battlePart.participationPercent ?? null) : null,
+      contribution: battlePart.available ? (battlePart.accuracyPercent ?? null) : null,
+      teamwork: teamParts.length ? Math.round((teamParts.reduce((s, v) => s + v, 0) / teamParts.length) * 10) / 10 : null,
+      teamworkParts: { battle: teamBattlePercent, practical: practicalPart.available ? practicalPart.teamPercent : null }
+    };
+
     const status = (planned, done, has) => !planned ? "off" : !done ? "not_held" : has ? "done" : "missed";
     const decision = decisions?.[uid];
     const decided = decision && Number.isInteger(decision.grade) && decision.grade >= 2 && decision.grade <= 5
@@ -201,6 +219,7 @@ export function buildLessonReport({
       entry: e, final: f,
       dynamics: dynamicsOf(e, f),
       battle: battlePart, practical: practicalPart,
+      metrics,
       stages: {
         entry_test: status(stagePlanned("entry_test"), stageDone("entry_test"), e.available),
         battle: status(stagePlanned("battle"), stageDone("battle"), battlePart.available),
@@ -223,6 +242,7 @@ export function buildLessonReport({
   if (stagePlanned("final_test") && !final) notes.push("Итоговый тест не проведён или его история не сохранена: динамика недоступна.");
   notes.push("Время прохождения тестов в снимке Live не сохраняется, поэтому в отчёте его нет.");
   notes.push(PRACTICAL_CONTRIBUTION_NOTE);
+  notes.push("Участие, вклад и командная работа считаются по Battle и практике: участие — доля вопросов Battle с голосом игрока; вклад — точность его голосов; командная работа — среднее из результата команды в Battle (очки к лучшей команде) и в практике. Нет данных — «—».");
 
   return {
     version: REPORT_VERSION,

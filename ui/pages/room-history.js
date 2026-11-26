@@ -16,6 +16,9 @@ import {
   overviewPanel, reportSection, studentsPanel, journalPanel, recommendationsPanel
 } from "../components/live-report.js";
 import { avatarChip } from "../components/avatar.js";
+import { readBattleSnapshot } from "../../core/battle-snapshot.js";
+import { buildBattleSummary } from "../../core/battle-summary.js";
+import { battleSummaryView } from "../components/battle-summary-view.js";
 import { formatDate } from "../../shared/utils.js";
 
 export default async function RoomHistoryPage() {
@@ -138,6 +141,9 @@ function renderSnapshot(code, snapshot) {
     nodes.push(duelsPanelFromSnapshot(snapshot.duels));
   }
 
+  const battlePanel = battlePanelFromSnapshot(snapshot);
+  if (battlePanel) nodes.push(battlePanel);
+
   if (report.group || (report.questions || []).length) {
     nodes.push(reportSection(report, { title: "Статистика", sections: ["group", "questions"] }));
   } else {
@@ -158,6 +164,20 @@ function renderSnapshot(code, snapshot) {
   }));
   nodes.push(recommendationsPanel(report));
   return h("div", { class: "room-history-report" }, nodes);
+}
+
+// Итоги Battle из сохранённого снимка. Комнаты без Battle — панели нет.
+// Снимок старого формата (без раундов и игроков) открывается без ошибки и
+// честно сообщает «Итоговая таблица не сохранена».
+function battlePanelFromSnapshot(history) {
+  const snap = readBattleSnapshot(history);
+  if (!snap) return null;
+  let summary = null;
+  try { summary = buildBattleSummary({ battle: snap }); }
+  catch (err) { console.warn("Итоговая таблица Battle не построена:", err); }
+  return h("section", { class: "panel bsum-panel", "aria-label": "Итоги Battle" },
+    h("div", { class: "panel-head" }, h("h2", {}, "Итоги Battle")),
+    h("div", { class: "panel-body" }, battleSummaryView(summary, { open: true })));
 }
 
 // Рейтинг из снимка: места, ФИО/аватар, очки. Таблица читает сохранённые

@@ -8,6 +8,8 @@ import { h } from "../../shared/dom.js";
 import { buildRope } from "./battle-rope.js";
 import { createScoreFxTracker, limitEffects, teamStatus } from "../../core/score-fx.js";
 import { createScoreFxPlayer, animateNumber } from "./battle-fx.js";
+import { buildBattleSummary, outcomeOf, scoreLine } from "../../core/battle-summary.js";
+import { battleSummaryView } from "./battle-summary-view.js";
 
 export function roleInBattle(battle, uid) {
   if (!battle || !uid) return { role: "viewer", teamId: null };
@@ -268,10 +270,13 @@ export function buildBattlePlay({ uid, test, api, onToast = () => {}, now = () =
     const phase = battle.phase;
     if (phase === "sudden_death" && who.role !== "out") return suddenBlock(who);
     if (phase === "finished") {
-      const w = battle.winner;
+      // Исход и счёт — из тех же функций, что у экрана наблюдателя и проектора.
+      const w = outcomeOf(battle).winnerId;
+      const sc = scoreLine(battle);
       return h("div", { class: "battle-result" },
         h("h2", {}, w ? `Победила команда ${w.toUpperCase()}` : "Ничья"),
-        h("p", {}, `Итоговый счёт: A ${battle.scores?.a ?? 0} — B ${battle.scores?.b ?? 0}`));
+        h("p", {}, `Итоговый счёт: A ${sc.a} — B ${sc.b}`),
+        battleSummaryView(buildBattleSummary({ battle, nameOf }), { open: false }));
     }
     if (who.role === "out") return h("p", { class: "battle-status" }, "Вы выбыли из битвы. Следите за ходом игры.");
     const r = cr();

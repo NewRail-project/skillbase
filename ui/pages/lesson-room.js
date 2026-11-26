@@ -13,7 +13,7 @@ import {
   advanceLesson, skipLessonStage, startFinalRoom, loadLessonPlan, subscribeRoomState, lessonErrorText
 } from "../../core/lesson-store.js";
 import {
-  setupPractical, setTaskStatus, loadKeys, loadReview, saveReview, returnForRevision,
+  setupPractical, setTaskStatus, loadKeys, loadReview, saveReview, returnForRevision, loadEntry, saveEntry,
   confirmResult, subscribeTask, subscribeSubmission, saveDraft, submitTable
 } from "../../core/practical-store.js";
 import { TEAMS } from "../../core/practical.js";
@@ -199,6 +199,9 @@ function createPracticalMount(kind, { code, getRoom, getMe }) {
       loadKeys: (team) => loadKeys(code, team),
       loadReview: () => loadReview(code),
       saveReview: (o) => saveReview(code, o),
+      // Ввод ведущим на доске (battleRounds/practical_entry, только ведущий).
+      loadEntry: () => loadEntry(code),
+      saveEntry: (entry, tasks) => saveEntry(code, tasks, entry),
       returnForRevision: (team) => returnForRevision(code, team),
       confirm: (x) => confirmResult(code, x)
     };

@@ -13,7 +13,7 @@ import {
 import { State } from "./auth.js";
 import { normalizeRoomCode } from "./rooms-logic.js";
 import {
-  TEAMS, TASK_STATUS, SUBMISSION, splitTask, sanitizeCells, evaluateSubmission, compareTeams
+  TEAMS, TASK_STATUS, SUBMISSION, splitTask, sanitizeCells, sanitizeEntry, evaluateSubmission, compareTeams
 } from "./practical.js";
 
 function requireOnline(message) {
@@ -31,6 +31,7 @@ const subRef = (code, team) => doc(db, "rooms", codeOf(code), "practicalSubmissi
 const keyRef = (code, team) => doc(db, "rooms", codeOf(code), "battleKeys", `practical_${checkTeam(team)}`);
 const reviewRef = (code) => doc(db, "rooms", codeOf(code), "battleRounds", "practical_review");
 const resultRef = (code) => doc(db, "rooms", codeOf(code), "battleRounds", "practical_result");
+const entryRef = (code) => doc(db, "rooms", codeOf(code), "battleRounds", "practical_entry");
 
 const subscribeDoc = (ref, onData, onError) => onSnapshot(
   ref, (s) => onData && onData(s.exists() ? s.data() : null), (e) => onError && onError(e));
@@ -76,6 +77,19 @@ export async function returnForRevision(code, team) {
 }
 
 // ---------- Ведущий: проверка ----------
+
+// Ввод ведущим на доске (см. core/practical.js, «Ввод ведущим»). Документ
+// закрыт для всех, кроме ведущего (battleRounds), студенты его не читают.
+export async function loadEntry(code) {
+  const s = await getDoc(entryRef(code));
+  return s.exists() ? s.data() : null;
+}
+
+export async function saveEntry(code, tasks, entry) {
+  requireOnline("Нет подключения к интернету. Введённые значения не сохранены.");
+  const clean = sanitizeEntry(tasks, entry);
+  await setDoc(entryRef(code), { kind: "practicalEntry", ...clean, updatedBy: State?.user?.uid || "", updatedAt: serverTimestamp() });
+}
 
 export async function loadReview(code) {
   const s = await getDoc(reviewRef(code));

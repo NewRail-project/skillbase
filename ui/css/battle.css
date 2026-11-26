@@ -789,3 +789,30 @@ html[data-ui="workforce"][data-theme="dark"] { --team-a: #7DB8EC; --team-b: #F2A
 @media (prefers-reduced-motion: reduce) {
   .battle-team[data-hit], .battle-team[data-hit="2"], .battle-score[data-bump] { transition: none; animation: none; }
 }
+
+/* =====================================================================
+   Итоговая таблица Battle (.bsum): экран участника, проектор, история.
+   Цвета берутся от окружения (currentColor), поэтому таблица читается и на
+   тёмном экране .bs, и на светлой странице.
+   ===================================================================== */
+.bsum { margin-top: var(--space-3, .75rem); max-width: 100%; text-align: left; }
+.bsum > summary { cursor: pointer; font-weight: 700; padding: .35rem 0; }
+.bsum h3 { margin: var(--space-3, .75rem) 0 var(--space-1, .25rem); font-size: 1rem; }
+.bsum .bsum-outcome { margin: .25rem 0; }
+.bsum .table-wrap { overflow-x: auto; max-width: 100%; }
+.bsum .bsum-table { width: 100%; border-collapse: collapse; color: inherit; }
+.bsum .bsum-table th, .bsum .bsum-table td {
+  padding: .4rem .6rem; text-align: left; vertical-align: top;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  white-space: normal; overflow-wrap: anywhere; color: inherit;
+}
+.bsum .bsum-table th { font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; opacity: .75; }
+.bsum .bsum-table tr[data-winner="1"] td { font-weight: 700; }
+.bsum .bsum-table tr[data-role="eliminated"] td { opacity: .65; }
+.bsum .muted, .bsum .bsum-note { opacity: .75; }
+.bs .bsum { margin-top: .75rem; }
+.bs .bsum .bsum-table td { text-align: left; }
+.bs-summary { margin-top: .75rem; max-height: 60vh; overflow: auto; }
+/* Карточки таблицы на телефоне не должны брать светлый фон темы под цвет текста окружения. */
+.bsum .table.table-stack tr { background: transparent; border-color: color-mix(in srgb, currentColor 22%, transparent); }
+.bsum .table.table-stack td::before { color: inherit; opacity: .7; }

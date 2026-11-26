@@ -11,7 +11,8 @@
 // и набранный текст).
 import { h } from "../../shared/dom.js";
 import {
-  TEAMS, TASK_STATUS, SUBMISSION, cellId, canEditSubmission, evaluateSubmission, compareTeams, answerCellIds
+  TEAMS, TASK_STATUS, SUBMISSION, ENTRY_MODE, cellId, canEditSubmission, evaluateSubmission, compareTeams, answerCellIds,
+  entryToSubmissions, entryProgress, canCheckEntry
 } from "../../core/practical.js";
 
 const TEAM_NAME = { a: "Команда А", b: "Команда Б" };
@@ -221,6 +222,17 @@ export function buildPracticalHost({ api, confirmAction = (msg) => (typeof windo
   let reviewing = false;
   let busy = false;
   let loadedReview = false;
+  // Ввод ведущим (на доске): значения вносит ведущий, команды называют их вслух.
+  // Режим включён только если интерфейс получил api.saveEntry (комната в старой версии — без него).
+  const hostEntryAvailable = typeof api.saveEntry === "function";
+  let entry = { mode: ENTRY_MODE.CAPTAIN, a: {}, b: {} };
+  let entryLoaded = false;
+  let board = null;          // построенные таблицы ввода: живут между перерисовками
+  let boardSig = null;
+  let lastSig = null;
+  let saveTimer = null;
+  const hostMode = () => hostEntryAvailable && entry.mode === ENTRY_MODE.HOST;
+  const view = () => (hostMode() ? entryToSubmissions(tasks, entry) : subs);
   const status = h("p", { class: "pr-status", role: "status" }, "");
   const alertBox = h("p", { class: "error-msg", role: "alert" }, "");
   const body = h("div", { class: "pr-host-body" });
@@ -244,9 +256,10 @@ export function buildPracticalHost({ api, confirmAction = (msg) => (typeof windo
   const results = () => {
     const pubs = tasks;
     const evaluations = {};
+    const src = view();
     for (const team of TEAMS) {
-      if (!pubs[team] || !subs[team]) continue;
-      evaluations[team] = evaluateSubmission({ pub: pubs[team], keys: keys[team] || {}, cells: subs[team].cells || {}, overrides: overrides[team] || {} });
+      if (!pubs[team] || !src[team]) continue;
+      evaluations[team] = evaluateSubmission({ pub: pubs[team], keys: keys[team] || {}, cells: src[team].cells || {}, overrides: overrides[team] || {} });
     }
     return { evaluations, comparison: compareTeams(evaluations.a, evaluations.b) };
   };
@@ -282,11 +295,12 @@ export function buildPracticalHost({ api, confirmAction = (msg) => (typeof windo
 
   function reviewPanel() {
     const { evaluations, comparison } = results();
-    const blocks = TEAMS.filter(t => tasks[t] && subs[t]).map(team => {
+    const src = view();
+    const blocks = TEAMS.filter(t => tasks[t] && src[t]).map(team => {
       const ev = evaluations[team];
       const verdicts = Object.fromEntries(Object.entries(ev.cells).map(([id, c]) => [id, c.ok]));
       const expectedText = Object.fromEntries(Object.entries(keys[team] || {}).map(([id, k]) => [id, k.mode === "manual" ? "проверяет преподаватель" : (k.accept || []).join(" / ")]));
-      const table = renderTable(tasks[team], { values: subs[team].cells || {}, verdicts, expected: expectedText });
+      const table = renderTable(tasks[team], { values: src[team].cells || {}, verdicts, expected: expectedText });
       // Решение по каждой ячейке: авто / верно / неверно.
       for (const [id, cell] of Object.entries(ev.cells)) {
         const td = table.cells[id];
@@ -315,16 +329,83 @@ export function buildPracticalHost({ api, confirmAction = (msg) => (typeof windo
     }));
     const back = h("button", { type: "button", class: "btn secondary", "data-action": "close-review" }, "Закрыть проверку");
     back.addEventListener("click", () => { reviewing = false; paint(); });
-    return h("div", { class: "pr-review" }, ...blocks, outcome, h("div", { class: "btn-row" }, confirm, back));
+    // Таблицы команд стоят друг напротив друга (на узком экране — друг под другом).
+    return h("div", { class: "pr-review" }, h("div", { class: "pr-sides" }, ...blocks), outcome, h("div", { class: "btn-row" }, confirm, back));
+  }
+
+  // ---- Ввод ведущим: таблицы двух команд друг напротив друга ----
+  let checkBtn = null;
+  function persistEntry(now = false) {
+    clearTimeout(saveTimer);
+    const go = () => Promise.resolve(api.saveEntry(entry, tasks)).catch((err) => {
+      alertBox.textContent = err?.message || "Не удалось сохранить введённые значения.";
+    });
+    if (now) return go();
+    saveTimer = setTimeout(go, 800);
+    return Promise.resolve();
+  }
+  function refreshCheck() { if (checkBtn) checkBtn.disabled = busy || !canCheckEntry(tasks, entry); }
+
+  // Таблицы строятся один раз и переживают перерисовки: поля не теряют фокус
+  // и набранный текст, пока приходят снимки Firestore.
+  function hostBoard() {
+    const sig = JSON.stringify(TEAMS.map(t => [tasks[t]?.title, tasks[t]?.columns, tasks[t]?.rows]));
+    if (board && boardSig === sig) return board.el;
+    boardSig = sig;
+    const sections = TEAMS.map(team => {
+      const t = tasks[team];
+      const progress = h("p", { class: "pr-progress", "data-team": team }, "");
+      const paintProgress = () => {
+        const p = entryProgress(t, entry[team]);
+        progress.textContent = `Заполнено ячеек: ${p.filled} из ${p.total}`;
+        progress.setAttribute("data-filled", String(p.filled));
+      };
+      const table = renderTable(t, {
+        editable: true, values: entry[team] || {},
+        onInput: (id, value) => { entry[team] = { ...(entry[team] || {}), [id]: value }; paintProgress(); refreshCheck(); persistEntry(); }
+      });
+      paintProgress();
+      return h("section", { class: "pr-side", "data-team": team },
+        h("h3", {}, TEAM_NAME[team]), h("p", { class: "pr-team-task" }, t?.title || "—"), table.el, progress);
+    });
+    const el = h("div", { class: "pr-sides pr-board", role: "group", "aria-label": "Таблицы команд: ввод ведущего" }, ...sections);
+    el.addEventListener("focusout", () => persistEntry(true));
+    board = { el };
+    return el;
   }
 
   function paint() {
-    const parts = [h("h2", {}, "Практическая диагностика"), h("div", { class: "pr-team-cards" }, teamCard("a"), teamCard("b"))];
+    const showBoard = hostMode() && prepared() && !confirmed() && !reviewing;
+    const parts = [h("h2", {}, "Практическая диагностика"), showBoard ? hostBoard() : h("div", { class: "pr-team-cards" }, teamCard("a"), teamCard("b"))];
     const controls = [];
+    checkBtn = null;
     if (!prepared()) {
       const b = h("button", { type: "button", class: "btn primary", "data-action": "setup" }, "Подготовить и открыть задания");
       b.addEventListener("click", () => run("Готовим задания", async () => { await api.setup(); await api.setStatus("a", TASK_STATUS.OPEN); await api.setStatus("b", TASK_STATUS.OPEN); }));
       controls.push(b);
+      if (hostEntryAvailable) {
+        const bh = h("button", { type: "button", class: "btn secondary", "data-action": "setup-host" }, "Подготовить для ввода на доске");
+        bh.addEventListener("click", () => run("Готовим задания", async () => {
+          await api.setup();
+          for (const t of TEAMS) await api.setStatus(t, TASK_STATUS.CLOSED); // команды сами не пишут
+          entry = { mode: ENTRY_MODE.HOST, a: {}, b: {} };
+          boardSig = null; board = null;
+          await api.saveEntry(entry, tasks);
+        }));
+        controls.push(bh, h("p", { class: "pr-note" }, "«Ввод на доске»: команды называют значения вслух, вы вносите их в таблицы сами."));
+      }
+    } else if (!confirmed() && hostMode()) {
+      // Ввод ведущим: единственное действие — «Проверить».
+      if (!reviewing) {
+        checkBtn = h("button", { type: "button", class: "btn primary", "data-action": "check", disabled: !canCheckEntry(tasks, entry) }, "Проверить");
+        checkBtn.addEventListener("click", () => run("Проверяем", async () => {
+          await persistEntry(true);
+          for (const t of TEAMS) keys[t] = await api.loadKeys(t);
+          if (!loadedReview) { overrides = { a: {}, b: {}, ...(await api.loadReview()) }; loadedReview = true; }
+          reviewing = true;
+        }));
+        controls.push(checkBtn, h("p", { class: "pr-note" }, "Внесите значения обеих команд и нажмите «Проверить»: очки начисляются по правильности ответов."));
+      }
     } else if (!confirmed()) {
       const toggle = h("button", { type: "button", class: "btn secondary", "data-action": "toggle" }, open() ? "Закрыть приём ответов" : "Открыть задания");
       toggle.addEventListener("click", () => run("Меняем статус", async () => {
@@ -347,6 +428,11 @@ export function buildPracticalHost({ api, confirmAction = (msg) => (typeof windo
         h("p", { class: "pr-kicker" }, "Результат подтверждён"),
         h("h2", {}, r?.winner === "a" || r?.winner === "b" ? `Победила ${TEAM_NAME[r.winner]}` : "Ничья"),
         h("p", {}, `${fmt(tasks.a.result?.percent)}% : ${fmt(tasks.b.result?.percent)}%`)));
+      if (hostMode()) {
+        parts.push(h("div", { class: "pr-sides pr-final" }, ...TEAMS.map(team => h("section", { class: "pr-side", "data-team": team },
+          h("h3", {}, `${TEAM_NAME[team]}: ${fmt(tasks[team]?.result?.score)} из ${fmt(tasks[team]?.result?.max)} (${fmt(tasks[team]?.result?.percent)}%)`),
+          renderTable(tasks[team], { values: entry[team] || {}, verdicts: tasks[team]?.result?.cells || {} }).el))));
+      }
     }
     if (controls.length) parts.push(h("div", { class: "btn-row" }, ...controls));
     if (reviewing && !confirmed()) parts.push(reviewPanel());
@@ -354,9 +440,29 @@ export function buildPracticalHost({ api, confirmAction = (msg) => (typeof windo
   }
   paint();
 
+  // Ввод ведущим мог быть начат раньше (перезагрузка страницы): значения и режим берём из документа.
+  if (hostEntryAvailable && typeof api.loadEntry === "function" && !entryLoaded) {
+    entryLoaded = true;
+    Promise.resolve(api.loadEntry()).then((saved) => {
+      if (!saved || saved.mode !== ENTRY_MODE.HOST) return;
+      entry = { mode: ENTRY_MODE.HOST, a: saved.a || {}, b: saved.b || {} };
+      board = null; boardSig = null; lastSig = null;
+      paint();
+    }).catch(() => {});
+  }
+
   return {
     el,
-    update({ tasks: t, submissions }) { tasks = t || {}; subs = submissions || {}; if (confirmed()) reviewing = false; paint(); },
-    destroy() {}
+    update({ tasks: t, submissions }) {
+      tasks = t || {}; subs = submissions || {};
+      if (confirmed()) reviewing = false;
+      // Идёт ввод на доске: перерисовываем только при смене статуса/режима,
+      // иначе очередной снимок Firestore сбил бы фокус в поле.
+      const sig = JSON.stringify([TEAMS.map(x => tasks[x]?.status), confirmed(), reviewing, hostMode()]);
+      if (hostMode() && board && sig === lastSig && !busy) return;
+      lastSig = sig;
+      paint();
+    },
+    destroy() { clearTimeout(saveTimer); }
   };
 }

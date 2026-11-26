@@ -256,6 +256,43 @@ export function sanitizeCells(pub, cells) {
   return out;
 }
 
+// ---------- Ввод ведущим (на доске) ----------
+// Команды называют значения вслух, ведущий вносит их в таблицы. Значения живут
+// в закрытом документе battleRounds/practical_entry (пишет только ведущий), а не
+// в practicalSubmissions: правила разрешают писать туда лишь капитану. Для
+// проверки они превращаются в обычные «отправленные таблицы».
+
+export const ENTRY_MODE = Object.freeze({ HOST: "host", CAPTAIN: "captain" });
+
+// Чистая карта ввода: только известные ячейки обеих таблиц, обрезанная по длине.
+export function sanitizeEntry(tasks, entry) {
+  const out = { mode: entry?.mode === ENTRY_MODE.HOST ? ENTRY_MODE.HOST : ENTRY_MODE.CAPTAIN };
+  for (const team of TEAMS) out[team] = tasks?.[team] ? sanitizeCells(tasks[team], entry?.[team] || {}) : {};
+  return out;
+}
+
+// Ввод ведущего в виде «отправленных таблиц» для evaluateSubmission/compareTeams.
+export function entryToSubmissions(tasks, entry) {
+  const subs = {};
+  for (const team of TEAMS) {
+    if (!tasks?.[team]) continue;
+    subs[team] = { team, cells: sanitizeCells(tasks[team], entry?.[team] || {}), status: SUBMISSION.SUBMITTED, by: "host" };
+  }
+  return subs;
+}
+
+// Сколько ячеек заполнено из скольких.
+export function entryProgress(task, cells) {
+  const ids = task ? answerCellIds(task) : [];
+  const filled = ids.filter((id) => String(cells?.[id] ?? "").trim()).length;
+  return { filled, total: ids.length };
+}
+
+// Можно ли проверять: у каждой команды заполнена хотя бы одна ячейка.
+export function canCheckEntry(tasks, entry) {
+  return TEAMS.every((t) => tasks?.[t] && entryProgress(tasks[t], entry?.[t]).filled > 0);
+}
+
 // Можно ли команде править таблицу: задание открыто, не отправлено, пишет капитан.
 export function canEditSubmission({ taskStatus, submission, isCaptain }) {
   if (!isCaptain) return { ok: false, reason: "Заполняет таблицу капитан команды." };
