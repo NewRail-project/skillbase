@@ -7,6 +7,8 @@ import { buildRope } from "./battle-rope.js";
 import { battleQuestionContent } from "./battle-play.js";
 import { createBattleTimer } from "./battle-timer.js";
 import { PHASES, isGameComplete, isActivePlayer } from "../../core/battle-logic.js";
+import { buildBattleSummary } from "../../core/battle-summary.js";
+import { battleSummaryView } from "./battle-summary-view.js";
 
 const PHASE_LABEL = {
   battle_ready: "Готовы к старту",
@@ -40,6 +42,7 @@ export function buildBattleHost({ game, test, players = [], onToast = () => {}, 
 
   let busy = false;
   let finishedHandled = false;
+  let finalSnapshot = null; // снимок итогов (с личным участием), если onFinish его вернул
   let timer = null;
   let note = "";
 
@@ -59,7 +62,10 @@ export function buildBattleHost({ game, test, players = [], onToast = () => {}, 
     }
     if (game.phase === PHASES.FINISHED && !finishedHandled) {
       finishedHandled = true;
-      try { await onFinish(game); } catch (err) { onToast(err?.message || "Итоги не сохранены.", "error"); }
+      try {
+        const out = await onFinish(game);
+        finalSnapshot = out?.snapshot || null;
+      } catch (err) { onToast(err?.message || "Итоги не сохранены.", "error"); }
     }
     render();
   }
@@ -171,6 +177,11 @@ export function buildBattleHost({ game, test, players = [], onToast = () => {}, 
       parts.push(h("div", { class: "battle-result" },
         h("h2", {}, w ? `Победила команда ${w.toUpperCase()}` : "Ничья"),
         h("p", {}, `Счёт: A ${game.state.scores.a} — B ${game.state.scores.b}${game.state.finishedEarly ? " (досрочно)" : ""}`)));
+      // Итоговая таблица — та же, что у участников, проектора и в истории.
+      // Источник: снимок итогов (личное участие), иначе состав и раунды игры.
+      const source = finalSnapshot || { ...game.state, finalRoster: game.state.roster, phase: "finished" };
+      const summary = buildBattleSummary({ battle: source, nameOf });
+      if (summary) parts.push(h("div", { class: "bs-summary" }, battleSummaryView(summary, { open: true })));
     }
     parts.push(playersList());
     body.replaceChildren(...parts);

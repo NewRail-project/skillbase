@@ -98,8 +98,14 @@ export function mountBattle({ code, kind, uid, test, players = [], getPlayers = 
               state: g.state, liveInfo, initialRoster: g.initialRoster, events: g.events,
               questions: [...questions, ...extraQuestions].map(({ correct, ...pub }) => pub), finishedAtMs: now()
             });
-            const res = await attachBattleToHistory(code, snap);
-            onToast(res.saved ? "Итоги битвы сохранены в историю." : "Итоги не сохранены в историю (" + (res.reason === "exists" ? "уже сохранены" : "история Live не найдена") + ").", res.saved ? "success" : "info");
+            // Таблица ведущего не зависит от записи в историю: снимок возвращаем всегда.
+            try {
+              const res = await attachBattleToHistory(code, snap);
+              onToast(res.saved ? "Итоги битвы сохранены в историю." : "Итоги не сохранены в историю (" + (res.reason === "exists" ? "уже сохранены" : "история Live не найдена") + ").", res.saved ? "success" : "info");
+            } catch (err) {
+              onToast(err?.message || "Итоги не сохранены в историю.", "error");
+            }
+            return { snapshot: snap };
           }
         });
         hostView.start();

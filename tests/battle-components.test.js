@@ -293,3 +293,50 @@ test("ведущий: выбывание по связи сообщает вед
   assert.ok(msgs.some((m) => /нет связи/.test(m)));
   host.stop();
 });
+
+// ---------- итоговая таблица в виде ведущего ----------
+test("ведущий: после завершения виден итог и таблица, без null и undefined", async () => {
+  const { game, votes, choices, roster } = hostSetup();
+  const host = buildBattleHost({
+    game, test: TEST, players: [], confirmFn: () => true,
+    onFinish: async () => ({ snapshot: null })
+  });
+  btns(host.el, "Первый вопрос")[0].click();
+  await new Promise((r) => setImmediate(r));
+  choices[0] = { a: { mode: "vote" }, b: { mode: "vote" } };
+  votes[0] = Object.fromEntries([...roster.teams.a, ...roster.teams.b].map((u) => [u, { selected: [1] }]));
+  await host.step();
+  await new Promise((r) => setImmediate(r));
+  btns(host.el, "Завершить досрочно")[0].click();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(game.phase, L.PHASES.FINISHED);
+  host.render();
+  const text = all(host.el);
+  assert.match(text, /Итоговая таблица Battle/, "таблица показана ведущему");
+  assert.match(text, /Команда А/);
+  assert.match(text, /Команда Б/);
+  assert.doesNotMatch(text, /null|undefined/);
+  host.stop();
+});
+
+test("ведущий: таблица строится из снимка, если onFinish его вернул", async () => {
+  const { game } = hostSetup();
+  const snapshot = {
+    phase: "finished", winner: "a", scores: { a: 7, b: 2 },
+    finalRoster: { captains: { a: "u1", b: "u2" }, teams: { a: ["u1"], b: ["u2"] }, reserve: [], substituted: [], eliminated: [] },
+    roundSummaries: [],
+    players: [{ uid: "u1", name: "Яблоков Пётр" }, { uid: "u2", name: "Антонов Иван" }]
+  };
+  const host = buildBattleHost({
+    game, test: TEST, players: [], confirmFn: () => true,
+    onFinish: async () => ({ snapshot })
+  });
+  await game.finish({ early: true });
+  await host.step();
+  await new Promise((r) => setImmediate(r));
+  host.render();
+  const text = all(host.el);
+  assert.match(text, /Итоговая таблица Battle/);
+  assert.ok(text.indexOf("Антонов Иван") < text.indexOf("Яблоков Пётр"), "участники по алфавиту");
+  host.stop();
+});
