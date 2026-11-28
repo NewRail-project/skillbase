@@ -59,7 +59,7 @@ const statusChip = (text, kind = "") => h("span", { class: `pr-chip ${kind}`.tri
 // ---------- Участник / капитан ----------
 
 // api: { saveDraft(cells), submit(cells) }; getMe() → { team, isCaptain }
-export function buildPracticalPlayer({ api, getMe, confirmSubmit = (msg) => (typeof window !== "undefined" ? window.confirm(msg) : true), schedule = (fn, ms) => setTimeout(fn, ms), clear = (id) => clearTimeout(id), autosaveMs = 1500 }) {
+export function buildPracticalPlayer({ api, getMe, submitLabel = "Отправить таблицу", submitConfirm = "После отправки таблицу нельзя изменить. Отправить?", pendingNote = "Таблица отправлена и зафиксирована. Ждём результат преподавателя.", confirmSubmit = (msg) => (typeof window !== "undefined" ? window.confirm(msg) : true), schedule = (fn, ms) => setTimeout(fn, ms), clear = (id) => clearTimeout(id), autosaveMs = 1500 }) {
   let task = null;
   let sub = null;
   let draft = {};
@@ -129,10 +129,10 @@ export function buildPracticalPlayer({ api, getMe, confirmSubmit = (msg) => (typ
       if (permission.ok) {
         const save = h("button", { type: "button", class: "btn secondary", "data-action": "save" }, "Сохранить черновик");
         save.addEventListener("click", () => persist(false));
-        const send = h("button", { type: "button", class: "btn primary", "data-action": "submit" }, "Отправить таблицу");
+        const send = h("button", { type: "button", class: "btn primary", "data-action": "submit" }, submitLabel);
         send.addEventListener("click", async () => {
           if (busy) return; // повторное нажатие
-          if (!confirmSubmit("После отправки таблицу нельзя изменить. Отправить?")) return;
+          if (!confirmSubmit(submitConfirm)) return;
           if (timer) { clear(timer); timer = null; }
           await persist(true);
         });
@@ -142,9 +142,10 @@ export function buildPracticalPlayer({ api, getMe, confirmSubmit = (msg) => (typ
         const won = r.winner === team;
         parts.push(h("div", { class: "pr-final", "data-outcome": r.winner === "tie" ? "tie" : won ? "win" : "lose", role: "status" },
           h("b", {}, `Результат: ${fmt(r.score)} из ${fmt(r.max)} (${fmt(r.percent)}%)`),
-          h("span", {}, r.winner === "tie" ? "Ничья: у команд одинаковый результат." : won ? "Ваша команда победила в практике." : "В практике победила другая команда.")));
+          // Победитель практики известен, когда проверены обе команды; до этого — только счёт.
+          r.winner === undefined ? null : h("span", {}, r.winner === "tie" ? "Ничья: у команд одинаковый результат." : won ? "Ваша команда победила в практике." : "В практике победила другая команда.")));
       } else {
-        parts.push(h("p", { class: "pr-note" }, submitted ? "Таблица отправлена и зафиксирована. Ждём результат преподавателя."
+        parts.push(h("p", { class: "pr-note" }, submitted ? pendingNote
           : isCaptain ? permission.reason : "Таблицу заполняет капитан команды. Здесь видно его ответы."));
       }
       body.replaceChildren(...parts);
@@ -198,7 +199,7 @@ export function buildPracticalScreen() {
         res ? h("p", { class: "pr-team-score" }, `${fmt(res.score)} из ${fmt(res.max)} · ${fmt(res.percent)}%`) : null);
     });
     const parts = [h("div", { class: "pr-teams" }, ...cards)];
-    if (confirmed) {
+    if (confirmed && tasks.a.result?.winner !== undefined) {
       const w = tasks.a.result?.winner;
       parts.push(h("div", { class: "pr-announce", "data-winner": w === "a" || w === "b" ? w : "tie", role: "status" },
         h("p", { class: "pr-kicker" }, "Результат практики"),

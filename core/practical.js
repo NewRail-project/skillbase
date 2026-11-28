@@ -26,6 +26,15 @@ export const MODE_LABEL = Object.freeze({ text: "Текст", number: "Числ�
 export const cellId = (row, col) => `r${row}c${col}`;
 const clip = (v, n) => String(v ?? "").slice(0, n);
 
+// ---------- Хранение строк в Firestore ----------
+// Firestore не принимает массив внутри массива, а строка таблицы — массив ячеек.
+// В базе строка хранится как { c: [ячейки] }; в коде и интерфейсе — обычный массив.
+export const encodeRows = (rows) => (Array.isArray(rows) ? rows : []).map((r) => ({ c: Array.isArray(r) ? r : [] }));
+export const decodeRows = (rows) => (Array.isArray(rows) ? rows : [])
+  .map((r) => (Array.isArray(r) ? r : (Array.isArray(r?.c) ? r.c : [])));
+export const encodeTask = (task) => (task && typeof task === "object" ? { ...task, rows: encodeRows(task.rows) } : task);
+export const decodeTask = (raw) => (raw && typeof raw === "object" ? { ...raw, rows: decodeRows(raw.rows) } : raw);
+
 // ---------- Создание и нормализация ----------
 
 export function emptyTask() {
@@ -57,7 +66,7 @@ export function normalizeTask(raw) {
   if (!raw || typeof raw !== "object") return base;
   const columns = (Array.isArray(raw.columns) ? raw.columns : base.columns)
     .slice(0, LIMITS.maxCols).map(c => clip(c, LIMITS.maxCell));
-  const rows = (Array.isArray(raw.rows) ? raw.rows : [])
+  const rows = decodeRows(raw.rows)
     .slice(0, LIMITS.maxRows)
     .map(r => Array.from({ length: columns.length }, (_, i) => normalizeCell((Array.isArray(r) ? r : [])[i])));
   return {
@@ -129,7 +138,7 @@ export const splitTask = (task) => ({ publicTask: publicTask(task), keys: taskKe
 // Идентификаторы всех ячеек для ответа в публичном задании.
 export function answerCellIds(pub) {
   const ids = [];
-  (pub?.rows || []).forEach((row, r) => (row || []).forEach((cell, c) => {
+  decodeRows(pub?.rows).forEach((row, r) => (row || []).forEach((cell, c) => {
     if (cell?.t === "answer") ids.push(cellId(r, c));
   }));
   return ids;

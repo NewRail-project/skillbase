@@ -49,7 +49,7 @@ globalThis.__FB = {
 const practical = await import("../core/practical-store.js");
 const lesson = await import("../core/lesson-store.js");
 const { advance, newRun, normalizePlan } = await import("../core/lesson-plan.js");
-const { cellId } = await import("../core/practical.js");
+const { cellId, decodeTask } = await import("../core/practical.js");
 
 const L = (t) => ({ t: "label", text: t });
 const A = (mode, accept) => ({ t: "answer", mode, accept });
@@ -67,7 +67,9 @@ test("setupPractical: публичные задания без ключей, к�
     assert.equal(pub.team, team);
     assert.equal(pub.status, "draft");
     assert.ok(!JSON.stringify(pub).includes("СЕКРЕТ-1"), "ключ не должен попасть в публичный документ");
-    assert.ok(!("accept" in pub.rows[0][1]));
+    // В базе строки хранятся как { c: [...] } (Firestore не принимает массив в массиве).
+    assert.ok(pub.rows.every((row) => !Array.isArray(row)), "строки в базе — не вложенные массивы");
+    assert.ok(!("accept" in decodeTask(pub).rows[0][1]));
     const keys = store.get(`rooms/${R}/battleKeys/practical_${team}`);
     assert.deepEqual(keys.cells.r0c1.accept, ["СЕКРЕТ-1"]);
   }

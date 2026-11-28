@@ -8,6 +8,7 @@ import {
   PLACES, MAX_MAIN, MAX_PER_PLACE, emptyBattleSet, normalizeBattleSet,
   parseBattleText, questionsToText, validateBattleSet, countMain, countForPlace
 } from "../../core/battle-set.js";
+import { buildPracticalEditor } from "./practical-editor.js";
 
 const EXAMPLE = `1. Какой сигнал разрешает движение?
 A) Красный
@@ -65,11 +66,33 @@ export function buildBattleSetEditor(initial = emptyBattleSet()) {
     max: MAX_PER_PLACE
   }));
 
+  // ---------- Таблица после Battle ----------
+  // Названия столбцов, подписи строк и верные значения задаются здесь, заранее.
+  // В комнате команда вводит только значения; ведущий проверяет по ключам.
+  const tableOn = h("input", { type: "checkbox", id: "battle-table-on" });
+  const tableA = buildPracticalEditor({ team: "a", task: loaded.tables.a, onChange: () => { dirty = true; paintSummary(); } });
+  const tableB = buildPracticalEditor({ team: "b", task: loaded.tables.b, onChange: () => { dirty = true; paintSummary(); } });
+  const copyBtn = h("button", { type: "button", class: "btn secondary btn-sm" }, "Скопировать таблицу команды А в команду Б");
+  copyBtn.addEventListener("click", () => { tableB.setTask(tableA.getTask()); dirty = true; paintSummary(); });
+  const tableStatus = h("div", { class: "form-hint", role: "status" });
+  const tableFields = h("div", { class: "battle-set-tables-body", hidden: "hidden" },
+    h("p", { class: "form-hint" },
+      "Таблица появится у каждой команды после Battle: названия столбцов и строк останутся, команда вводит только значения и нажимает «Проверить». Баллы за верные ячейки прибавляются к счёту команды. Верные ответы видны только вам."),
+    tableA.el, tableB.el, h("div", { class: "btn-row" }, copyBtn), tableStatus);
+  const tableBox = h("div", { class: "field battle-set-tables", "data-set": "tables" },
+    h("label", { for: "battle-table-on" }, tableOn, " Таблица после Battle (по одной на команду)"),
+    tableFields);
+  const syncTables = () => {
+    tableFields.hidden = !tableOn.checked;
+    tableStatus.textContent = "";
+  };
+  tableOn.addEventListener("change", () => { dirty = true; syncTables(); paintSummary(); });
+
   const el = h("details", { class: "panel battle-set-editor", id: "battle-set-editor" },
     summary,
     h("p", { class: "form-hint" },
       "Подготовьте всё заранее: во время Live ничего копировать и вставлять не придётся. Правильный ответ отмечайте [+] или * в конце варианта; несколько отмеченных — вопрос с множественным выбором. Участники видят вопрос только когда он проводится, правильные ответы им не раскрываются до закрытия."),
-    mainBox, params, ...tieBoxes);
+    mainBox, params, ...tieBoxes, tableBox);
 
   function parsed(key) {
     return parseBattleText(sections[key].area.value);
@@ -91,7 +114,7 @@ export function buildBattleSetEditor(initial = emptyBattleSet()) {
   function paintSummary() {
     const s = getSet();
     const tie = PLACES.map((p) => `${p}-е: ${s.placeTies[p].length}`).join(", ");
-    summary.textContent = `Вопросы для Battle и ничьих — Battle: ${s.main.questions.length}; ${tie}`;
+    summary.textContent = `Вопросы для Battle и ничьих — Battle: ${s.main.questions.length}; ${tie}${tableOn.checked ? "; таблица после Battle" : ""}`;
   }
 
   function getSet() {
@@ -101,6 +124,7 @@ export function buildBattleSetEditor(initial = emptyBattleSet()) {
     set.main.order = orderSelect.value === "random" ? "random" : "set";
     set.main.questionSeconds = Number(secondsInput.value) > 0 ? Math.trunc(Number(secondsInput.value)) : null;
     for (const p of PLACES) set.placeTies[p] = parsed(p).questions;
+    set.tables = tableOn.checked ? { a: tableA.getTask(), b: tableB.getTask() } : { a: null, b: null };
     return set;
   }
 
@@ -122,11 +146,15 @@ export function buildBattleSetEditor(initial = emptyBattleSet()) {
     orderSelect.value = loaded.main.order;
     secondsInput.value = loaded.main.questionSeconds ?? "";
     for (const p of PLACES) sections[p].area.value = questionsToText(loaded.placeTies[p]);
+    tableOn.checked = Boolean(loaded.tables.a || loaded.tables.b);
+    if (loaded.tables.a) tableA.setTask(loaded.tables.a);
+    if (loaded.tables.b) tableB.setTask(loaded.tables.b);
+    syncTables();
     for (const key of ["main", ...PLACES]) paint(key);
     paintSummary();
     dirty = false;
     // Открываем блок, если в нём уже что-то подготовлено.
-    el.open = countMain(loaded) > 0 || PLACES.some((p) => countForPlace(loaded, p) > 0);
+    el.open = countMain(loaded) > 0 || PLACES.some((p) => countForPlace(loaded, p) > 0) || tableOn.checked;
   }
 
   setSet(loaded);

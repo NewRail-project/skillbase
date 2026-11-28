@@ -26,11 +26,16 @@ function teamsTable(s) {
       cell("Верных ответов", num(t.correctAnswers)),
       cell("Раундов", num(t.rounds)),
       cell("Не засчитано", num(q.notCounted)),
-      cell("Споров", num(q.tiebreak)));
+      cell("Споров", num(q.tiebreak)),
+      ...(s.practical ? [
+        cell("Практика", s.practical.results[id] ? `${s.practical.results[id].score} из ${s.practical.results[id].max}` : DASH),
+        cell("Итого с практикой", formatScore(s.practical.total[id]))
+      ] : []));
   };
+  const heads = ["Команда", "Очки", "Верных ответов", "Раундов", "Не засчитано", "Споров", ...(s.practical ? ["Практика", "Итого с практикой"] : [])];
   return h("div", { class: "table-wrap" },
     h("table", { class: "table table-stack bsum-table", "aria-label": "Сводка по командам" },
-      h("thead", {}, h("tr", {}, ...["Команда", "Очки", "Верных ответов", "Раундов", "Не засчитано", "Споров"].map((t) => h("th", { scope: "col" }, t)))),
+      h("thead", {}, h("tr", {}, ...heads.map((t) => h("th", { scope: "col" }, t)))),
       h("tbody", {}, row("a"), row("b"))));
 }
 

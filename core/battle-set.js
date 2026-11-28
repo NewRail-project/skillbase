@@ -21,13 +21,18 @@ export const MAX_PER_PLACE = 20;   // дополнительных вопрос�
 export const MIN_OPTIONS = 2;
 export const MAX_OPTIONS = 10;
 
+import { TEAMS, normalizeTask, validateTask, encodeTask, decodeTask } from "./practical.js";
+
 export const battleSetDocId = (testId) => `${testId}__battle`;
 
 export function emptyBattleSet() {
   return {
     version: SET_VERSION,
     main: { questions: [], count: null, order: "set", questionSeconds: null },
-    placeTies: { 1: [], 2: [], 3: [] }
+    placeTies: { 1: [], 2: [], 3: [] },
+    // Таблица-задание после Battle: по одной на команду (null — не задана).
+    // Заголовки и названия строк задаются здесь; в комнате команда вводит только значения.
+    tables: { a: null, b: null }
   };
 }
 
@@ -61,7 +66,8 @@ export function normalizeBattleSet(raw) {
       order: main.order === "random" ? "random" : "set",
       questionSeconds: posInt(main.questionSeconds)
     },
-    placeTies: Object.fromEntries(PLACES.map((p) => [p, list(raw.placeTies?.[p] ?? raw.placeTies?.[String(p)])]))
+    placeTies: Object.fromEntries(PLACES.map((p) => [p, list(raw.placeTies?.[p] ?? raw.placeTies?.[String(p)])])),
+    tables: Object.fromEntries(TEAMS.map((t) => [t, raw.tables?.[t] && typeof raw.tables[t] === "object" ? normalizeTask(raw.tables[t]) : null]))
   };
 }
 
@@ -110,14 +116,38 @@ export function validateBattleSet(set) {
     if (qs.length > MAX_PER_PLACE) errors.push(`Для ${p}-го места не больше ${MAX_PER_PLACE} вопросов.`);
     qs.forEach((q, i) => errors.push(...validateQuestion(q, `${p}-е место, вопрос ${i + 1}`)));
   }
+  errors.push(...validateTables(s.tables));
   return errors;
 }
+
+// Таблицы после Battle: либо обе команды, либо ни одной. Проверка автоматическая
+// (ведущий сверяет ответы по ключам), поэтому ячейки «вручную» не допускаются.
+export function validateTables(tables) {
+  const a = tables?.a || null;
+  const b = tables?.b || null;
+  if (!a && !b) return [];
+  const errors = [];
+  if (!a || !b) errors.push("Таблица после Battle: задайте её для обеих команд (можно скопировать).");
+  for (const team of TEAMS) {
+    const task = tables[team];
+    if (!task) continue;
+    errors.push(...validateTask(task, { team }));
+    const manual = (task.rows || []).some((row) => (row || []).some((cell) => cell?.t === "answer" && cell.mode === "manual"));
+    if (manual) errors.push(`Задание команды ${team === "a" ? "А" : "Б"}: проверка вручную в Battle недоступна — задайте ожидаемые ответы.`);
+  }
+  return errors;
+}
+
+export const hasTables = (set) => {
+  const t = normalizeBattleSet(set).tables;
+  return Boolean(t.a && t.b);
+};
 
 export const countMain = (set) => normalizeBattleSet(set).main.questions.length;
 export const countForPlace = (set, place) => normalizeBattleSet(set).placeTies[place]?.length || 0;
 export const isEmptySet = (set) => {
   const s = normalizeBattleSet(set);
-  return !s.main.questions.length && PLACES.every((p) => !s.placeTies[p].length);
+  return !s.main.questions.length && PLACES.every((p) => !s.placeTies[p].length) && !s.tables.a && !s.tables.b;
 };
 
 // ---------- сериализация ----------
@@ -128,7 +158,9 @@ export function toStoredSet(set) {
   return {
     version: SET_VERSION,
     main: { ...s.main, count: s.main.count ?? null, questionSeconds: s.main.questionSeconds ?? null },
-    placeTies: Object.fromEntries(PLACES.map((p) => [String(p), s.placeTies[p]]))
+    placeTies: Object.fromEntries(PLACES.map((p) => [String(p), s.placeTies[p]])),
+    // Строки таблицы кодируются (Firestore не принимает массив в массиве).
+    tables: Object.fromEntries(TEAMS.map((t) => [t, s.tables[t] ? encodeTask(s.tables[t]) : null]))
   };
 }
 

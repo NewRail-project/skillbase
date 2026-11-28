@@ -13,6 +13,10 @@ import { buildBattlePlay } from "../components/battle-play.js";
 import { buildBattleHost } from "../components/battle-host.js";
 import { buildBattleScreen } from "../components/battle-screen.js";
 import { openBattleOverlay } from "../components/battle-overlay.js";
+import { mountBattlePractical } from "../components/battle-practical.js";
+import { buildBattleReportPanel } from "../components/battle-report-panel.js";
+import { loadBattleSet } from "../../core/battle-set-store.js";
+import { hasTables } from "../../core/battle-set.js";
 
 let current = null; // { key, el, dispose }
 
@@ -42,6 +46,8 @@ export function mountBattle({ code, kind, uid, test, players = [], getPlayers = 
   const avatarOf = (u) => roster().find((p) => p.uid === u)?.avatar || null;
   const offs = [];
   let hostView = null;
+  let practical = null; // таблица после Battle (если задана в тесте)
+  let reportPanel = null; // итоговая ведомость по ФИО
   let play = null;
   let screen = null;
   let disposed = false;
@@ -57,6 +63,7 @@ export function mountBattle({ code, kind, uid, test, players = [], getPlayers = 
     closeScreen();
     offs.forEach((f) => { try { f(); } catch { /* отписка */ } });
     hostView?.stop();
+    practical?.destroy();
     play?.destroy();
     screen?.destroy();
   };
@@ -91,6 +98,11 @@ export function mountBattle({ code, kind, uid, test, players = [], getPlayers = 
         const questions = (doc.questions || []).map((q) => ({ ...q, correct: keys[q.id] || [] }));
         const extraQuestions = (doc.extraQuestions || []).map((q) => ({ ...q, correct: keys[q.id] || [] }));
         const game = BattleGame.restore({ doc, questions, extraQuestions, rounds, liveInfo, store, now });
+        // Таблица после Battle хранится в наборе теста (закрытый документ testKeys).
+        const set = await loadBattleSet(test?.id);
+        if (disposed) return;
+        if (hasTables(set)) practical = mountBattlePractical({ kind: "host", code, uid, tables: set.tables, onToast });
+        reportPanel = buildBattleReportPanel({ code, onToast });
         hostView = buildBattleHost({
           game, test: bank, players, onToast, getPresence,
           onFinish: async (g) => {
@@ -105,6 +117,9 @@ export function mountBattle({ code, kind, uid, test, players = [], getPlayers = 
             } catch (err) {
               onToast(err?.message || "Итоги не сохранены в историю.", "error");
             }
+            // Битва завершена: готовим таблицы (идемпотентно, при перезагрузке безопасно).
+            await practical?.begin();
+            reportPanel?.show();
             return { snapshot: snap };
           }
         });
@@ -115,7 +130,7 @@ export function mountBattle({ code, kind, uid, test, players = [], getPlayers = 
         const openBtn = h("button", { type: "button", class: "btn primary battle-open-screen", "data-action": "open-battle-screen" }, "Экран битвы");
         openBtn.addEventListener("click", () => openScreen(openBtn));
         show(h("div", { class: "battle-host-wrap" },
-          h("div", { class: "battle-host-bar" }, openBtn), hostView.el));
+          h("div", { class: "battle-host-bar" }, openBtn), hostView.el, practical ? practical.el : null, reportPanel.el));
       } catch (err) {
         show(message(err?.message || "Не удалось загрузить битву."));
       }
@@ -137,6 +152,7 @@ export function mountBattle({ code, kind, uid, test, players = [], getPlayers = 
       }
       await ready;
       (play || screen)?.update(b);
+      practical?.update(b);
     }, () => show(message("Нет доступа к битве."))));
   };
 
@@ -146,7 +162,8 @@ export function mountBattle({ code, kind, uid, test, players = [], getPlayers = 
         test: t, nameOf, avatarOf, now,
         controls: backHref ? [{ label: "Вернуться", href: backHref, kind: "back" }] : []
       });
-      show(screen.el);
+      practical = mountBattlePractical({ kind: "screen", code, uid });
+      show(h("div", { class: "battle-screen-wrap" }, screen.el, practical.el));
       // Имена и аватары участников могут догрузиться позже битвы.
       const refresh = setInterval(() => screen?.refresh(), 3000);
       offs.push(() => clearInterval(refresh));
@@ -162,7 +179,9 @@ export function mountBattle({ code, kind, uid, test, players = [], getPlayers = 
         makeCaptainDecision: (x) => makeCaptainDecision(code, x)
       }
     });
-    show(play.el);
+    // Наблюдатель видит таблицы обеих команд, участник — свою.
+    practical = mountBattlePractical({ kind: isObserver ? "screen" : "player", code, uid });
+    show(h("div", { class: "battle-play-wrap" }, play.el, practical.el));
   });
   // Пульс присутствия: по нему ведущий определяет потерю связи.
   if (!isObserver) {

@@ -13,6 +13,7 @@
 // выдумываются. Личные ответы участников (кто что выбрал) в публичный документ
 // не попадают и сюда не копируются; из снимка берутся только агрегаты участия.
 import { isFullyCorrect, isAvailableInRound } from "./battle-logic.js";
+import { totalScores } from "./battle-practical.js";
 
 export const TEAM_IDS = ["a", "b"];
 export const TEAM_NAME = { a: "Команда А", b: "Команда Б" };
@@ -180,9 +181,13 @@ export function buildBattleSummary({ battle, nameOf = (u) => u, report = null } 
   }
   players.sort(byName);
 
+  // Таблица после Battle: очки практики и итог с практикой (счёт Battle не меняется).
+  const practical = battle.practicalDone && (battle.practicalDone.a || battle.practicalDone.b)
+    ? { results: { a: battle.practicalResults?.a || null, b: battle.practicalResults?.b || null }, total: totalScores(battle) }
+    : null;
   return {
     source: battle.finalRoster || Array.isArray(battle.players) ? "snapshot" : "public",
-    outcome, score, teams,
+    outcome, score, teams, practical,
     questions: {
       total: rounds.length,
       extra: Array.isArray(battle.suddenDeath?.rounds) ? battle.suddenDeath.rounds.length : 0,

@@ -13,7 +13,8 @@ import {
 import { State } from "./auth.js";
 import { normalizeRoomCode } from "./rooms-logic.js";
 import {
-  TEAMS, TASK_STATUS, SUBMISSION, splitTask, sanitizeCells, sanitizeEntry, evaluateSubmission, compareTeams
+  TEAMS, TASK_STATUS, SUBMISSION, splitTask, sanitizeCells, sanitizeEntry, evaluateSubmission, compareTeams,
+  encodeTask, decodeTask
 } from "./practical.js";
 
 function requireOnline(message) {
@@ -49,8 +50,9 @@ export async function setupPractical(code, plan) {
   TEAMS.forEach((team, i) => {
     if (existing[i].exists()) return;
     const { publicTask, keys } = splitTask(plan?.tasks?.[team]);
+    // Строки кодируются: Firestore не принимает массив внутри массива.
     batch.set(taskRef(code, team), {
-      team, ...publicTask, status: TASK_STATUS.DRAFT, updatedAt: serverTimestamp()
+      team, ...encodeTask(publicTask), status: TASK_STATUS.DRAFT, updatedAt: serverTimestamp()
     });
     batch.set(keyRef(code, team), { kind: "practical", team, cells: keys, updatedAt: serverTimestamp() });
     created += 1;
@@ -143,6 +145,44 @@ export async function confirmResult(code, { evaluations, comparison, overrides }
   await batch.commit();
 }
 
+// Проверка одной команды (Battle: «Проверить» сразу показывает верно/неверно).
+// В задание команды пишется публичный итог без ожидаемых ответов; задание
+// закрывается (status = confirmed). Для ведущего. Идемпотентна: повторный вызов
+// пишет тот же итог и не меняет очки (очки считает вызывающий код один раз).
+// Статус задания команды (draft/open/confirmed…) или null, если задания нет.
+export async function loadTaskStatus(code, team) {
+  const s = await getDoc(taskRef(code, team));
+  return s.exists() ? (s.data().status || null) : null;
+}
+
+export async function confirmTeamResult(code, team, evaluation) {
+  requireOnline("Нет подключения к интернету. Результат не записан.");
+  if (!evaluation?.complete) throw new Error("В таблице есть ответы, которые нельзя проверить автоматически.");
+  await updateDoc(taskRef(code, team), {
+    status: TASK_STATUS.CONFIRMED, updatedAt: serverTimestamp(),
+    result: {
+      score: evaluation.score, max: evaluation.max, percent: evaluation.percent,
+      cells: Object.fromEntries(Object.entries(evaluation.cells).map(([id, c]) => [id, c.ok === true]))
+    }
+  });
+}
+
+// Когда проверены обе команды: общий подтверждённый результат для отчёта
+// (тот же документ, что и при ручном подтверждении преподавателем).
+export async function saveFinalPracticalResult(code, evaluations) {
+  requireOnline("Нет подключения к интернету. Результат практики не записан.");
+  const comparison = compareTeams(evaluations?.a, evaluations?.b);
+  if (!comparison.ready) throw new Error(comparison.reason || "Результат ещё нельзя записать.");
+  await setDoc(resultRef(code), {
+    kind: "practicalResult", evaluations, comparison, overrides: {},
+    confirmedBy: State?.user?.uid || "", confirmedAt: serverTimestamp()
+  });
+  // Победитель практики — в задания обеих команд (для экрана и отчёта).
+  const winner = comparison.tie ? "tie" : comparison.winner;
+  for (const team of TEAMS) await updateDoc(taskRef(code, team), { "result.winner": winner, updatedAt: serverTimestamp() });
+  return comparison;
+}
+
 export async function loadConfirmedResult(code) {
   const s = await getDoc(resultRef(code));
   return s.exists() ? s.data() : null;
@@ -150,7 +190,7 @@ export async function loadConfirmedResult(code) {
 
 // ---------- Подписки ----------
 
-export const subscribeTask = (code, team, onData, onError) => subscribeDoc(taskRef(code, team), onData, onError);
+export const subscribeTask = (code, team, onData, onError) => subscribeDoc(taskRef(code, team), (t) => onData && onData(decodeTask(t)), onError);
 export const subscribeSubmission = (code, team, onData, onError) => subscribeDoc(subRef(code, team), onData, onError);
 
 // ---------- Капитан ----------
@@ -181,7 +221,7 @@ export async function loadPracticalSnapshot(code) {
   const keys = {};
   for (const team of TEAMS) {
     const [t, s, k] = await Promise.all([getDoc(taskRef(code, team)), getDoc(subRef(code, team)), getDoc(keyRef(code, team))]);
-    if (t.exists()) tasks[team] = t.data();
+    if (t.exists()) tasks[team] = decodeTask(t.data());
     if (s.exists()) submissions[team] = s.data();
     if (k.exists()) keys[team] = k.data().cells || {};
   }
