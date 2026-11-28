@@ -10,7 +10,7 @@ import { loadTest } from "../../core/editor.js";
 import { subscribeBattle } from "../../core/battle.js";
 import { loadMaterialProgress } from "../../core/materials.js";
 import {
-  advanceLesson, skipLessonStage, startFinalRoom, loadLessonPlan, subscribeRoomState, lessonErrorText
+  advanceLesson, skipLessonStage, startFinalRoom, startReinforcementRoom, loadLessonPlan, subscribeRoomState, lessonErrorText
 } from "../../core/lesson-store.js";
 import {
   setupPractical, setTaskStatus, loadKeys, loadReview, saveReview, returnForRevision, loadEntry, saveEntry,
@@ -45,11 +45,13 @@ function ensureCode(code) {
 
 function createHostPanel({ code, getRoom, getPlayers }) {
   const holder = h("div", { class: "lesson-bar-holder" });
-  const facts = { battleFinished: false, practicalA: false, practicalB: false, finalCompleted: false };
+  const facts = { battleFinished: false, practicalA: false, practicalB: false, finalCompleted: false, reinforcementCompleted: false };
   const ui = { busy: false, message: "", readers: null };
   const unsubs = [];
   let finalWatched = "";
   let finalUnsub = null;
+  let reinfWatched = "";
+  let reinfUnsub = null;
   let timer = null;
 
   const run = () => getRoom()?.lesson || null;
@@ -57,6 +59,8 @@ function createHostPanel({ code, getRoom, getPlayers }) {
     entryCompleted: getRoom()?.liveState === "completed",
     battleFinished: facts.battleFinished,
     practicalConfirmed: facts.practicalA && facts.practicalB,
+    reinforcementCompleted: facts.reinforcementCompleted,
+    reinforcementRoomCode: run()?.reinforcementRoomCode || "",
     finalCompleted: facts.finalCompleted
   });
 
@@ -71,6 +75,11 @@ function createHostPanel({ code, getRoom, getPlayers }) {
           if (reason === null) return; // отмена
           return act("Пропускаем", () => skipLessonStage(code, stage, reason || ""));
         },
+        startReinforcement: () => act("Создаём комнату", async () => {
+          const plan = await loadLessonPlan(r.planId);
+          if (plan?.stages?.reinforcement !== true) throw new Error("В сценарии не включён этап «Закрепление материала».");
+          await startReinforcementRoom({ entryCode: code, plan, lessonId: r.planId, profile: State.profile });
+        }),
         startFinal: () => act("Создаём комнату", async () => {
           const plan = await loadLessonPlan(r.planId);
           if (!plan?.finalTestId) throw new Error("В сценарии не выбран итоговый тест.");
@@ -110,6 +119,14 @@ function createHostPanel({ code, getRoom, getPlayers }) {
     if (finalCode) finalUnsub = watch(() => subscribeRoomState(finalCode, (d) => { facts.finalCompleted = d?.liveState === "completed"; paint(); }, () => {}));
   }
 
+  function watchReinforcement() {
+    const reinfCode = run()?.reinforcementRoomCode || "";
+    if (reinfCode === reinfWatched) return;
+    reinfWatched = reinfCode;
+    safe(reinfUnsub); reinfUnsub = null; facts.reinforcementCompleted = false;
+    if (reinfCode) reinfUnsub = watch(() => subscribeRoomState(reinfCode, (d) => { facts.reinforcementCompleted = d?.liveState === "completed"; paint(); }, () => {}));
+  }
+
   // Подписки состояния этапов. Ошибки не роняют комнату — панель просто не
   // получит факт, и кнопка перехода останется закрытой с понятной причиной.
   try { unsubs.push(subscribeBattle(code, (b) => { facts.battleFinished = b?.phase === "finished"; paint(); }, () => {})); } catch { /* нет битвы */ }
@@ -120,8 +137,8 @@ function createHostPanel({ code, getRoom, getPlayers }) {
 
   return {
     el: holder,
-    sync() { watchFinal(); paint(); refreshReaders(); },
-    destroy() { unsubs.forEach(safe); safe(finalUnsub); if (timer) clearInterval(timer); }
+    sync() { watchFinal(); watchReinforcement(); paint(); refreshReaders(); },
+    destroy() { unsubs.forEach(safe); safe(finalUnsub); safe(reinfUnsub); if (timer) clearInterval(timer); }
   };
 }
 
@@ -141,11 +158,17 @@ function createParticipantPanel({ code, getRoom, uid }) {
   function paint() {
     const run = getRoom()?.lesson || null;
     const finalOwn = run?.kind === "final";
+    const reinfOwn = run?.kind === "reinforcement";
     holder.replaceChildren(finalOwn
       ? h("section", { class: "lesson-bar", "aria-label": "Ход занятия", "data-stage": "final_test" },
         h("p", { class: "lb-kicker" }, "Открытое занятие"),
         h("h2", { class: "lb-title" }, "Итоговый тест"),
         h("p", { class: "lb-hint", role: "status" }, "Это заключительный этап занятия."))
+      : reinfOwn
+      ? h("section", { class: "lesson-bar", "aria-label": "Ход занятия", "data-stage": "reinforcement" },
+        h("p", { class: "lb-kicker" }, "Открытое занятие"),
+        h("h2", { class: "lb-title" }, "Закрепление материала"),
+        h("p", { class: "lb-hint", role: "status" }, "Вы проходите тест закрепления материала."))
       : buildLessonBar({
         run, isHost: false,
         materialHref: run?.materialId ? `#material/${encodeURIComponent(run.materialId)}/free/${encodeURIComponent(code)}` : "",

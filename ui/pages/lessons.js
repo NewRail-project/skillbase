@@ -16,6 +16,9 @@ import { hasMaterial } from "../../core/materials.js";
 import {
   listLessonPlans, loadLessonPlan, saveLessonPlan, deleteLessonPlan, startLesson, lessonErrorText
 } from "../../core/lesson-store.js";
+import { validateTest } from "../../core/test-schema.js";
+import { parseQuiz } from "../../core/import/parser.js";
+import { serializeTest } from "../../core/import/serializer.js";
 import {
   emptyPlan, normalizePlan, validatePlan, OPTIONAL_STAGES, STAGE_LABEL
 } from "../../core/lesson-plan.js";
@@ -34,6 +37,7 @@ const STAGE_HINT = {
   entry_test: "Live-комната с тестом.",
   battle: "Командная битва после входного теста.",
   practical: "Две таблицы-задания, по одной на команду.",
+  reinforcement: "Короткий Live-тест по вопросам, которые вы добавите после таблиц практики.",
   final_test: "Вторая Live-комната с итоговым тестом."
 };
 
@@ -152,6 +156,15 @@ async function editorPage(id) {
     h("h2", {}, "Практическая диагностика"),
     h("p", { class: "muted" }, "Две разных таблицы. Ожидаемые ответы видны только вам: участникам уходит таблица без них."),
     editors.a.el, editors.b.el);
+  const reinforcementQuestions = plan.reinforcement?.questions || [];
+  const reinforceArea = h("textarea", { rows: "8", spellcheck: "false", id: "ls-reinforce", "aria-label": "Вопросы закрепления", placeholder: "1. Какой сигнал разрешает движение?\nA) Красный\nB) Зелёный [+]" });
+  reinforceArea.value = serializeTest({ questions: reinforcementQuestions });
+  const reinforceStatus = h("div", { class: "form-hint", role: "status" }, "");
+  const reinforcementBox = h("section", { class: "panel", "aria-label": "Закрепление материала" },
+    h("h2", {}, "Закрепление материала"),
+    h("p", { class: "muted" }, "Вопросы закрепления (формат как при создании теста, маркер [+] обозначает правильный ответ)."),
+    reinforceArea,
+    reinforceStatus);
   const battleBox = h("section", { class: "panel", "aria-label": "Параметры Battle" },
     h("h2", {}, "Battle"),
     h("p", { class: "muted" }, "Как в обычной Live-комнате: если набор не выбран, берутся вопросы входного теста (или его заготовленный набор Battle). Банки для ничьих берутся из входного теста."),
@@ -162,8 +175,32 @@ async function editorPage(id) {
   const errors = h("div", { class: "form-error", role: "alert" });
   const status = h("p", { class: "form-hint", role: "status" }, "");
 
-  function sync() { practicalBox.hidden = !stageBoxes.practical.checked; battleBox.hidden = !stageBoxes.battle.checked; }
+  function sync() {
+    practicalBox.hidden = !stageBoxes.practical.checked;
+    battleBox.hidden = !stageBoxes.battle.checked;
+    reinforcementBox.hidden = !stageBoxes.reinforcement.checked;
+  }
   sync();
+
+  function paintReinforce() {
+    const { questions, errors: parseErrors } = parseQuiz(reinforceArea.value);
+    if (!questions.length && !parseErrors.length) {
+      reinforceStatus.className = "form-hint";
+      reinforceStatus.textContent = "Вопросов нет.";
+      return;
+    }
+    const { errors: schemaErrors } = validateTest({ title: "Закрепление материала", questions, requireMaterial: false }, { publishing: true });
+    const allErrors = [...parseErrors, ...schemaErrors];
+    if (allErrors.length) {
+      reinforceStatus.className = "form-error";
+      reinforceStatus.textContent = allErrors.slice(0, 3).join("\n");
+    } else {
+      reinforceStatus.className = "form-hint";
+      reinforceStatus.textContent = `Распознано вопросов: ${questions.length}.`;
+    }
+  }
+  reinforceArea.addEventListener("input", paintReinforce);
+  paintReinforce();
 
   const collect = () => normalizePlan({
     topic: topic.value, subjectName: subject.value,
@@ -171,6 +208,7 @@ async function editorPage(id) {
     entryTestId: entry.value, entryTestTitle: titleOf(tests, entry.value),
     finalTestId: fin.value, finalTestTitle: titleOf(tests, fin.value),
     stages: Object.fromEntries(OPTIONAL_STAGES.map(s => [s, stageBoxes[s].checked])),
+    reinforcement: { questions: parseQuiz(reinforceArea.value).questions },
     battle: { battleTestId: battleBank.value, questionCount: battleCount.value, questionSeconds: battleSec.value },
     tasks: { a: editors.a.getTask(), b: editors.b.getTask() },
     grading: { weights: Object.fromEntries(Object.entries(w).map(([k, el]) => [k, el.value])), thresholds: Object.fromEntries(Object.entries(th).map(([k, el]) => [k, el.value])) }
@@ -212,7 +250,7 @@ async function editorPage(id) {
       field("ls-material", "Теоретический материал", material, "Материал открывается в обычной читалке, включая книжный режим."),
       field("ls-entry", "Входной тест", entry),
       field("ls-final", "Итоговый тест", fin, "Короткий тест после практики. Можно выбрать тот же тест, что и входной.")),
-    battleBox, practicalBox,
+    battleBox, practicalBox, reinforcementBox,
     h("section", { class: "panel" },
       h("h2", {}, "Рекомендуемая оценка"),
       h("p", { class: "muted" }, "Веса компонентов. Если какого-то результата нет (этап отключён, пропущен, участник отсутствовал), его вес перераспределяется между остальными, а не превращается в ноль."),

@@ -99,7 +99,7 @@ test("пропуск этапа: фиксируется, не требует у�
   const st = Object.fromEntries(stageStatuses(run, plan).map(s => [s.stage, s.status]));
   assert.deepEqual(st, {
     material: "done", entry_test: "done", battle: "skipped", practical: "skipped",
-    final_test: "current", report: "next"
+    reinforcement: "off", final_test: "current", report: "next"
   });
 });
 
@@ -114,7 +114,70 @@ test("процент выполнения: пропущенные в знаме�
   let r2 = newRun(small, { id: "S" });
   r2 = advance(r2, small, { entryCompleted: true }, 1);
   assert.equal(completion(r2, small).percent, 50);
-  assert.equal(STAGES.length, 6);
+  assert.equal(STAGES.length, 7);
+});
+
+// совместимость: старый сценарий без закрепления работает как раньше
+test("совместимость: старый сценарий без закрепления работает как раньше", () => {
+  const old = normalizePlan({ topic: "Т", stages: { material: true, entry_test: true, battle: true, practical: true, final_test: true } });
+  assert.equal(old.stages.reinforcement, false);
+  assert.deepEqual(enabledStages(old), ["material", "entry_test", "battle", "practical", "final_test", "report"]);
+  // вообще без блока stages
+  assert.equal(normalizePlan({ topic: "Т", stages: {} }).stages.reinforcement, false);
+});
+
+// этап «Закрепление материала» встаёт ровно после практики
+test("этап «Закрепление материала» встаёт ровно после практики", () => {
+  const on = goodPlan({ stages: { material:true, entry_test:true, battle:true, practical:true, reinforcement:true, final_test:true } });
+  assert.deepEqual(enabledStages(on), ["material","entry_test","battle","practical","reinforcement","final_test","report"]);
+});
+
+// вопросы закрепления: нормализация и проверка
+test("вопросы закрепления: нормализация и проверка", () => {
+  const q = { type:"single", text:"Сигнал?", options:[{text:"Зелёный",correct:true},{text:"Красный"}], points:1, lineNumber: 4 };
+  const p = normalizePlan({ topic:"Т", stages:{ practical:true, reinforcement:true }, reinforcement:{ questions:[q] } });
+  assert.equal(p.reinforcement.questions.length, 1);
+  assert.equal(p.reinforcement.questions[0].lineNumber, undefined);
+  assert.deepEqual(validatePlan(p).filter(e => /закрепи|вопрос/i.test(e)), []);
+
+  const empty = normalizePlan({ topic:"Т", stages:{ practical:true, reinforcement:true }, reinforcement:{ questions:[] } });
+  assert.ok(validatePlan(empty).some(e => /закрепи|вопросы/i.test(e)), "без вопросов этап не должен сохраняться");
+
+  const broken = normalizePlan({ topic:"Т", stages:{ practical:true, reinforcement:true },
+    reinforcement:{ questions:[{ type:"single", text:"?", options:[{text:"Только один", correct:true}], points:1 }] } });
+  assert.ok(validatePlan(broken).some(e => /Вопрос/i.test(e)), "невалидный вопрос должен дать ошибку");
+});
+
+// переходы: после таблицы практики сценарий идёт в закрепление и не зависает
+test("переходы: после таблицы практики сценарий идёт в закрепление и не зависает", () => {
+  const plan = goodPlan({ stages:{ material:false, entry_test:true, battle:false, practical:true, reinforcement:true, final_test:true } });
+  let run = newRun(plan, { id: "E" });
+  run = advance(run, plan, { entryCompleted: true, practicalConfirmed: true }, 1);
+  assert.equal(run.stage, "reinforcement");
+  // комната не создана — завершать нельзя
+  assert.equal(canAdvance(run, plan, {}).ok, false);
+  // комната создана, тест не пройден — завершать нельзя
+  assert.equal(canAdvance(run, plan, { reinforcementRoomCode: "ABC123" }).ok, false);
+  // тест пройден — можно
+  assert.equal(canAdvance(run, plan, { reinforcementRoomCode: "ABC123", reinforcementCompleted: true }).ok, true);
+  run = advance(run, plan, { reinforcementRoomCode: "ABC123", reinforcementCompleted: true }, 1);
+  assert.equal(run.stage, "final_test");
+  // и финальный тест отключён — сценарий уходит в отчёт, а не зависает
+  const noFinal = goodPlan({ stages:{ material:false, entry_test:true, battle:false, practical:true, reinforcement:true, final_test:false } });
+  let r2 = newRun(noFinal, { id: "E2" });
+  r2 = advance(r2, noFinal, { entryCompleted: true, practicalConfirmed: true }, 1);
+  assert.equal(r2.stage, "reinforcement");
+  r2 = advance(r2, noFinal, { reinforcementCompleted: true, reinforcementRoomCode: "Z" }, 1);
+  assert.equal(r2.stage, "report");
+});
+
+// практика пропущена — закрепление на своём месте (спец-ветка moveForward)
+test("практика пропущена — закрепление на своём месте (спец-ветка moveForward)", () => {
+  // battle выключен → практика автоматически пропускается, дальше должно быть закрепление
+  const plan = goodPlan({ stages:{ material:false, entry_test:true, battle:false, practical:true, reinforcement:true, final_test:true } });
+  let run = newRun(plan, { id: "E" });
+  run = advance(run, plan, { entryCompleted: true }, 1);
+  assert.equal(run.stage, "reinforcement");
 });
 
 test("ход занятия хранит снимок оценки и названий: правка сценария отчёт не меняет", async () => {
@@ -140,4 +203,53 @@ test("параметры Battle: по умолчанию как в Live, зна�
   assert.ok(p.battle.questionSeconds >= 5);
   assert.equal(normalizePlan({ battle: { battleTestId: "a/b" } }).battle.battleTestId, "", "небезопасный id отброшен");
   assert.equal(normalizePlan(null).battle.questionCount, 10);
+});
+
+test("краевые: мусор в поле закрепления не роняет нормализацию", () => {
+  const p1 = normalizePlan({ topic: "Т", stages: { reinforcement: true }, reinforcement: null });
+  assert.deepEqual(p1.reinforcement.questions, []);
+
+  const p2 = normalizePlan({ topic: "Т", stages: { reinforcement: true }, reinforcement: { questions: "не массив" } });
+  assert.deepEqual(p2.reinforcement.questions, []);
+
+  const p3 = normalizePlan({ topic: "Т", stages: { reinforcement: true }, reinforcement: { questions: [null, 5, "строка"] } });
+  assert.deepEqual(p3.reinforcement.questions, []);
+
+  const p4 = normalizePlan({ topic: "Т", stages: { reinforcement: true }, reinforcement: { questions: [ { type: "wat", text: "" }, { type: "single", text: "ok", options: [{ text: "a", correct: true }, { text: "b" }] } ] } });
+  // нормализация отбрасывает только не-объекты (null/число/строку); объект с
+  // неизвестным типом сохраняется, тип приводится к "single"
+  assert.equal(p4.reinforcement.questions.length, 2);
+  assert.equal(p4.reinforcement.questions[0].type, "single");
+  assert.equal(p4.reinforcement.questions[0].text, "");
+  assert.equal(p4.reinforcement.questions[1].type, "single");
+  assert.equal(p4.reinforcement.questions[1].text, "ok");
+  // а пустой текст такого вопроса обязан поймать validatePlan — не молчим о нём
+  assert.ok(validatePlan(p4).some(e => /Вопрос 1: отсутствует текст/.test(e)));
+});
+
+test("краевые: ограничение количества вопросов", () => {
+  const questions = Array.from({ length: 201 }, (_, i) => ({ type: "short", text: `Q${i}`, answer: `a${i}` }));
+  const p = normalizePlan({ topic: "Т", stages: { reinforcement: true }, reinforcement: { questions } });
+  assert.equal(p.reinforcement.questions.length, 200);
+});
+
+test("краевые: понятные ошибки валидации вопросов", () => {
+  const empty = normalizePlan({ topic: "Т", stages: { reinforcement: true }, reinforcement: { questions: [] } });
+  assert.ok(validatePlan(empty).some(e => /Добавьте вопросы закрепления/.test(e)));
+
+  const badType = normalizePlan({ topic: "Т", stages: { reinforcement: true }, reinforcement: { questions: [{ type: "singleXYZ", text: "Что?", options: [{ text: "a", correct: true }, { text: "b" }] }] } });
+  assert.ok(validatePlan(badType).some(e => /Вопрос 1: неизвестный тип вопроса/.test(e)));
+
+  const noCorrect = normalizePlan({ topic: "Т", stages: { reinforcement: true }, reinforcement: { questions: [{ type: "single", text: "Что?", options: [{ text: "a" }, { text: "b" }] }] } });
+  assert.ok(validatePlan(noCorrect).some(e => /Вопрос 1: укажите ровно один правильный вариант/.test(e)));
+
+  const twoCorrect = normalizePlan({ topic: "Т", stages: { reinforcement: true }, reinforcement: { questions: [{ type: "single", text: "Что?", options: [{ text: "a", correct: true }, { text: "b", correct: true }] }] } });
+  assert.ok(validatePlan(twoCorrect).some(e => /Вопрос 1: укажите ровно один правильный вариант/.test(e)));
+
+  const noAnswer = normalizePlan({ topic: "Т", stages: { reinforcement: true }, reinforcement: { questions: [{ type: "short", text: "Что?", answer: "" }] } });
+  assert.ok(validatePlan(noAnswer).some(e => /Вопрос 1: тип short должен иметь ответ/.test(e)));
+
+  const valid = goodPlan({ stages: { reinforcement: true }, reinforcement: { questions: [{ type: "single", text: "Что?", options: [{ text: "a", correct: true }, { text: "b" }], points: 1 }] } });
+  const reinErrors = validatePlan(valid).filter(e => /закреплени|вопрос/i.test(e));
+  assert.deepEqual(reinErrors, []);
 });

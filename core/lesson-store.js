@@ -21,6 +21,8 @@ import { normalizeRoomCode } from "./rooms-logic.js";
 import {
   normalizePlan, validatePlan, newRun, advance, skipStage, canAdvance, planOfRun
 } from "./lesson-plan.js";
+import { splitForStorage } from "./test-storage.js";
+import { emptyTest } from "./test-schema.js";
 
 export const planDocId = (id) => `lesson__${id}`;
 
@@ -141,17 +143,17 @@ export const skipLessonStage = (code, expectedStage, reason = "") =>
 
 export { canAdvance };
 
-// Итоговый тест: ведущий создаёт вторую Live-комнату и записывает её код во
-// входную комнату — участники увидят ссылку. Защита от дубля: если код уже
-// записан (двойной клик, вторая вкладка), новая комната удаляется.
-export async function startFinalRoom({ entryCode, test, profile }) {
+// ---------- вспомогательная функция прикрепления комнаты этапа ----------
+async function attachStageRoom(entryCode, field, { test, profile, lesson }) {
   const entry = normalizeRoomCode(entryCode);
   const current = await readLessonRun(entry);
   if (!current) throw fail("Это не комната занятия.");
-  if (current.finalRoomCode) return current.finalRoomCode;
+  if (current[field]) return current[field];
+  const roomLesson = { ...lesson };
+  if (!roomLesson.topic) roomLesson.topic = current.topic || "";
   const code = await createRoom({
     test, profile, allowObservers: true,
-    lesson: { kind: "final", parentCode: entry, topic: current.topic || "" }
+    lesson: { ...roomLesson, parentCode: entry }
   });
   try {
     const ref = roomRef(entry);
@@ -159,8 +161,8 @@ export async function startFinalRoom({ entryCode, test, profile }) {
       const snap = await tx.get(ref);
       const run = snap.data()?.lesson;
       if (!run) throw fail("Это не комната занятия.");
-      if (run.finalRoomCode) return run.finalRoomCode; // кто-то успел раньше
-      tx.update(ref, { lesson: { ...run, finalRoomCode: code }, updatedAt: serverTimestamp() });
+      if (run[field]) return run[field]; // кто-то успел раньше
+      tx.update(ref, { lesson: { ...run, [field]: code }, updatedAt: serverTimestamp() });
       return code;
     });
     if (winner !== code) { try { await deleteDoc(roomRef(code)); } catch { /* лишняя комната останется закрытой */ } }
@@ -169,6 +171,55 @@ export async function startFinalRoom({ entryCode, test, profile }) {
     try { await deleteDoc(roomRef(code)); } catch { /* ignore */ }
     throw error;
   }
+}
+
+// Итоговый тест: ведущий создаёт вторую Live-комнату и записывает её код во
+// входную комнату — участники увидят ссылку. Защита от дубля: если код уже
+// записан (двойной клик, вторая вкладка), новая комната удаляется.
+export async function startFinalRoom({ entryCode, test, profile }) {
+  return await attachStageRoom(entryCode, "finalRoomCode", {
+    test, profile,
+    lesson: { kind: "final" }
+  });
+}
+
+// Материализация вопросов закрепления в опубликованный тест.
+export const reinforcementTestDocId = (lessonId) => "reinforce__" + String(lessonId || "").replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 120);
+
+async function materializeReinforcementTest({ plan, lessonId, entry }) {
+  const questions = plan.reinforcement?.questions || [];
+  if (!questions.length) throw fail("В сценарии нет вопросов закрепления.", "validation");
+  const testId = reinforcementTestDocId(lessonId || entry);
+  const { publicTest, keys } = splitForStorage({ id: testId, title: plan.topic ? "Закрепление: " + plan.topic : "Закрепление материала", description: "Вопросы закрепления из сценария занятия. Редактируются в сценарии.", questions, settings: emptyTest().settings, mode: "self" });
+  const uid = State?.user?.uid;
+  if (!uid) throw fail("Нужно войти в аккаунт.");
+  const testRef = doc(db, "tests", testId);
+  const existing = await getDoc(testRef);
+  if (!existing.exists()) {
+    await setDoc(testRef, { ...publicTest, id: testId, authorId: uid, orgId: State?.profile?.orgId, status: "draft", version: 1, createdAt: serverTimestamp(), publishedAt: null, updatedAt: serverTimestamp() });
+  }
+  await updateDoc(testRef, { ...publicTest, status: "published", updatedAt: serverTimestamp() });
+  // Ключи
+  const keysRef = doc(db, "testKeys", testId);
+  const keysSnap = await getDoc(keysRef);
+  if (!keysSnap.exists()) {
+    await setDoc(keysRef, { authorId: uid, orgId: State?.profile?.orgId, items: keys, version: 1, updatedAt: serverTimestamp() });
+  } else {
+    await setDoc(keysRef, { items: keys, updatedAt: serverTimestamp() }, { merge: true });
+  }
+  return { ...publicTest, id: testId, status: "published" };
+}
+
+// Новая публичная функция: создаёт комнату закрепления
+export async function startReinforcementRoom({ entryCode, plan, lessonId, profile }) {
+  const p = normalizePlan(plan);
+  if (p.stages.reinforcement !== true) throw fail("В сценарии не включён этап «Закрепление материала».", "validation");
+  const entry = normalizeRoomCode(entryCode);
+  const test = await materializeReinforcementTest({ plan: p, lessonId, entry });
+  return attachStageRoom(entryCode, "reinforcementRoomCode", {
+    test, profile,
+    lesson: { kind: "reinforcement", parentCode: entry, topic: p.topic || "" }
+  });
 }
 
 // ---------- История занятий ----------

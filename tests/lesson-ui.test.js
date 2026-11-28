@@ -227,3 +227,22 @@ test("маршруты занятия доступны только сотруд
   const side = readFileSync(new URL("../ui/components/sidebar.js", import.meta.url), "utf8");
   assert.match(side, /id: "lessons"[^}]*roles: \["teacher", "admin"\]/);
 });
+
+test("редактор сценария: панель закрепления и живой парсинг", async () => {
+  const mod = await import("../ui/pages/lessons.js");
+  globalThis.__SB.routeParam = "new";
+  globalThis.__SB.tests = [];
+  globalThis.__SB.materials = [];
+  const page = await mod.default();
+  await new Promise(r => setImmediate(r));
+
+  const box = findOne(page, e => e.tag === "section" && e.getAttribute("aria-label") === "Закрепление материала");
+  assert.ok(box, "панель закрепления существует");
+  const area = findOne(box, e => e.tag === "textarea" && e.attrs.id === "ls-reinforce");
+  assert.ok(area, "textarea для вопросов существует");
+  const status = findOne(box, e => e.className === "form-hint" && e.getAttribute("role") === "status");
+
+  area.value = "1. Что?\nA) Да [+]\nБ) Нет";
+  area.dispatch("input");
+  assert.match(text(status), /Распознано вопросов: 1/);
+});

@@ -11,7 +11,8 @@ globalThis.__SB = { profile: { uid: "captain1", role: "teacher", orgId: "o1", fu
 
 // ---- Firestore в памяти ----
 const store = new Map();
-const clone = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
+const clone = (v) => (v === undefined ? undefined : JSON.parse(stringify(v)));
+function stringify(v) { return JSON.stringify(v, (k, val) => val === undefined ? null : val); }
 const snapOf = (path) => ({ id: path.split("/").pop(), exists: () => store.has(path), data: () => clone(store.get(path)) });
 const writes = [];
 globalThis.__FB = {
@@ -237,4 +238,67 @@ test("запуск занятия: параметры Battle из сценари
   assert.equal(seen[1].battleEnabled, false);
   assert.equal(seen[1].battleSettings, null);
   delete globalThis.__SB.createRoomImpl;
+});
+
+test("сохранение плана: вопросы закрепления сохраняются в закрытом плане", async () => {
+  const q = { type: "single", text: "Сигнал?", options: [{ text: "Зелёный", correct: true }, { text: "Красный" }], points: 1 };
+  const plan = normalizePlan({ topic: "Т", materialId: "m", entryTestId: "e", finalTestId: "f", tasks: { a: task("А"), b: task("Б") }, stages: { material: true, entry_test: true, battle: true, practical: true, reinforcement: true, final_test: true }, reinforcement: { questions: [q] } });
+  const id = await lesson.saveLessonPlan(null, plan);
+  const keyDoc = store.get(`testKeys/lesson__${id}`);
+  assert.equal(keyDoc.plan.reinforcement.questions.length, 1, "в key документе лежит 1 вопрос");
+  assert.equal((await lesson.loadLessonPlan(id)).reinforcement.questions[0].text, "Сигнал?", "вопрос читается обратно");
+  // старый план без поля сохраняется и читается со stages.reinforcement === false
+  const oldPlan = normalizePlan({ topic: "Старая", materialId: "m", entryTestId: "e", finalTestId: "f", tasks: { a: task("А"), b: task("Б") }, stages: { material: true, entry_test: true, battle: true, practical: true, final_test: true } });
+  // normalizePlan выше подставит reinforcement: false из DEFAULT_STAGE_ON если его не было.
+  const oldId = await lesson.saveLessonPlan(null, oldPlan);
+  assert.equal((await lesson.loadLessonPlan(oldId)).stages.reinforcement, false, "старый план: reinforcement === false");
+});
+
+test("вопросы закрепления оживают обычным опубликованным тестом, ключи уйдут в закрытый документ", async () => {
+  store.set("tests/P9", { id: "P9", title: "Чужой тест" });
+  seedRoom("reinforcement", { planId: "P9" });
+  const Q = { type: "single", text: "Сигнал?", options: [{ text: "Зелёный", correct: true }, { text: "Красный" }], points: 1 };
+  const plan = normalizePlan({ topic: "Т", materialId: "m", entryTestId: "e", finalTestId: "f", tasks: { a: task("А"), b: task("Б") }, stages: { material: true, entry_test: true, battle: true, practical: true, reinforcement: true, final_test: true }, reinforcement: { questions: [Q] } });
+  globalThis.__SB.createRoomImpl = async (args) => {
+    store.set("rooms/REINF1", { code: "REINF1", ...args });
+    return "REINF1";
+  };
+  await lesson.startReinforcementRoom({ entryCode: R, plan, lessonId: "P9", profile: globalThis.__SB.profile });
+  // проверки
+  assert.ok(store.has("tests/reinforce__P9"), "создан публичный тест tests/reinforce__P9");
+  assert.equal(store.get("tests/P9").title, "Чужой тест", "чужой тест не перезаписан");
+  const pubTest = store.get("tests/reinforce__P9");
+  assert.equal(pubTest.status, "published", "тест опубликован");
+  // в публичном документе НЕТ correct: проверяем безопасность
+  for (const opt of pubTest.questions[0].options) {
+    assert.ok(!("correct" in opt), `в публичном тесте option не должен иметь поля correct, но есть: ${JSON.stringify(opt)}`);
+  }
+  // ключи в закрытом документе
+  const keysDoc = store.get(`testKeys/reinforce__P9`);
+  assert.deepEqual(keysDoc.items["0"].correct, [0], "в key документе есть correct:[0]");
+  // комната создана
+  assert.ok(store.get("rooms/REINF1"), "комната REINF1 создана");
+  assert.equal(store.get(`rooms/${R}`).lesson.reinforcementRoomCode, "REINF1", "код комнаты записан во входную");
+  // повторный вызов возвращает тот же код
+  const again = await lesson.startReinforcementRoom({ entryCode: R, plan, lessonId: "P9", profile: globalThis.__SB.profile });
+  assert.equal(again, "REINF1", "повторный вызов возвращает тот же код");
+  delete globalThis.__SB.createRoomImpl;
+});
+
+test("краевые: отказы startReinforcementRoom без зависания", async () => {
+  const disabledPlan = normalizePlan({ topic: "Т", stages: { reinforcement: false } });
+  await assert.rejects(
+    () => lesson.startReinforcementRoom({ entryCode: R, plan: disabledPlan, lessonId: "P9", profile: globalThis.__SB.profile }),
+    /не включён этап «Закрепление материала»/
+  );
+
+  const emptyQuestionsPlan = normalizePlan({ topic: "Т", stages: { reinforcement: true }, reinforcement: { questions: [] } });
+  await assert.rejects(
+    () => lesson.startReinforcementRoom({ entryCode: R, plan: emptyQuestionsPlan, lessonId: "P9", profile: globalThis.__SB.profile }),
+    /нет вопросов закрепления/
+  );
+
+  // Проверяем, что createRoomImpl не вызывался и в store нет документов из коллекции tests
+  const testDocs = [...store.keys()].filter(k => k.startsWith("tests/"));
+  assert.equal(testDocs.length, 0);
 });

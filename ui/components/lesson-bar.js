@@ -14,6 +14,7 @@ const PARTICIPANT_HINT = {
   entry_test: "Дождитесь начала входного теста. Правильные ответы будут показаны позже.",
   battle: "Идёт Battle: две команды отвечают на вопросы.",
   practical: "Практическая диагностика: каждая команда получает своё задание.",
+  reinforcement: "Закрепление материала: короткий тест после практики. Дождитесь ссылки от преподавателя.",
   final_test: "Итоговый тест — заключительный этап занятия.",
   report: "Занятие завершено. Спасибо!"
 };
@@ -44,11 +45,17 @@ export function buildLessonBar({ run, isHost = false, ctx = {}, handlers = {}, m
       skip.addEventListener("click", () => handlers.skip && handlers.skip(run.stage));
       actions.push(next, skip);
     }
+    if (run.stage === "reinforcement" && !run.reinforcementRoomCode) {
+      const mk = h("button", { type: "button", class: "btn", "data-action": "reinforcement-room", disabled: busy }, "Создать комнату закрепления");
+      mk.addEventListener("click", () => handlers.startReinforcement && handlers.startReinforcement());
+      actions.unshift(mk);
+    }
     if (run.stage === "final_test" && !finalRoom) {
       const mk = h("button", { type: "button", class: "btn", "data-action": "final-room", disabled: busy }, "Создать комнату итогового теста");
       mk.addEventListener("click", () => handlers.startFinal && handlers.startFinal());
       actions.unshift(mk);
     }
+    if (run.reinforcementRoomCode) actions.push(h("a", { class: "btn secondary", href: `#room/${encodeURIComponent(run.reinforcementRoomCode)}`, "data-action": "open-reinforcement" }, `Комната закрепления: ${run.reinforcementRoomCode}`));
     if (finalRoom) actions.push(h("a", { class: "btn secondary", href: `#room/${encodeURIComponent(finalRoom)}`, "data-action": "open-final" }, `Комната итогового теста: ${finalRoom}`));
     if (run.stage === "report") actions.push(h("a", { class: "btn primary", href: `#lesson-report/${encodeURIComponent(entryCode)}`, "data-action": "open-report" }, "Открыть итоговый отчёт"));
     parts.push(h("div", { class: "btn-row lb-actions" }, ...actions));
@@ -63,6 +70,9 @@ export function buildLessonBar({ run, isHost = false, ctx = {}, handlers = {}, m
       parts.push(h("div", { class: "btn-row" },
         h("a", { class: "btn secondary", href: materialHref, "data-action": "material" }, "Открыть материал"),
         materialRead === null ? null : h("span", { class: "lb-read", "data-read": materialRead ? "1" : "0" }, materialRead ? "Материал прочитан" : "Материал ещё не прочитан")));
+    }
+    if (run.stage === "reinforcement" && run.reinforcementRoomCode) {
+      parts.push(h("div", { class: "btn-row" }, h("a", { class: "btn primary", href: `#join/${encodeURIComponent(run.reinforcementRoomCode)}`, "data-action": "go-reinforcement" }, "Перейти к закреплению")));
     }
     if (run.stage === "final_test" && finalRoom) {
       parts.push(h("div", { class: "btn-row" }, h("a", { class: "btn primary", href: `#join/${encodeURIComponent(finalRoom)}`, "data-action": "go-final" }, "Перейти к итоговому тесту")));

@@ -7,19 +7,25 @@
 // (core/lesson-store.js); ход занятия — поле `lesson` документа входной комнаты.
 import { normalizeTask, validateTask, emptyTask, TEAMS } from "./practical.js";
 import { sanitizeBattlePreset, DEFAULT_BATTLE_SETTINGS } from "./battle-logic.js";
+import { validateTest } from "./test-schema.js";
 
 export const PLAN_VERSION = 1;
-export const STAGES = Object.freeze(["material", "entry_test", "battle", "practical", "final_test", "report"]);
+export const STAGES = Object.freeze(["material", "entry_test", "battle", "practical", "reinforcement", "final_test", "report"]);
 export const STAGE_LABEL = Object.freeze({
   material: "Теоретический материал",
   entry_test: "Входной тест",
   battle: "Battle двух команд",
   practical: "Практическая диагностика",
+  reinforcement: "Закрепление материала",
   final_test: "Итоговый тест",
   report: "Итоговый отчёт"
 });
 // Этапы, которые можно отключить в плане (отчёт есть всегда).
-export const OPTIONAL_STAGES = Object.freeze(["material", "entry_test", "battle", "practical", "final_test"]);
+export const OPTIONAL_STAGES = Object.freeze(["material", "entry_test", "battle", "practical", "reinforcement", "final_test"]);
+// Стандартные значения включения этапов: старые планы без поля получают значения из константы.
+export const DEFAULT_STAGE_ON = Object.freeze({
+  material: true, entry_test: true, battle: true, practical: true, reinforcement: false, final_test: true, report: true
+});
 
 export const DEFAULT_GRADING = Object.freeze({
   // Веса компонентов рекомендуемой оценки (используются только имеющиеся данные).
@@ -37,11 +43,12 @@ export function emptyPlan() {
     materialId: "", materialTitle: "",
     entryTestId: "", entryTestTitle: "",
     finalTestId: "", finalTestTitle: "",
-    stages: { material: true, entry_test: true, battle: true, practical: true, final_test: true },
+    stages: { ...DEFAULT_STAGE_ON },
     // Параметры Battle (как на экране запуска Live): набор вопросов (пусто — вопросы
     // входного теста), число вопросов и время на вопрос.
     battle: { battleTestId: "", questionCount: DEFAULT_BATTLE_SETTINGS.questionCount, questionSeconds: DEFAULT_BATTLE_SETTINGS.questionSeconds },
     tasks: { a: emptyTask(), b: emptyTask() },
+    reinforcement: { questions: [] },
     grading: { weights: { ...DEFAULT_GRADING.weights }, thresholds: { ...DEFAULT_GRADING.thresholds } }
   };
 }
@@ -50,7 +57,7 @@ export function normalizePlan(raw) {
   const base = emptyPlan();
   if (!raw || typeof raw !== "object") return base;
   const stages = {};
-  for (const s of OPTIONAL_STAGES) stages[s] = raw.stages?.[s] === undefined ? true : raw.stages[s] === true;
+  for (const s of OPTIONAL_STAGES) stages[s] = raw.stages?.[s] === undefined ? DEFAULT_STAGE_ON[s] : raw.stages[s] === true;
   const w = raw.grading?.weights || {};
   const th = raw.grading?.thresholds || {};
   const weight = (k) => (Number.isFinite(Number(w[k])) && Number(w[k]) >= 0 ? Number(w[k]) : DEFAULT_GRADING.weights[k]);
@@ -62,6 +69,7 @@ export function normalizePlan(raw) {
     entryTestId: clip(raw.entryTestId, 120), entryTestTitle: clip(raw.entryTestTitle, 160),
     finalTestId: clip(raw.finalTestId, 120), finalTestTitle: clip(raw.finalTestTitle, 160),
     stages,
+    reinforcement: { questions: normalizeReinforcementQuestions(raw.reinforcement?.questions) },
     battle: { battleTestId: "", ...sanitizeBattlePreset(raw.battle || {}) },
     tasks: { a: normalizeTask(raw.tasks?.a), b: normalizeTask(raw.tasks?.b) },
     grading: {
@@ -69,6 +77,55 @@ export function normalizePlan(raw) {
       thresholds: { five: thr("five"), four: thr("four"), three: thr("three") }
     }
   };
+}
+
+const MAX_REINFORCEMENT_QUESTIONS = 200;
+
+function normalizeReinforcementQuestions(raw) {
+  if (!Array.isArray(raw)) return [];
+  const result = [];
+  for (const q of raw) {
+    if (typeof q !== "object" || q === null) continue;
+    const question = { ...q };
+    // type
+    if (question.type && typeof question.type === "string" && /^single|multiple|short$/.test(question.type)) {
+      question.type = question.type;
+    } else {
+      question.type = "single";
+    }
+    // text → string, trim to 2000
+    question.text = String(question.text ?? "").trim().slice(0, 2000);
+    // options
+    if (Array.isArray(question.options)) {
+      question.options = question.options
+        .map(o => typeof o === "object" && o !== null ? { text: String(o.text ?? "").trim().slice(0, 500), correct: !!o.correct } : { text: "", correct: false })
+        .filter(o => o.text !== "");
+    } else {
+      question.options = [];
+    }
+    // points
+    question.points = Number.isFinite(question.points) && question.points > 0 && question.points <= 100 ? Number(question.points) : 1;
+    // answer (for short type)
+    if (question.type === "short") {
+      if (typeof question.answer === "string") {
+        question.answer = question.answer.trim().slice(0, 1000);
+      } else if (Array.isArray(question.answer)) {
+        question.answer = question.answer.map(a => String(a ?? "").trim().slice(0, 1000)).filter(a => a !== "");
+      } else {
+        delete question.answer;
+      }
+    } else {
+      delete question.answer;
+    }
+    // explanation
+    question.explanation = String(question.explanation ?? "").trim().slice(0, 2000);
+    if (question.explanation === "") delete question.explanation;
+    // remove lineNumber if present
+    delete question.lineNumber;
+    result.push(question);
+  }
+  // trim to MAX_REINFORCEMENT_QUESTIONS
+  return result.slice(0, MAX_REINFORCEMENT_QUESTIONS);
 }
 
 // Ошибки подготовки (русские фразы для редактора).
@@ -83,6 +140,20 @@ export function validatePlan(plan) {
   if (on("battle") && !on("entry_test")) errors.push("Battle запускается из Live-комнаты входного теста: включите входной тест.");
   if (on("practical") && !on("battle")) errors.push("Практика проводится по командам из Battle: включите Battle или отключите практику.");
   if (on("practical")) for (const team of TEAMS) errors.push(...validateTask(p.tasks?.[team], { team }));
+  if (on("reinforcement")) {
+    const questions = p.reinforcement?.questions || [];
+    if (!questions.length) {
+      errors.push("Добавьте вопросы закрепления или отключите этот этап.");
+    } else {
+      const { errors: vErrors } = validateTest(
+        { title: "Закрепление материала", questions, requireMaterial: false },
+        { publishing: true }
+      );
+      for (const e of vErrors) {
+        if (!errors.some(f => f === e)) errors.push(e);
+      }
+    }
+  }
   const w = p.grading?.weights || {};
   if (!Object.values(w).some(v => Number(v) > 0)) errors.push("Хотя бы один вес оценки должен быть больше нуля.");
   const t = p.grading?.thresholds || {};
@@ -102,6 +173,7 @@ export function newRun(plan, { id, nowMs = Date.now() } = {}) {
   return {
     id: String(id || ""), stage: stages[0], startedAt: nowMs,
     done: {}, skipped: {}, finalRoomCode: "",
+    reinforcementRoomCode: "",
     // Копия флагов этапов и метаданных: ход занятия живёт в документе комнаты,
     // и переходы не должны зависеть от чтения закрытого плана.
     stages: { ...(plan?.stages || {}) },
@@ -132,12 +204,17 @@ const nextOf = (run, plan) => {
 };
 
 // Условия завершения этапа. ctx — факты, которые знает страница ведущего:
-// { entryCompleted, battleFinished, practicalConfirmed, finalCompleted }.
+// { entryCompleted, battleFinished, practicalConfirmed, reinforcementCompleted, finalCompleted }.
 const GUARDS = {
   material: () => ({ ok: true }),
   entry_test: (ctx) => ctx.entryCompleted ? { ok: true } : { ok: false, reason: "Входной тест ещё не завершён: завершите его в комнате." },
   battle: (ctx) => ctx.battleFinished ? { ok: true } : { ok: false, reason: "Battle ещё не завершена." },
   practical: (ctx) => ctx.practicalConfirmed ? { ok: true } : { ok: false, reason: "Результат практики ещё не подтверждён преподавателем." },
+  reinforcement: (ctx) => ctx.reinforcementCompleted
+    ? { ok: true }
+    : { ok: false, reason: ctx.reinforcementRoomCode
+      ? "Тест закрепления ещё не завершён участниками."
+      : "Создайте комнату закрепления: участники проходят его как обычный тест." },
   final_test: (ctx) => ctx.finalCompleted ? { ok: true } : { ok: false, reason: "Итоговый тест ещё не завершён." },
   report: () => ({ ok: false, reason: "Занятие уже на последнем этапе." })
 };

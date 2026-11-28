@@ -147,3 +147,19 @@ test("комната: панель и практика создаются оди
 test("страницы занятия ничего не пишут в Firestore при показе", () => {
   assert.deepEqual(globalThis.__FS_WRITES, []);
 });
+
+test("закрепление: ведущий создаёт комнату, затем ссылка на неё; участник видит подсказку и кнопку", () => {
+  const mk = buildLessonBar({ run: at("reinforcement"), isHost: true, ctx: {}, entryCode: "X" });
+  assert.ok(btn(mk, "reinforcement-room"), "есть кнопка создания комнаты закрепления");
+  assert.equal(btn(mk, "advance").disabled, true, "перейти дальше нельзя без комнаты и прохождения");
+  assert.ok(findOne(mk, e => e.className === "lb-reason"), "есть объяснение причины задержки");
+
+  const withRoom = buildLessonBar({ run: { ...at("reinforcement"), reinforcementRoomCode: "REINF123" }, isHost: true, ctx: { reinforcementRoomCode: "REINF123", reinforcementCompleted: true }, entryCode: "X" });
+  assert.equal(btn(withRoom, "reinforcement-room"), null, "кнопка создания исчезла");
+  assert.equal(link(withRoom, "open-reinforcement").href, "#room/REINF123", "есть ссылка на комнату для ведущего");
+  assert.equal(btn(withRoom, "advance").disabled, false, "тест пройден — можно идти дальше");
+
+  const p = buildLessonBar({ run: { ...at("reinforcement"), reinforcementRoomCode: "REINF123" }, isHost: false });
+  assert.match(text(findOne(p, e => e.className === "lb-hint")), /короткий тест после практики/);
+  assert.equal(link(p, "go-reinforcement").href, "#join/REINF123", "у участника есть кнопка перехода");
+});
