@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   emptyPlan, normalizePlan, validatePlan, enabledStages, newRun, canAdvance, advance, skipStage,
-  stageStatuses, completion, STAGES
+  stageStatuses, completion, STAGES, encodePlan
 } from "../core/lesson-plan.js";
 
 const L = (text) => ({ t: "label", text });
@@ -252,4 +252,56 @@ test("краевые: понятные ошибки валидации вопр�
   const valid = goodPlan({ stages: { reinforcement: true }, reinforcement: { questions: [{ type: "single", text: "Что?", options: [{ text: "a", correct: true }, { text: "b" }], points: 1 }] } });
   const reinErrors = validatePlan(valid).filter(e => /закреплени|вопрос/i.test(e));
   assert.deepEqual(reinErrors, []);
+});
+
+test("encodePlan: нет вложенных массивов в кодированном плане, обратная совместимость и отсутствие мутации", () => {
+  const plan = goodPlan({
+    stages: { material: true, entry_test: true, battle: true, practical: true, reinforcement: true, final_test: true },
+    reinforcement: { questions: [{ type: "single", text: "Вопрос?", options: [{ text: "А", correct: true }, { text: "Б" }] }] }
+  });
+
+  const collectNested = (root) => {
+    const nested = [];
+    const walk = (n, p) => {
+      if (Array.isArray(n)) {
+        n.forEach((v, i) => {
+          if (Array.isArray(v)) nested.push(`${p}[${i}]`);
+          else if (v && typeof v === "object") walk(v, `${p}[${i}]`);
+        });
+        return;
+      }
+      if (n && typeof n === "object") for (const [k, v] of Object.entries(n)) walk(v, p ? `${p}.${k}` : k);
+    };
+    walk(root, "");
+    return nested;
+  };
+
+  // Проверка, что исходный emptyPlan имеет вложенные массивы (чтобы тест ловил отсутствие кодирования)
+  const rawEmpty = emptyPlan();
+  assert.ok(collectNested(rawEmpty).length > 0, "исходный emptyPlan содержит вложенные массивы в tasks");
+
+  // Кодируем план
+  const encoded = encodePlan(plan);
+  assert.deepEqual(collectNested(encoded), [], "в кодированном плане нет вложенных массивов");
+
+  // Обратная совместимость чтения: normalizePlan(encodePlan(plan)) deepEqual plan
+  const normalizedBack = normalizePlan(encoded);
+  assert.deepEqual(normalizedBack, plan, "чтение закодированного плана через normalizePlan полностью восстанавливает данные");
+
+  // Легаси: normalizePlan на плане, где tasks.a.rows — СЫРЫЕ вложенные массивы, даёт те же строки
+  const legacyPlan = {
+    ...plan,
+    tasks: {
+      ...plan.tasks,
+      a: { ...plan.tasks.a, rows: [[{ t: "label", text: "Легаси" }, { t: "answer", mode: "text", accept: ["тест"] }]] }
+    }
+  };
+  const normLegacy = normalizePlan(legacyPlan);
+  assert.equal(normLegacy.tasks.a.rows[0][0].text, "Легаси");
+  assert.deepEqual(normLegacy.tasks.a.rows[0][1].accept, ["тест"]);
+
+  // encodePlan не мутирует вход
+  const planCopy = JSON.parse(JSON.stringify(plan));
+  encodePlan(plan);
+  assert.deepEqual(plan, planCopy, "encodePlan не мутирует входной план");
 });

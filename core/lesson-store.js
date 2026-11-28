@@ -19,9 +19,10 @@ import { State, isStaff } from "./auth.js";
 import { createRoom } from "./rooms.js";
 import { normalizeRoomCode } from "./rooms-logic.js";
 import {
-  normalizePlan, validatePlan, newRun, advance, skipStage, canAdvance, planOfRun
+  normalizePlan, validatePlan, newRun, advance, skipStage, canAdvance, planOfRun, encodePlan
 } from "./lesson-plan.js";
 import { splitForStorage } from "./test-storage.js";
+import { encodeRows, decodeRows, encodeTask, decodeTask } from "./practical.js";
 import { emptyTest } from "./test-schema.js";
 
 export const planDocId = (id) => `lesson__${id}`;
@@ -67,7 +68,7 @@ export async function saveLessonPlan(id, rawPlan) {
   const lessonId = id || `L${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   await setDoc(doc(db, "testKeys", planDocId(lessonId)), {
     kind: "lessonPlan", lessonId, orgId: State?.profile?.orgId, authorId: uid,
-    plan, updatedAt: serverTimestamp()
+    plan: encodePlan(plan), updatedAt: serverTimestamp()
   });
   return lessonId;
 }
@@ -224,6 +225,57 @@ export async function startReinforcementRoom({ entryCode, plan, lessonId, profil
 
 // ---------- История занятий ----------
 
+// Кодирование отчёта для Firestore: строки практики (practical.teams.{a,b}.rows)
+// и, если есть, задачи (practical.tasks.{a,b}.rows) кодируются через encodeRows / encodeTask.
+const encodeReport = (report) => {
+  if (!report || typeof report !== "object") return report;
+  const practical = report.practical ? {
+    ...report.practical,
+    ...(report.practical.teams ? {
+      teams: {
+        ...(report.practical.teams.a ? { a: { ...report.practical.teams.a, rows: encodeRows(report.practical.teams.a.rows) } } : {}),
+        ...(report.practical.teams.b ? { b: { ...report.practical.teams.b, rows: encodeRows(report.practical.teams.b.rows) } } : {})
+      }
+    } : {}),
+    ...(report.practical.tasks ? {
+      tasks: {
+        a: encodeTask(report.practical.tasks.a),
+        b: encodeTask(report.practical.tasks.b)
+      }
+    } : {})
+  } : null;
+
+  return {
+    ...report,
+    ...(practical ? { practical } : {})
+  };
+};
+
+// Декодирование отчёта из Firestore: строки практики и задачи декодируются через decodeRows/decodeTask.
+const decodeReport = (report) => {
+  if (!report || typeof report !== "object") return report;
+  const practical = report.practical ? {
+    ...report.practical,
+    ...(report.practical.teams ? {
+      teams: {
+        ...(report.practical.teams.a ? { a: { ...report.practical.teams.a, rows: decodeRows(report.practical.teams.a.rows) } } : {}),
+        ...(report.practical.teams.b ? { b: { ...report.practical.teams.b, rows: decodeRows(report.practical.teams.b.rows) } } : {})
+      }
+    } : {}),
+    ...(report.practical.tasks ? {
+      tasks: {
+        a: decodeTask(report.practical.tasks.a),
+        b: decodeTask(report.practical.tasks.b)
+      }
+    } : {})
+  } : null;
+
+  return {
+    ...report,
+    ...(practical ? { practical } : {})
+  };
+};
+
 const histRef = (code) => doc(db, "lessonHistory", normalizeRoomCode(code));
 
 export async function saveLessonHistory({ code, report, finalCode = "" }) {
@@ -233,19 +285,25 @@ export async function saveLessonHistory({ code, report, finalCode = "" }) {
   const existing = await getDoc(histRef(roomCode));
   if (existing.exists()) return { saved: false, reason: "exists" };
   const snapshot = JSON.parse(JSON.stringify(report)); // чистая копия без undefined
+  const encodedSnapshot = encodeReport(snapshot);
   await setDoc(histRef(roomCode), {
     key: roomCode, code: roomCode, version: 1,
     orgId: State?.profile?.orgId, hostId: uid, hostName: report?.lesson?.hostName || "",
     topic: report?.lesson?.topic || "", subjectName: report?.lesson?.subjectName || "",
     createdAtMs: report?.lesson?.dateMs ?? null, finishedAtMs: Date.now(),
-    finalCode, report: snapshot, savedAt: serverTimestamp()
+    finalCode, report: encodedSnapshot, savedAt: serverTimestamp()
   });
   return { saved: true };
 }
 
 export async function loadLessonHistory(code) {
   const snap = await getDoc(histRef(code));
-  return snap.exists() ? snap.data() : null;
+  if (!snap.exists()) return null;
+  const data = snap.data();
+  if (data && data.report) {
+    data.report = decodeReport(data.report);
+  }
+  return data;
 }
 
 export async function listLessonHistory() {

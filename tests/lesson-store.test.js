@@ -302,3 +302,68 @@ test("краевые: отказы startReinforcementRoom без зависан�
   const testDocs = [...store.keys()].filter(k => k.startsWith("tests/"));
   assert.equal(testDocs.length, 0);
 });
+
+test("сохранение плана и истории занятий: отсутствие вложенных массивов и корректное чтение", async () => {
+  // 1. Сохранение плана через saveLessonPlan проверяет отсутствие вложенных массивов в testKeys/lesson__...
+  const planId = await lesson.saveLessonPlan(null, plan);
+  const planDoc = store.get(`testKeys/lesson__${planId}`);
+  assert.ok(planDoc, "план сохранен в testKeys");
+
+  const nestedPlan = [];
+  const walk = (n, p) => {
+    if (Array.isArray(n)) {
+      n.forEach((v, i) => {
+        if (Array.isArray(v)) nestedPlan.push(`${p}[${i}]`);
+        else if (v && typeof v === "object") walk(v, `${p}[${i}]`);
+      });
+      return;
+    }
+    if (n && typeof n === "object") for (const [k, v] of Object.entries(n)) walk(v, p ? `${p}.${k}` : k);
+  };
+  walk(planDoc, "");
+  assert.deepEqual(nestedPlan, [], "в сохраненном документе плана нет вложенных массивов");
+
+  // Чтение плана обратно
+  const loadedPlan = await lesson.loadLessonPlan(planId);
+  assert.equal(loadedPlan.tasks.a.rows[0][1].accept[0], "СЕКРЕТ-1", "данные плана читаются корректно");
+
+  // 2. Сохранение истории занятия (saveLessonHistory) со спецификой практического отчета с вложенными массивами (легаси/входные)
+  const reportWithNestedRows = {
+    lesson: { topic: "Занятие с практикой", hostName: "Иванов", dateMs: 100 },
+    participants: 5,
+    practical: {
+      teams: {
+        a: {
+          title: "Задание А",
+          rows: [[L("Тест"), A("text", ["x"])]] // вложенный массив!
+        }
+      },
+      tasks: {
+        a: {
+          title: "Таблица задачи А",
+          columns: ["П", "З"],
+          rows: [[L("Датчик"), A("text", ["ACCEPT-VAL"])]] // вложенный массив в tasks!
+        },
+        b: task("Таблица задачи Б")
+      }
+    }
+  };
+
+  const histRes = await lesson.saveLessonHistory({ code: R, report: reportWithNestedRows });
+  assert.equal(histRes.saved, true);
+
+  const histDoc = store.get(`lessonHistory/${R}`);
+  assert.ok(histDoc, "документ истории записан");
+
+  const nestedHist = [];
+  walk(histDoc, "");
+  assert.deepEqual(nestedHist, [], "в сохраненном документе истории нет вложенных массивов (включая tasks)");
+
+  // Чтение истории через loadLessonHistory возвращает обычные массивы строк
+  const loadedHist = await lesson.loadLessonHistory(R);
+  assert.ok(loadedHist, "история читается");
+  assert.ok(Array.isArray(loadedHist.report.practical.teams.a.rows[0]), "строка в отчете декодирована в обычный массив");
+  assert.equal(loadedHist.report.practical.teams.a.rows[0][0].text, "Тест");
+  assert.ok(Array.isArray(loadedHist.report.practical.tasks.a.rows[0]), "задачи в отчете декодированы в обычный массив");
+  assert.equal(loadedHist.report.practical.tasks.a.rows[0][0].text, "Датчик");
+});

@@ -5,7 +5,7 @@
 //   материал → входной тест (Live) → Battle → практика (таблицы) → итоговый тест (Live) → отчёт.
 // План (с ключами практики) хранится в закрытом документе для сотрудников
 // (core/lesson-store.js); ход занятия — поле `lesson` документа входной комнаты.
-import { normalizeTask, validateTask, emptyTask, TEAMS } from "./practical.js";
+import { normalizeTask, validateTask, emptyTask, TEAMS, encodeTask } from "./practical.js";
 import { sanitizeBattlePreset, DEFAULT_BATTLE_SETTINGS } from "./battle-logic.js";
 import { validateTest } from "./test-schema.js";
 
@@ -281,4 +281,19 @@ export function completion(run, plan) {
   const done = planned.filter(s => run?.done?.[s]).length;
   const skipped = planned.filter(s => run?.skipped?.[s]).length;
   return { percent: Math.round((done / planned.length) * 100), done, skipped, planned: planned.length };
+}
+
+// ---------- Кодирование плана для Firestore ----------
+// Firestore не принимает массив внутри массива (строки таблицы — массив ячеек).
+// В базе строка хранится как { c: [ячейки] }; в коде и интерфейсе — обычный массив.
+// План кодируется перед записью в закрытый документ testKeys/lesson__{id}.
+export function encodePlan(plan) {
+  if (!plan || typeof plan !== "object") return plan;
+  return {
+    ...plan,
+    tasks: {
+      a: encodeTask(plan.tasks?.a),
+      b: encodeTask(plan.tasks?.b)
+    }
+  };
 }
